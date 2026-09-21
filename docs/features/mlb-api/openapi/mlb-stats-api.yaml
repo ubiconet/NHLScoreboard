@@ -1,0 +1,754 @@
+openapi: 3.1.0
+info:
+  title: MLB Stats API (statsapi.mlb.com)
+  version: 1.0.0
+  summary: Community-documented OpenAPI schema for MLB's public Stats API endpoints used by MLBScoreboard.
+  description: |
+    Unofficial OpenAPI description of `https://statsapi.mlb.com/api/v1`
+    (a few endpoints, notably the live game feed, use `v1.1`).
+
+    MLB Advanced Media publishes no official documentation for these
+    endpoints. This schema was derived from live responses verified
+    2026-09-07 and from the community reference at
+    https://github.com/toddrob99/MLB-StatsAPI/wiki/Endpoints. Fields beyond
+    those listed may appear; consumers must parse leniently. Many
+    stat-like fields are strings, including sentinel placeholders such as
+    `"-.--"` or `".---"` for undefined values.
+
+    Use of MLB data is subject to the notice at
+    http://gdx.mlb.com/components/copyright.txt.
+  contact:
+    name: MLBScoreboard team
+  license:
+    name: Community-documented; data belongs to MLB Advanced Media, L.P.
+servers:
+  - url: https://statsapi.mlb.com/api/v1
+    description: Production (v1; live feed uses v1.1, see /game/{gamePk}/feed/live)
+tags:
+  - name: schedule
+  - name: game
+  - name: standings
+  - name: teams
+  - name: people
+paths:
+  /schedule:
+    get:
+      tags: [schedule]
+      operationId: getSchedule
+      summary: Games for a date (or date range), with status and score
+      description: Primary endpoint for a day's scoreboard. Returns one
+        entry per date in `dates`, each containing that day's `games`.
+        Scores populate once games start; team `leagueRecord` is included
+        for context.
+      parameters:
+        - name: sportId
+          in: query
+          required: true
+          description: '1 = Major League Baseball'
+          schema: { type: integer, default: 1, example: 1 }
+        - name: date
+          in: query
+          description: Single date, YYYY-MM-DD. Omit with startDate/endDate for a range.
+          schema: { type: string, format: date, example: '2026-09-07' }
+        - name: startDate
+          in: query
+          schema: { type: string, format: date }
+        - name: endDate
+          in: query
+          schema: { type: string, format: date }
+        - name: teamId
+          in: query
+          schema: { type: integer, example: 143 }
+        - name: gameType
+          in: query
+          description: 'R=regular, F/D/L/W=postseason rounds, S=spring, A=all-star'
+          schema: { type: string, example: R }
+        - name: hydrate
+          in: query
+          description: 'Comma-separated additional data to embed, e.g. linescore,team,probablePitcher'
+          schema: { type: string, example: 'linescore,team' }
+      responses:
+        '200':
+          description: Schedule response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleResponse'
+  /game/{gamePk}/linescore:
+    get:
+      tags: [game]
+      operationId: getLinescore
+      summary: Lightweight inning-by-inning line score, count, and baserunners
+      description: Preferred endpoint for polling a single open game; far
+        smaller than the boxscore or live feed.
+      parameters:
+        - $ref: '#/components/parameters/GamePk'
+      responses:
+        '200':
+          description: Linescore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinescoreResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /game/{gamePk}/boxscore:
+    get:
+      tags: [game]
+      operationId: getBoxscore
+      summary: Boxscore with team and per-player batting/pitching/fielding stat lines
+      parameters:
+        - $ref: '#/components/parameters/GamePk'
+      responses:
+        '200':
+          description: Boxscore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BoxscoreResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /game/{gamePk}/playByPlay:
+    get:
+      tags: [game]
+      operationId: getPlayByPlay
+      summary: Full play-by-play event stream for a game, grouped by at-bat
+      parameters:
+        - $ref: '#/components/parameters/GamePk'
+      responses:
+        '200':
+          description: Play-by-play
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayByPlayResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /standings:
+    get:
+      tags: [standings]
+      operationId: getStandings
+      summary: League standings, one record set per division
+      parameters:
+        - name: leagueId
+          in: query
+          required: true
+          description: 'Comma-separated league ids: 103=American League, 104=National League'
+          schema: { type: string, example: '103,104' }
+        - name: season
+          in: query
+          schema: { type: integer, example: 2026 }
+        - name: date
+          in: query
+          schema: { type: string, format: date }
+        - name: standingsTypes
+          in: query
+          description: 'e.g. regularSeason, wildCard, divisionLeaders'
+          schema: { type: string, example: regularSeason }
+      responses:
+        '200':
+          description: Standings records grouped by division
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandingsResponse'
+  /teams/{teamId}:
+    get:
+      tags: [teams]
+      operationId: getTeam
+      summary: Team info (name, venue, league/division, record context)
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema: { type: integer, example: 143 }
+        - name: season
+          in: query
+          schema: { type: integer, example: 2026 }
+      responses:
+        '200':
+          description: Team info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  teams:
+                    type: array
+                    items: { $ref: '#/components/schemas/Team' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /people/{personId}:
+    get:
+      tags: [people]
+      operationId: getPerson
+      summary: Player/person bio and current team
+      parameters:
+        - name: personId
+          in: path
+          required: true
+          schema: { type: integer, example: 660670 }
+      responses:
+        '200':
+          description: Person info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  people:
+                    type: array
+                    items: { $ref: '#/components/schemas/Person' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  parameters:
+    GamePk:
+      name: gamePk
+      in: path
+      required: true
+      description: MLB's opaque numeric game identifier
+      schema: { type: integer, example: 823415 }
+  responses:
+    NotFound:
+      description: Unknown id/date
+      content:
+        application/json:
+          schema: { type: object, additionalProperties: true }
+  schemas:
+    Team:
+      type: object
+      description: Minimal team reference as embedded in schedule/boxscore/standings.
+      properties:
+        id: { type: integer, example: 143 }
+        name: { type: string, example: 'Philadelphia Phillies' }
+        link: { type: string, example: '/api/v1/teams/143' }
+        teamCode: { type: string, example: phi }
+        fileCode: { type: string, example: phi }
+        abbreviation: { type: string, example: PHI }
+        teamName: { type: string, example: Phillies }
+        shortName: { type: string, example: Philadelphia }
+        locationName: { type: string, example: Philadelphia }
+        franchiseName: { type: string, example: Philadelphia }
+        clubName: { type: string, example: Phillies }
+        active: { type: boolean }
+        venue:
+          type: object
+          properties:
+            id: { type: integer }
+            name: { type: string }
+            link: { type: string }
+        league:
+          type: object
+          properties:
+            id: { type: integer, example: 104 }
+            name: { type: string, example: 'National League' }
+            link: { type: string }
+        division:
+          type: object
+          properties:
+            id: { type: integer, example: 204 }
+            name: { type: string, example: 'National League East' }
+            link: { type: string }
+        sport:
+          type: object
+          properties:
+            id: { type: integer, example: 1 }
+            link: { type: string }
+            name: { type: string, example: 'Major League Baseball' }
+      additionalProperties: true
+    Person:
+      type: object
+      properties:
+        id: { type: integer }
+        fullName: { type: string }
+        link: { type: string }
+        boxscoreName: { type: string, description: Short display name used in boxscores }
+        jerseyNumber: { type: string }
+        currentTeam:
+          type: object
+          properties:
+            id: { type: integer }
+            link: { type: string }
+        primaryPosition:
+          type: object
+          properties:
+            code: { type: string, example: '1' }
+            name: { type: string, example: Pitcher }
+            type: { type: string, example: Pitcher }
+            abbreviation: { type: string, example: P }
+        birthDate: { type: string, format: date }
+        birthCity: { type: string }
+        birthCountry: { type: string }
+        height: { type: string, example: '6'' 2"' }
+        weight: { type: integer }
+        active: { type: boolean }
+      additionalProperties: true
+    LeagueRecord:
+      type: object
+      properties:
+        wins: { type: integer }
+        losses: { type: integer }
+        ties: { type: integer }
+        pct: { type: string, example: '.594' }
+    ScheduleTeamEntry:
+      type: object
+      properties:
+        team: { $ref: '#/components/schemas/Team' }
+        leagueRecord: { $ref: '#/components/schemas/LeagueRecord' }
+        score: { type: integer, description: Present once the game has started }
+        isWinner: { type: boolean }
+        splitSquad: { type: boolean }
+        seriesNumber: { type: integer }
+    GameStatus:
+      type: object
+      properties:
+        abstractGameState:
+          type: string
+          description: 'High-level state: Preview, Live, Final'
+          examples: [Preview, Live, Final]
+        codedGameState:
+          type: string
+          description: 'Single-letter code, e.g. S (scheduled), P (pre-game), I (in progress), F (final)'
+        detailedState:
+          type: string
+          description: 'Human-readable, e.g. Scheduled, Pre-Game, In Progress, Final, Game Over, Postponed, Delayed'
+        statusCode: { type: string }
+        startTimeTBD: { type: boolean }
+        abstractGameCode: { type: string, example: L }
+    ScheduleGame:
+      type: object
+      properties:
+        gamePk: { type: integer, example: 823415 }
+        gameGuid: { type: string, format: uuid }
+        link: { type: string, example: '/api/v1.1/game/823415/feed/live' }
+        gameType: { type: string, description: 'R=regular, S=spring, A=all-star, D/L/W/F=postseason rounds' }
+        season: { type: string, example: '2026' }
+        gameDate: { type: string, format: date-time, description: Start time, UTC }
+        officialDate: { type: string, format: date }
+        status: { $ref: '#/components/schemas/GameStatus' }
+        teams:
+          type: object
+          properties:
+            away: { $ref: '#/components/schemas/ScheduleTeamEntry' }
+            home: { $ref: '#/components/schemas/ScheduleTeamEntry' }
+        venue:
+          type: object
+          properties:
+            id: { type: integer }
+            name: { type: string, example: 'Citizens Bank Park' }
+            link: { type: string }
+        content:
+          type: object
+          properties:
+            link: { type: string }
+        gameNumber: { type: integer, description: '1 unless a doubleheader' }
+        doubleHeader: { type: string, example: N }
+        dayNight: { type: string, example: day }
+        scheduledInnings: { type: integer, example: 9 }
+        gamesInSeries: { type: integer }
+        seriesGameNumber: { type: integer }
+        seriesDescription: { type: string, example: 'Regular Season' }
+      additionalProperties: true
+    ScheduleDate:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        totalItems: { type: integer }
+        totalGames: { type: integer }
+        totalGamesInProgress: { type: integer }
+        games:
+          type: array
+          items: { $ref: '#/components/schemas/ScheduleGame' }
+    ScheduleResponse:
+      type: object
+      properties:
+        copyright: { type: string }
+        totalItems: { type: integer }
+        totalGames: { type: integer }
+        totalGamesInProgress: { type: integer }
+        dates:
+          type: array
+          items: { $ref: '#/components/schemas/ScheduleDate' }
+    LinescoreInningLine:
+      type: object
+      properties:
+        runs: { type: integer }
+        hits: { type: integer }
+        errors: { type: integer }
+        leftOnBase: { type: integer }
+    LinescoreInning:
+      type: object
+      properties:
+        num: { type: integer, example: 1 }
+        ordinalNum: { type: string, example: 1st }
+        home: { $ref: '#/components/schemas/LinescoreInningLine' }
+        away: { $ref: '#/components/schemas/LinescoreInningLine' }
+    LinescorePlayerRef:
+      type: object
+      properties:
+        id: { type: integer }
+        fullName: { type: string }
+        link: { type: string }
+    LinescoreResponse:
+      type: object
+      properties:
+        copyright: { type: string }
+        currentInning: { type: integer }
+        currentInningOrdinal: { type: string, example: 3rd }
+        inningState:
+          type: string
+          description: 'Top, Bottom, Middle, End'
+          examples: [Top, Bottom, Middle, End]
+        isTopInning: { type: boolean }
+        scheduledInnings: { type: integer }
+        innings:
+          type: array
+          items: { $ref: '#/components/schemas/LinescoreInning' }
+        teams:
+          type: object
+          properties:
+            home: { $ref: '#/components/schemas/LinescoreInningLine' }
+            away: { $ref: '#/components/schemas/LinescoreInningLine' }
+        defense:
+          type: object
+          description: Fielding team's current defensive alignment
+          properties:
+            pitcher: { $ref: '#/components/schemas/LinescorePlayerRef' }
+            catcher: { $ref: '#/components/schemas/LinescorePlayerRef' }
+            first: { $ref: '#/components/schemas/LinescorePlayerRef' }
+            second: { $ref: '#/components/schemas/LinescorePlayerRef' }
+            third: { $ref: '#/components/schemas/LinescorePlayerRef' }
+            shortstop: { $ref: '#/components/schemas/LinescorePlayerRef' }
+            left: { $ref: '#/components/schemas/LinescorePlayerRef' }
+            center: { $ref: '#/components/schemas/LinescorePlayerRef' }
+            right: { $ref: '#/components/schemas/LinescorePlayerRef' }
+            battingOrder: { type: integer }
+            team: { $ref: '#/components/schemas/Team' }
+          additionalProperties: true
+        offense:
+          type: object
+          description: Batting team's current batter/on-deck/baserunner context
+          properties:
+            batter: { $ref: '#/components/schemas/LinescorePlayerRef' }
+            onDeck: { $ref: '#/components/schemas/LinescorePlayerRef' }
+            inHole: { $ref: '#/components/schemas/LinescorePlayerRef' }
+            pitcher: { $ref: '#/components/schemas/LinescorePlayerRef' }
+            first: { $ref: '#/components/schemas/LinescorePlayerRef', description: Runner on first, if any }
+            second: { $ref: '#/components/schemas/LinescorePlayerRef', description: Runner on second, if any }
+            third: { $ref: '#/components/schemas/LinescorePlayerRef', description: Runner on third, if any }
+            battingOrder: { type: integer }
+            team: { $ref: '#/components/schemas/Team' }
+          additionalProperties: true
+        balls: { type: integer }
+        strikes: { type: integer }
+        outs: { type: integer }
+      additionalProperties: true
+    BattingStatLine:
+      type: object
+      description: Batting stat line. Rate stats (avg/obp/slg/ops) are strings.
+      properties:
+        summary: { type: string, description: 'Human-readable line, e.g. "1-2 | K"' }
+        gamesPlayed: { type: integer }
+        atBats: { type: integer }
+        runs: { type: integer }
+        hits: { type: integer }
+        doubles: { type: integer }
+        triples: { type: integer }
+        homeRuns: { type: integer }
+        rbi: { type: integer }
+        strikeOuts: { type: integer }
+        baseOnBalls: { type: integer }
+        hitByPitch: { type: integer }
+        avg: { type: string, example: '.248' }
+        obp: { type: string, example: '.311' }
+        slg: { type: string, example: '.412' }
+        ops: { type: string, example: '.723' }
+        stolenBases: { type: integer }
+        caughtStealing: { type: integer }
+        leftOnBase: { type: integer }
+        plateAppearances: { type: integer }
+        totalBases: { type: integer }
+      additionalProperties: true
+    PitchingStatLine:
+      type: object
+      description: Pitching stat line. era/whip/etc are strings, including
+        sentinel placeholders like "-.--" when undefined (e.g. 0 IP).
+      properties:
+        summary: { type: string, description: 'Human-readable line, e.g. "3.0 IP, 0 ER, 4 K, 0 BB"' }
+        gamesPlayed: { type: integer }
+        gamesStarted: { type: integer }
+        inningsPitched: { type: string, example: '3.0' }
+        runs: { type: integer }
+        earnedRuns: { type: integer }
+        hits: { type: integer }
+        strikeOuts: { type: integer }
+        baseOnBalls: { type: integer }
+        homeRuns: { type: integer }
+        era: { type: string, example: '3.56' }
+        whip: { type: string, example: '1.25' }
+        wins: { type: integer }
+        losses: { type: integer }
+        saves: { type: integer }
+        holds: { type: integer }
+        battersFaced: { type: integer }
+        pitchesThrown: { type: integer }
+        strikes: { type: integer }
+        balls: { type: integer }
+      additionalProperties: true
+    FieldingStatLine:
+      type: object
+      properties:
+        assists: { type: integer }
+        putOuts: { type: integer }
+        errors: { type: integer }
+        chances: { type: integer }
+        fielding: { type: string, example: '1.000' }
+      additionalProperties: true
+    BoxscorePlayer:
+      type: object
+      properties:
+        person: { $ref: '#/components/schemas/Person' }
+        jerseyNumber: { type: string }
+        position:
+          type: object
+          properties:
+            code: { type: string }
+            name: { type: string }
+            type: { type: string }
+            abbreviation: { type: string }
+        status:
+          type: object
+          properties:
+            code: { type: string, example: A }
+            description: { type: string, example: Active }
+        parentTeamId: { type: integer }
+        battingOrder: { type: string, description: '3-digit slot, e.g. "300" = batting 3rd' }
+        stats:
+          type: object
+          description: This game's stats only.
+          properties:
+            batting: { $ref: '#/components/schemas/BattingStatLine' }
+            pitching: { $ref: '#/components/schemas/PitchingStatLine' }
+            fielding: { $ref: '#/components/schemas/FieldingStatLine' }
+        seasonStats:
+          type: object
+          description: Season-to-date stats for this player.
+          properties:
+            batting: { $ref: '#/components/schemas/BattingStatLine' }
+            pitching: { $ref: '#/components/schemas/PitchingStatLine' }
+            fielding: { $ref: '#/components/schemas/FieldingStatLine' }
+        gameStatus:
+          type: object
+          properties:
+            isCurrentBatter: { type: boolean }
+            isCurrentPitcher: { type: boolean }
+            isOnBench: { type: boolean }
+            isSubstitute: { type: boolean }
+        allPositions:
+          type: array
+          items:
+            type: object
+            properties:
+              code: { type: string }
+              name: { type: string }
+              type: { type: string }
+              abbreviation: { type: string }
+      additionalProperties: true
+    BoxscoreTeam:
+      type: object
+      properties:
+        team: { $ref: '#/components/schemas/Team' }
+        teamStats:
+          type: object
+          description: Team aggregate stats for this game.
+          properties:
+            batting: { $ref: '#/components/schemas/BattingStatLine' }
+            pitching: { $ref: '#/components/schemas/PitchingStatLine' }
+            fielding: { $ref: '#/components/schemas/FieldingStatLine' }
+        players:
+          type: object
+          description: 'Map keyed by "ID<personId>" (e.g. "ID660670").'
+          additionalProperties: { $ref: '#/components/schemas/BoxscorePlayer' }
+        batters:
+          type: array
+          items: { type: integer }
+          description: personIds who have batted, in first-appearance order
+        pitchers:
+          type: array
+          items: { type: integer }
+        bench:
+          type: array
+          items: { type: integer }
+        bullpen:
+          type: array
+          items: { type: integer }
+        battingOrder:
+          type: array
+          items: { type: integer }
+          description: personIds in batting-order slots 1-9
+        info:
+          type: array
+          description: Footnote-style summary blocks (BATTING, FIELDING, ...)
+          items:
+            type: object
+            properties:
+              title: { type: string, example: BATTING }
+              fieldList:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    label: { type: string }
+                    value: { type: string }
+        note:
+          type: array
+          items: { type: object, additionalProperties: true }
+    BoxscoreResponse:
+      type: object
+      properties:
+        copyright: { type: string }
+        teams:
+          type: object
+          properties:
+            away: { $ref: '#/components/schemas/BoxscoreTeam' }
+            home: { $ref: '#/components/schemas/BoxscoreTeam' }
+        officials:
+          type: array
+          items:
+            type: object
+            properties:
+              official: { $ref: '#/components/schemas/LinescorePlayerRef' }
+              officialType: { type: string, example: 'Home Plate' }
+        info:
+          type: array
+          items:
+            type: object
+            properties:
+              label: { type: string }
+              value: { type: string }
+        pitchingNotes:
+          type: array
+          items: { type: string }
+        topPerformers:
+          type: array
+          description: Standout batting/pitching performances for the game.
+          items:
+            type: object
+            properties:
+              player: { $ref: '#/components/schemas/BoxscorePlayer' }
+              type: { type: string, description: 'starter, hitter, etc.' }
+              gameScore: { type: integer }
+              pitchingGameScore: { type: integer }
+              hittingGameScore: { type: integer }
+      additionalProperties: true
+    PlayByPlayResponse:
+      type: object
+      description: Play-by-play grouped by at-bat; shape varies by game
+        state, parse leniently.
+      properties:
+        copyright: { type: string }
+        allPlays:
+          type: array
+          items:
+            type: object
+            properties:
+              result:
+                type: object
+                properties:
+                  type: { type: string, example: atBat }
+                  event: { type: string, example: Strikeout }
+                  eventType: { type: string, example: strikeout }
+                  description: { type: string }
+                  rbi: { type: integer }
+                  awayScore: { type: integer }
+                  homeScore: { type: integer }
+              about:
+                type: object
+                properties:
+                  atBatIndex: { type: integer }
+                  halfInning: { type: string, example: bottom }
+                  inning: { type: integer }
+                  isComplete: { type: boolean }
+                  isScoringPlay: { type: boolean }
+              matchup:
+                type: object
+                properties:
+                  batter: { $ref: '#/components/schemas/LinescorePlayerRef' }
+                  pitcher: { $ref: '#/components/schemas/LinescorePlayerRef' }
+              playEvents:
+                type: array
+                items: { type: object, additionalProperties: true }
+            additionalProperties: true
+        currentPlay:
+          type: object
+          additionalProperties: true
+        playsByInning:
+          type: array
+          items: { type: object, additionalProperties: true }
+      additionalProperties: true
+    StandingsTeamRecord:
+      type: object
+      properties:
+        team: { $ref: '#/components/schemas/Team' }
+        season: { type: string }
+        streak:
+          type: object
+          properties:
+            streakCode: { type: string, example: W4 }
+            streakType: { type: string, example: wins }
+            streakNumber: { type: integer }
+        divisionRank: { type: string }
+        leagueRank: { type: string }
+        sportRank: { type: string }
+        gamesPlayed: { type: integer }
+        gamesBack: { type: string, example: '5.0' }
+        wildCardGamesBack: { type: string, example: '+4.5' }
+        divisionGamesBack: { type: string }
+        leagueRecord: { $ref: '#/components/schemas/LeagueRecord' }
+        wins: { type: integer }
+        losses: { type: integer }
+        winningPercentage: { type: string, example: '.594' }
+        runsScored: { type: integer }
+        runsAllowed: { type: integer }
+        runDifferential: { type: integer }
+        divisionChamp: { type: boolean }
+        divisionLeader: { type: boolean }
+        wildCardLeader: { type: boolean }
+        hasWildcard: { type: boolean }
+        clinched: { type: boolean }
+        eliminationNumber: { type: string, description: '"E" once mathematically eliminated' }
+        wildCardEliminationNumber: { type: string }
+        magicNumber: { type: string }
+      additionalProperties: true
+    StandingsRecordSet:
+      type: object
+      properties:
+        standingsType: { type: string, example: regularSeason }
+        league:
+          type: object
+          properties:
+            id: { type: integer }
+            link: { type: string }
+        division:
+          type: object
+          properties:
+            id: { type: integer }
+            link: { type: string }
+        sport:
+          type: object
+          properties:
+            id: { type: integer }
+            link: { type: string }
+        lastUpdated: { type: string, format: date-time }
+        teamRecords:
+          type: array
+          items: { $ref: '#/components/schemas/StandingsTeamRecord' }
+    StandingsResponse:
+      type: object
+      properties:
+        copyright: { type: string }
+        records:
+          type: array
+          description: One entry per division (or per requested standingsType/league combination).
+          items: { $ref: '#/components/schemas/StandingsRecordSet' }

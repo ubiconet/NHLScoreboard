@@ -1,0 +1,104 @@
+{
+  "copyright": "Copyright 2026 MLB Advanced Media, L.P.  Use of any content on this page acknowledges agreement to the terms posted here http://gdx.mlb.com/components/copyright.txt",
+  "teams": {
+    "away": {
+      "team": {
+        "id": 144,
+        "name": "Atlanta Braves",
+        "link": "/api/v1/teams/144",
+        "abbreviation": "ATL",
+        "teamName": "Braves",
+        "locationName": "Atlanta",
+        "shortName": "Atlanta"
+      },
+      "teamStats": {
+        "batting": { "runs": 3, "hits": 8, "atBats": 34, "strikeOuts": 9, "baseOnBalls": 2 },
+        "pitching": { "runs": 0, "hits": 1, "strikeOuts": 4, "baseOnBalls": 2, "era": "3.56" },
+        "fielding": { "assists": 1, "putOuts": 7, "errors": 0, "chances": 8 }
+      },
+      "players": {
+        "ID660670": {
+          "person": { "id": 660670, "fullName": "Ronald Acuña Jr.", "boxscoreName": "Acuña Jr." },
+          "jerseyNumber": "13",
+          "position": { "code": "10", "name": "Designated Hitter", "type": "Hitter", "abbreviation": "DH" },
+          "battingOrder": "100",
+          "stats": {
+            "batting": { "summary": "0-2", "atBats": 2, "hits": 0, "runs": 0, "rbi": 0 },
+            "pitching": {},
+            "fielding": {}
+          },
+          "gameStatus": { "isCurrentBatter": false, "isCurrentPitcher": false, "isOnBench": false, "isSubstitute": false }
+        },
+        "ID656550": {
+          "person": { "id": 656550, "fullName": "Grant Holmes", "boxscoreName": "Holmes, G" },
+          "jerseyNumber": "66",
+          "position": { "code": "1", "name": "Pitcher", "type": "Pitcher", "abbreviation": "P" },
+          "stats": {
+            "batting": {},
+            "pitching": { "summary": "2.1 IP, 0 ER, 2 K, 2 BB", "inningsPitched": "2.1", "strikeOuts": 2, "baseOnBalls": 2, "earnedRuns": 0 },
+            "fielding": {}
+          },
+          "gameStatus": { "isCurrentBatter": false, "isCurrentPitcher": true, "isOnBench": false, "isSubstitute": false }
+        }
+      },
+      "batters": [660670, 656550],
+      "pitchers": [656550],
+      "bench": [],
+      "bullpen": [],
+      "battingOrder": [660670]
+    },
+    "home": {
+      "team": {
+        "id": 143,
+        "name": "Philadelphia Phillies",
+        "link": "/api/v1/teams/143",
+        "abbreviation": "PHI",
+        "teamName": "Phillies",
+        "locationName": "Philadelphia",
+        "shortName": "Philadelphia"
+      },
+      "teamStats": {
+        "batting": { "runs": 1, "hits": 6, "atBats": 32, "strikeOuts": 8, "baseOnBalls": 3 },
+        "pitching": { "runs": 3, "hits": 8, "strikeOuts": 9, "baseOnBalls": 2, "era": "3.25" },
+        "fielding": { "assists": 2, "putOuts": 9, "errors": 0, "chances": 11 }
+      },
+      "players": {
+        "ID666200": {
+          "person": { "id": 666200, "fullName": "Jesús Luzardo", "boxscoreName": "Luzardo" },
+          "jerseyNumber": "44",
+          "position": { "code": "1", "name": "Pitcher", "type": "Pitcher", "abbreviation": "P" },
+          "stats": {
+            "batting": {},
+            "pitching": { "summary": "3.0 IP, 0 ER, 4 K, 0 BB", "inningsPitched": "3.0", "strikeOuts": 4, "baseOnBalls": 0, "earnedRuns": 0 },
+            "fielding": {}
+          },
+          "gameStatus": { "isCurrentBatter": false, "isCurrentPitcher": false, "isOnBench": false, "isSubstitute": false }
+        },
+        "ID656941": {
+          "person": { "id": 656941, "fullName": "Kyle Schwarber", "boxscoreName": "Schwarber" },
+          "jerseyNumber": "12",
+          "position": { "code": "10", "name": "Designated Hitter", "type": "Hitter", "abbreviation": "DH" },
+          "battingOrder": "100",
+          "stats": {
+            "batting": { "summary": "1-2 | K", "atBats": 2, "hits": 1, "runs": 0, "rbi": 0 },
+            "pitching": {},
+            "fielding": {}
+          },
+          "gameStatus": { "isCurrentBatter": true, "isCurrentPitcher": false, "isOnBench": false, "isSubstitute": false }
+        }
+      },
+      "batters": [656941],
+      "pitchers": [666200],
+      "bench": [],
+      "bullpen": [],
+      "battingOrder": [656941]
+    }
+  },
+  "officials": [
+    { "official": { "id": 623949, "fullName": "Clint Vondrak" }, "officialType": "Home Plate" }
+  ],
+  "info": [
+    { "label": "Venue", "value": "Citizens Bank Park." },
+    { "label": "September 7, 2026" }
+  ]
+}
