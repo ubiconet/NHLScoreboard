@@ -5,10 +5,12 @@
 // Network service — Wi-Fi provisioning state machine, captive setup portal,
 // NVS-backed preferences, and development (Arduino)OTA. Fully generic: the
 // sport layer injects its branding and team-option list at
-// startNetworkServices() time; nothing in here knows a sport.
+// startNetworkServices() time; nothing in here knows a sport. The only
+// sport reach-out is the display-test REQUEST flag, polled and executed by
+// the sport itself.
 
 struct NetworkBranding {
-  const char* deviceName;  // e.g. "MLB Scoreboard" — portal <title>/heading
+  const char* deviceName;  // e.g. "NHL Scoreboard" — portal <title>/heading
   const char* apSsid;      // fallback provisioning AP network name
   const char* hostname;    // base hostname; a per-device suffix is appended
 };
@@ -37,6 +39,30 @@ bool isProvisioning();
 // True while someone recently used the setup portal: background feed work
 // pauses so the web server gets the core and the radio to itself.
 bool portalEngaged();
+// One-shot display-test trigger from the portal's "Run Display Test"
+// button (POST /display/test). Returns true exactly once per request;
+// the sport layer runs its display test cycle on the render core.
+bool consumeDisplayTestRequest();
+
+// One-shot audio-test trigger from the portal's "Play Test Audio" button
+// (POST /audio/test). Returns true exactly once per request.
+bool consumeAudioTestRequest();
+
+// ---- Manual mode (portal "Manual Mode" page) ----
+// Full manual override of the scoreboard outputs: the clock counts down
+// on the network task; every value below is set from the manual-control
+// web page and read by the render core. Entering /manual engages the
+// mode; the page's exit button (POST /manual/exit) leaves it.
+bool isManualMode();
+void setManualMode(bool on);
+int  getManualClockSec();
+bool getManualClockRunning();
+int  getManualHomeScore();
+int  getManualGuestScore();
+int  getManualPeriod();
+int  getManualPenaltyMask();   // bit0=home P1, 1=home P2, 2=guest P1, 3=guest P2
+int  getManualHomeShots();
+int  getManualGuestShots();
 // Saved Wi-Fi SSID ("" when none) and the device's current IP ("" while
 // not online) — read by the boot status page.
 const char* getSavedWifiSsid();
@@ -45,6 +71,9 @@ String getDeviceIp();
 void getPreferredTeamIds(int outTeamIds[3]);
 // User preference: show the idle clock on the score matrices (NVS "show_clock").
 bool isClockDisplayEnabled();
+// User preference: enable the audio output — sounds and alerts (NVS
+// "audio_en", default on).
+bool isAudioEnabled();
 // Effective display timezone as a POSIX TZ string, selected in the setup
 // portal (NVS "tz"); used for game times, countdowns, and the idle clock.
 const char* getTzString();

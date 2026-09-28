@@ -54,6 +54,41 @@ String pendingSsid;
 String pendingPassword;
 bool hasPending = false;
 bool clockDisplayEnabled = true;
+bool audioEnabled = true;
+// Display-test request from the portal (see consumeDisplayTestRequest()).
+// Volatile: set by the network task's web handler, consumed on the render
+// core's tick.
+volatile bool displayTestRequested = false;
+
+// Audio-test request from the portal (see consumeAudioTestRequest()).
+volatile bool audioTestRequested = false;
+
+// ---- Manual mode state (set from the manual web page on this task,
+// read by the render core; small ints/bools, benign races at worst) ----
+volatile bool manualMode = false;
+volatile bool manualClockRunning = false;
+volatile int  manualClockSec = 1200;
+volatile int  manualHomeScore = 0;
+volatile int  manualGuestScore = 0;
+volatile int  manualPeriod = 1;
+volatile int  manualPenaltyMask = 0;
+volatile int  manualHomeShots = 0;
+volatile int  manualGuestShots = 0;
+
+// 1 Hz countdown tick, driven from this task's loop.
+void tickManualClock() {
+  static uint32_t lastTick = 0;
+  uint32_t now = millis();
+  if (now - lastTick < 1000) return;
+  lastTick = now;
+  if (!manualMode || !manualClockRunning) return;
+  if (manualClockSec > 0) {
+    manualClockSec--;
+    if (manualClockSec == 0) manualClockRunning = false;
+  }
+}
+
+int clampScore(int v) { return v < 0 ? 0 : (v > 99 ? 99 : v); }
 
 // Display timezone, persisted in NVS ("tz") and selected in the portal.
 // POSIX TZ strings (not IANA names): they are self-contained — DST rules and
@@ -317,6 +352,7 @@ void loadSavedNetwork() {
   prefTeam2 = preferences.getInt("team2", netDefaultTeams[1]);
   prefTeam3 = preferences.getInt("team3", netDefaultTeams[2]);
   clockDisplayEnabled = preferences.getBool("show_clock", true);
+  audioEnabled = preferences.getBool("audio_en", true);
   tzString = preferences.getString("tz", FACTORY_DEFAULT_TIMEZONE);
   if (!isValidTzString(tzString.c_str())) {
     tzString = FACTORY_DEFAULT_TIMEZONE;  // unknown/legacy value: fall back
@@ -504,7 +540,18 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <hr><label style="display:flex;align-items:center;gap:10px" for="show-clock"><input style="width:auto" id="show-clock" name="show_clock" type="checkbox" value="1")html";
   if (clockDisplayEnabled) page += " checked";
   page += R"html(>Display current time on score boards when no game is live</label>
+<label style="display:flex;align-items:center;gap:10px;margin-top:12px" for="audio-en"><input style="width:auto" id="audio-en" name="audio_en" type="checkbox" value="1")html";
+  if (audioEnabled) page += " checked";
+  page += R"html(>Enable audio output (game sounds and alerts)</label>
 <button type="submit">Save & Connect Scoreboard</button></form>
+<hr><h3>Display Test</h3>
+<p class="hint">Cycles every display once (matrices, clock, penalty LEDs, screen), holds everything on for 2 seconds, then returns to what was showing.</p>
+<button type="button" style="margin-top:8px" onclick="dtest()">Run Display Test</button>
+<button type="button" style="margin-top:8px;background:#2a5daf;color:#fff" onclick="atest()">Play Test Audio</button>
+<p class="hint" id="dtestStatus">&nbsp;</p>
+<hr><h3>Manual Mode</h3>
+<p class="hint">Full manual control: clock countdown, scores, period, penalty LEDs, shots — from a dedicated page.</p>
+<p><a style="color:#f5c400" href="/manual">Open Manual Mode &rarr;</a></p>
 <hr><h3>Firmware Update</h3>
 <p class="hint">Installed: )html" + String(FIRMWARE_VERSION) + R"html(. Automatic checks run at boot and every 10 minutes.</p>
 <button type="button" style="margin-top:8px" onclick="otaCheck()">Check for Update Now</button>
@@ -514,6 +561,8 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <p><a style="color:#f5c400" href="/update">Upload a firmware file manually</a></p>
 <script>
 var otaWaiting=false;
+function dtest(){document.getElementById('dtestStatus').textContent='Running - watch the scoreboard...';fetch('/display/test',{method:'POST'}).then(function(){setTimeout(function(){document.getElementById('dtestStatus').textContent='Done.'},18000)}).catch(function(){document.getElementById('dtestStatus').textContent='Request failed.'})}
+function atest(){fetch('/audio/test',{method:'POST'})}
 function otaCheck(){otaWaiting=true;document.getElementById('otaStatus').textContent='Checking...';fetch('/ota/check',{method:'POST'})}
 setInterval(function(){fetch('/ota/status').then(function(r){return r.json()}).then(function(s){var e=document.getElementById('otaStatus');
 if(s.stage==='DOWNLOADING'){otaWaiting=false;e.textContent='Downloading update '+s.progress+'% - watch the scoreboard; do not power off.'}
@@ -534,6 +583,127 @@ void serveStatus() {
   server.send(200, "application/json", String("{\"state\":\"") + name + "\"}");
 }
 
+void handleDisplayTest() {
+  // Fire-and-forget trigger: no markPortalActivity() on purpose — the
+  // display test runs on the render core while feeds keep flowing.
+  displayTestRequested = true;
+  server.send(200, "text/plain", "ok");
+}
+
+void handleAudioTest() {
+  audioTestRequested = true;
+  server.send(200, "text/plain", "ok");
+}
+
+void serveManualPage() {
+  markPortalActivity();
+  manualMode = true;  // arriving at the page engages manual mode
+  server.sendHeader("Cache-Control", "no-store");
+  String page = R"html(<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>@@NAME@@ Manual</title><style>
+body{margin:0;background:#061b46;color:#fff;font:14px system-ui,sans-serif}
+main{max-width:430px;margin:0 auto;padding:8px}
+h1{font-size:16px;margin:0 0 2px}.muted{color:#c5d3ee;font-size:12px}
+button{padding:8px;border:0;border-radius:6px;font-weight:700;font-size:15px;cursor:pointer;touch-action:manipulation}
+.big{width:100%;padding:12px 0;font-size:19px}
+.dec,.inc{width:46px;height:46px;background:#2a5daf;color:#fff;font-size:23px}
+.val{display:inline-block;min-width:52px;text-align:center;font-size:21px;font-weight:800;margin:0 6px}
+.row{display:flex;align-items:center;justify-content:center;margin:6px 0}
+.cols{display:flex;gap:8px}.col{flex:1;background:#0b2b62;border:1px solid #1c4587;border-radius:8px;padding:8px}
+.col h2{text-align:center;font-size:14px;margin:1px 0 6px}
+.pen{width:100%;margin:3px 0;background:#31415f;color:#fff;padding:9px}
+.pen.on{background:#c62828}
+input{width:54px;padding:7px;font-size:16px;border:0;border-radius:6px;text-align:center}
+hr{border:0;border-top:1px solid #1c4587;margin:8px 0}
+.go{background:#2e7d32;color:#fff}.stop{background:#c62828;color:#fff}
+.set{background:#f5c400;color:#000}.horn{background:#f5c400;color:#000;width:100%;padding:12px;font-size:17px}
+.exit{background:#777;color:#fff;width:100%;padding:10px}
+#clk{font-size:26px;font-weight:800;text-align:center;margin:4px 0;letter-spacing:2px}
+h2.ctr{text-align:center;font-size:14px;margin:2px 0}
+</style></head><body><main>
+<h1>@@NAME@@ &mdash; Manual Mode</h1>
+<hr><h2 class="ctr">Clock</h2>
+<div id="clk">--:--</div>
+<div class="row"><input id="mm" inputmode="numeric" maxlength="2" value="20"> : <input id="ss" inputmode="numeric" maxlength="2" value="00">
+<button class="set" onclick="setClock()">Set</button></div>
+<div class="row"><button id="runBtn" class="big go" onclick="toggleRun()">Start</button></div>
+<div class="cols">
+<div class="col"><h2>HOME</h2>
+<p class="muted" style="text-align:center;margin:1px 0">score</p>
+<div class="row"><button class="dec" onclick="adj('hs',-1)">&minus;</button><span class="val" id="hs">0</span><button class="inc" onclick="adj('hs',1)">+</button></div>
+<p class="muted" style="text-align:center;margin:1px 0">shots</p>
+<div class="row"><button class="dec" onclick="adj('hsh',-1)">&minus;</button><span class="val" id="hsh">0</span><button class="inc" onclick="adj('hsh',1)">+</button></div>
+<button class="pen" id="pen0" onclick="togPen(0)">Penalty 1</button>
+<button class="pen" id="pen1" onclick="togPen(1)">Penalty 2</button>
+</div>
+<div class="col"><h2>GUEST</h2>
+<p class="muted" style="text-align:center;margin:1px 0">score</p>
+<div class="row"><button class="dec" onclick="adj('gs',-1)">&minus;</button><span class="val" id="gs">0</span><button class="inc" onclick="adj('gs',1)">+</button></div>
+<p class="muted" style="text-align:center;margin:1px 0">shots</p>
+<div class="row"><button class="dec" onclick="adj('gsh',-1)">&minus;</button><span class="val" id="gsh">0</span><button class="inc" onclick="adj('gsh',1)">+</button></div>
+<button class="pen" id="pen2" onclick="togPen(2)">Penalty 1</button>
+<button class="pen" id="pen3" onclick="togPen(3)">Penalty 2</button>
+</div>
+</div>
+<div class="row"><span class="muted">period</span>
+<button class="dec" onclick="adj('per',-1)">&minus;</button><span class="val" id="per">1</span><button class="inc" onclick="adj('per',1)">+</button></div>
+<button class="horn" onclick="fetch('/audio/test',{method:'POST'})">&#128383; Goal Horn</button>
+<hr><button class="exit" onclick="location.href='/manual/exit'">Exit Manual Mode</button>
+</main></body></html>
+<script>
+var s={run:false,hs:0,gs:0,per:1,hsh:0,gsh:0,pen:0,sec:1200};
+function fmt(t){var m=Math.floor(t/60),x=t%60;return (m<10?'0':'')+m+':'+(x<10?'0':'')+x}
+function paint(){document.getElementById('clk').textContent=fmt(s.sec);
+for(var k of ['hs','gs','per','hsh','gsh'])document.getElementById(k).textContent=s[k];
+for(var i=0;i<4;i++){var b=document.getElementById('pen'+i);b.className='pen'+((s.pen>>i)&1?' on':'')}
+var r=document.getElementById('runBtn');r.textContent=s.run?'Stop':'Start';r.className='big '+(s.run?'stop':'go')}
+function send(){var p=new URLSearchParams();p.set('sec',s.sec);p.set('run',s.run?1:0);
+p.set('hs',s.hs);p.set('gs',s.gs);p.set('per',s.per);p.set('hsh',s.hsh);p.set('gsh',s.gsh);p.set('pen',s.pen);
+fetch('/manual/set',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p.toString()});paint()}
+function adj(k,d){s[k]=Math.max(k=='per'?1:0,s[k]+d);if(k=='per'&&s[k]>9)s[k]=9;if(k!='per'&&s[k]>99)s[k]=99;send()}
+function togPen(i){s.pen^=(1<<i);send()}
+function setClock(){var m=parseInt(document.getElementById('mm').value||'0'),x=parseInt(document.getElementById('ss').value||'0');
+if(isNaN(m)||isNaN(x)||m<0||m>99||x<0||x>59)return;s.sec=m*60+x;s.run=false;send()}
+function toggleRun(){s.run=!s.run;send()}
+setInterval(function(){if(s.run&&s.sec>0){s.sec--;}paint()},1000);
+paint();
+</script>)html";
+  page.replace("@@NAME@@", netBranding.deviceName);
+  server.send(200, "text/html", page);
+}
+
+void handleManualSet() {
+  if (server.hasArg("sec")) {
+    int sec = server.arg("sec").toInt();
+    if (sec >= 0 && sec <= 99 * 60 + 59) manualClockSec = sec;
+  }
+  if (server.hasArg("run")) {
+    manualClockRunning = server.arg("run").toInt() != 0 &&
+                         manualClockSec > 0;
+  }
+  if (server.hasArg("hs")) manualHomeScore = clampScore(server.arg("hs").toInt());
+  if (server.hasArg("gs")) manualGuestScore = clampScore(server.arg("gs").toInt());
+  if (server.hasArg("per")) {
+    int p = server.arg("per").toInt();
+    manualPeriod = (p >= 1 && p <= 9) ? p : 1;
+  }
+  if (server.hasArg("hsh")) manualHomeShots = clampScore(server.arg("hsh").toInt());
+  if (server.hasArg("gsh")) manualGuestShots = clampScore(server.arg("gsh").toInt());
+  if (server.hasArg("pen")) {
+    int m = server.arg("pen").toInt();
+    manualPenaltyMask = (m >= 0 && m <= 15) ? m : 0;
+  }
+  server.send(200, "text/plain", "ok");
+}
+
+void handleManualExit() {
+  markPortalActivity();
+  manualMode = false;
+  manualClockRunning = false;
+  server.sendHeader("Location", "/", true);
+  server.send(302, "text/plain", "");
+}
+
 void saveNetwork() {
   markPortalActivity();
   pendingSsid = server.arg("ssid");
@@ -542,6 +712,7 @@ void saveNetwork() {
   if (server.hasArg("team2")) prefTeam2 = server.arg("team2").toInt();
   if (server.hasArg("team3")) prefTeam3 = server.arg("team3").toInt();
   clockDisplayEnabled = server.hasArg("show_clock");
+  audioEnabled = server.hasArg("audio_en");
   // Timezone is validated against the option table before it is trusted.
   bool tzChanged = false;
   if (server.hasArg("tz")) {
@@ -570,6 +741,7 @@ void saveNetwork() {
   preferences.putInt("team2", prefTeam2);
   preferences.putInt("team3", prefTeam3);
   preferences.putBool("show_clock", clockDisplayEnabled);
+  preferences.putBool("audio_en", audioEnabled);
   preferences.putString("tz", tzString);
   if (networkChanging) {
     preferences.putString("ssid", pendingSsid);
@@ -728,6 +900,11 @@ void registerPortalRoutes() {
   server.on("/config", HTTP_POST, saveConfig);
   server.on("/update", HTTP_GET, serveUpdatePage);
   server.on("/ota/check", HTTP_POST, handleOtaCheckNow);
+  server.on("/display/test", HTTP_POST, handleDisplayTest);
+  server.on("/audio/test", HTTP_POST, handleAudioTest);
+  server.on("/manual", HTTP_GET, serveManualPage);
+  server.on("/manual/set", HTTP_POST, handleManualSet);
+  server.on("/manual/exit", HTTP_GET, handleManualExit);
   server.on("/ota/status", HTTP_GET, serveOtaStatus);
   server.on("/update", HTTP_POST, handleUpdateResult, handleUpdateUpload);
   server.onNotFound(redirectToPortal);
@@ -786,6 +963,29 @@ bool portalEngaged() {
   return millis() < portalActiveUntil;
 }
 
+bool consumeDisplayTestRequest() {
+  if (!displayTestRequested) return false;
+  displayTestRequested = false;
+  return true;
+}
+
+bool consumeAudioTestRequest() {
+  if (!audioTestRequested) return false;
+  audioTestRequested = false;
+  return true;
+}
+
+bool isManualMode() { return manualMode; }
+void setManualMode(bool on) { manualMode = on; }
+int  getManualClockSec() { return manualClockSec; }
+bool getManualClockRunning() { return manualClockRunning; }
+int  getManualHomeScore() { return manualHomeScore; }
+int  getManualGuestScore() { return manualGuestScore; }
+int  getManualPeriod() { return manualPeriod; }
+int  getManualPenaltyMask() { return manualPenaltyMask; }
+int  getManualHomeShots() { return manualHomeShots; }
+int  getManualGuestShots() { return manualGuestShots; }
+
 const char* getSavedWifiSsid() {
   return savedSsid.c_str();
 }
@@ -796,6 +996,12 @@ String getDeviceIp() {
 
 bool isClockDisplayEnabled() {
   return clockDisplayEnabled;
+}
+
+// Audio output toggle (NVS "audio_en", default on). Consumed by the sport
+// layer's sound playback (goal horn and cues) once the audio HAL lands.
+bool isAudioEnabled() {
+  return audioEnabled;
 }
 
 // Effective display timezone as a POSIX TZ string ("EST5EDT,M3.2.0,M11.1.0").
@@ -834,10 +1040,14 @@ void startNetworkServices(const NetworkBranding& branding,
   // reconnects did this): default power save makes the radio sleep between
   // beacons, which stalls inbound portal page loads from phones.
   WiFi.setSleep(false);
+  // Unique per-board hostname built on the sport's branding base
+  // ("nhl-scoreboard-a68d0") so mDNS/OTA targets and router client lists
+  // name the right device; the suffix disambiguates multiple boards.
   String macAddress = WiFi.macAddress();
   macAddress.replace(":", "");
   if (macAddress.length() >= 5) {
-    deviceHostname = "scoreboard-" + macAddress.substring(macAddress.length() - 5);
+    deviceHostname = String(branding.hostname) + "-" +
+                     macAddress.substring(macAddress.length() - 5);
     deviceHostname.toLowerCase();
   }
   WiFi.setHostname(deviceHostname.c_str());
@@ -905,13 +1115,14 @@ void startNetworkTask() {
     [](void*) {
       while (true) {
         handleNetworkServices();
+        tickManualClock();
         vTaskDelay(pdMS_TO_TICKS(2));
       }
     },
     "NetworkTask",
     8192,
     nullptr,
-    2,  // above the MLB data task: the portal must preempt feed fetches
+    2,  // above the NHL data task: the portal must preempt feed fetches
     nullptr,
     0
   );

@@ -10,14 +10,31 @@ without surprises.
 
 ## 1. Project summary
 
-- **Target hardware:** ESP32-S3 DevKitC-1 (4 MB flash).
-- **Peripherals (MLB build):**
-  - 2.0" ST7789 TFT, 320×240, **software-SPI** on pins
-    `SCK=13, MOSI=12, CS=9, DC=10, RESET=11` (see the SPI gotcha note in
+- **Target hardware:** ESP32-S3 DevKit-1 (YD-ESP32-S3-family 44-pin
+  DevKitC-1 clone), **N8R8** module — 8 MB flash, 8 MB octal PSRAM
+  (permanently reserves GPIO 35–37; PSRAM not yet enabled in firmware).
+  Build env stays `esp32-s3-devkitc-1`; OTA app slots are 3.375 MB each.
+  The logical GPIO numbers are scrambled across the physical headers —
+  pin assignments are chosen for physical sequence, see
+  `docs/hardware.md`. GPIO 48 drives the onboard RGB LED; 19/20 are the
+  native USB port.
+- **Peripherals (NHL board topology — physical header map + rationale in
+  `docs/hardware.md`; since v2.0 the firmware drives the target pin map
+  for matrices/penalty LEDs/TM1637 — remaining: 3rd period matrix, I2S):**
+  - 2.0" ST7789 TFT, 320×240, game details — **software-SPI** on pins
+    `SCK=13, MOSI=12, CS=9, DC=10, RESET=11` (the proven template pins —
+    also physically consecutive, left header pos 15–19). Never switch to
+    hardware SPI; see the gotcha note in
     `memories/repo/hardware_architecture.md` and in
-    `src/common/hal/tft_panel.h`).
-  - 2× MAX7219 8×8 LED matrices (DIN=14, CLK=8, CS=16).
-  - 7 discrete count LEDs on GPIO 1–7 (balls/strikes/outs).
+    `src/common/hal/tft_panel.h`.
+  - 3× MAX7219 8×8 matrices, one daisy chain (home score / guest score /
+    period) — target `DIN=40, CLK=39, CS=38` (right header pos 8–10).
+  - TM1637 4-digit 7-segment period clock — target `CLK=16, DIO=17`
+    (left header pos 9–10).
+  - MAX98357 I2S audio amp (goal horn) — target `BCLK=1, LRC=2, DIN=42`
+    (right header pos 4–6).
+  - 4 penalty LEDs (home P1/P2, guest P1/P2) — target GPIO `4, 5, 6, 7`
+    (left header pos 4–7).
 - **Firmware:** Arduino-ESP32 framework, PlatformIO build system.
 - **Build envs:**
   - `esp32-s3-devkitc-1` → USB CDC upload.
@@ -48,30 +65,30 @@ src/
 │   │                     #   time_util (NTP/ISO-8601 helpers)
 │   └── ui/               # gfx helpers, QR, boot splash/status, OTA screen
 └── sports/
-    └── mlb/              # THE SPORT — replaced wholesale per new sport
+    └── nhl/              # THE SPORT — replaced wholesale per new sport
         ├── sport_config.h  # pins, panel geometry, branding, poll cadences,
         │                   #   UI theme (COLOR_*), sport timing constants
-        ├── mlb_app.cpp     # WAITING/LIVE state machine + sport:: contract
-        ├── mlb_renderer_linescore.cpp / _waiting.cpp / mlb_renderer_internal.h
-        ├── mlb_logos.*     # logo RAM cache + draw helpers
-        ├── mlb_state.*     # snapshot channels, activeGamePk, schedule cache,
+        ├── nhl_app.cpp     # WAITING/LIVE state machine + sport:: contract
+        ├── nhl_renderer_linescore.cpp / _waiting.cpp / nhl_renderer_internal.h
+        ├── nhl_logos.*     # logo RAM cache + draw helpers
+        ├── nhl_state.*     # snapshot channels, activeGamePk, schedule cache,
         │                   #   fetch diagnostics
-        ├── mlb_teams.*     # ONE team table {id, abbrev, label}
-        ├── mlb_client.*    # feed endpoints + JSON filters (uses http_fetch)
-        ├── mlb_data_task.cpp # core-0 fetch/publish loop
-        ├── mlb_snapshot.h    # POD snapshot structs (the core0→core1 contract)
+        ├── nhl_teams.*     # ONE team table {id, abbrev, label}
+        ├── nhl_client.*    # feed endpoints + JSON filters (uses http_fetch)
+        ├── nhl_data_task.cpp # core-0 fetch/publish loop
+        ├── nhl_snapshot.h    # POD snapshot structs (the core0→core1 contract)
         └── team_logos.h / boot_logo.h   # generated assets
 ```
 
 **Sport selection:** each PlatformIO env sets
-`build_src_filter = +<main.cpp>, +<common/>, +<sports/mlb/>` and
-`-Isrc/sports/mlb`, so `#include "sport_config.h"` resolves to whichever
+`build_src_filter = +<main.cpp>, +<common/>, +<sports/nhl/>` and
+`-Isrc/sports/nhl`, so `#include "sport_config.h"` resolves to whichever
 sport the env selects. Common code NEVER names a sport (the only
 common→sport reach is the include-path-resolved `sport_config.h` seam plus
 the `sport::` function contract in `common/app/sport_api.h`).
 
 **Starting a new sport:** see the checklist in README.md. Short version —
-copy `src/sports/mlb` → `src/sports/<sport>`, rewrite the sport folder,
+copy `src/sports/nhl` → `src/sports/<sport>`, rewrite the sport folder,
 point the env's src filter + `-I` at it, update `OTA_*` URLs in
 `src/config.h` and `RAW_BASE`/`LATEST_FILE` in `tools/release_deploy.py`.
 
@@ -81,10 +98,10 @@ point the env's src filter + `-I` at it, update `OTA_*` URLs in
   boot/update/network screens, then calls `sport::tick()`; the sport renders
   from POD snapshots via `take*Snapshot()`. No HTTP on this core.
 - **Core 0 (FreeRTOS tasks):** the network task (portal/DNS/ArduinoOTA,
-  priority 2) and the MLB data task (`sports/mlb/mlb_data_task.cpp`,
+  priority 2) and the NHL data task (`sports/nhl/nhl_data_task.cpp`,
   priority 1) do all API calls, JSON parsing, and snapshot publishing.
 - **Carousel/news/news ticker:** cached for **30 minutes**
-  (`MLB_NEWS_CACHE_TTL_MS` in `src/sports/mlb/sport_config.h`). News API is
+  (`NHL_NEWS_CACHE_TTL_MS` in `src/sports/nhl/sport_config.h`). News API is
   hit at most once per 30 min, not on every waiting-mode cycle.
 
 ---
@@ -118,7 +135,7 @@ point the env's src filter + `-I` at it, update `OTA_*` URLs in
 
 - **One-command release:** `pio run -e esp32-s3-devkitc-1 -t deploy`.
   This builds the firmware, writes `releases/`
-  (`mlb_scoreboard_latest.bin`, permanent `mlb_scoreboard_<version>.bin`,
+  (`nhl_scoreboard_latest.bin`, permanent `nhl_scoreboard_<version>.bin`,
   `manifest.json` with `{"version","file","url"}`), then **commits
   `releases/` and pushes to GitHub** — the push is what publishes the
   update. The target refuses to deploy when `FIRMWARE_VERSION` still
@@ -128,9 +145,11 @@ point the env's src filter + `-I` at it, update `OTA_*` URLs in
 - **Self-update flow** (`src/common/comms/ota_update.cpp`): shortly after
   the network comes online (before any feed fetch — the TLS handshake needs
   the pristine boot heap), the core-0 data task fetches the manifest over
-  TLS (the only TLS connection left; the feeds run plain HTTP — see the
-  note at the top of `sports/mlb/mlb_client.cpp` and
-  `common/comms/http_fetcher.h`). If the manifest version is strictly
+  TLS (the only TLS connection left; the placeholder MLB feeds run plain
+  HTTP — see the note at the top of `sports/nhl/nhl_client.cpp` and
+  `common/comms/http_fetcher.h`. The NHL API is HTTPS-only; its TLS/heap
+  budget is documented in `docs/features/nhl-api/README.md`). If the
+  manifest version is strictly
   newer than `FIRMWARE_VERSION`, manifest and binary download over ONE
   reused TLS session while the renderer shows the "do not turn off"
   progress screen (`common/ui/ota_screen.cpp`), then the device reboots
@@ -145,7 +164,7 @@ point the env's src filter + `-I` at it, update `OTA_*` URLs in
 version string:
 
 ```cpp
-static const char* FIRMWARE_VERSION = "v2.60";
+static const char* FIRMWARE_VERSION = "v1.0";
 ```
 
 This string is drawn on the boot splash (see `renderBootSplash()` in
@@ -183,8 +202,8 @@ firmware is on the device. `tools/release_deploy.py` reads it from
 ### Example edit
 
 ```diff
-- static const char* FIRMWARE_VERSION = "v2.60";
-+ static const char* FIRMWARE_VERSION = "v2.60";
+- static const char* FIRMWARE_VERSION = "v1.0";
++ static const char* FIRMWARE_VERSION = "v1.1";
 ```
 
 The boot splash will pick this up automatically (it reads the constant on
@@ -197,10 +216,10 @@ every `renderBootSplash()` call).
 - **No new heap allocations in `loop()`/`sport::tick()`.** The render
   canvas is lazily `new`'d once inside `TftPanel` and cached. Don't add
   `String`/JSON docs/etc. on the render path.
-- **Feed/API calls live in core 0** (`sports/mlb/mlb_data_task.cpp` +
-  `mlb_client.cpp`). Do not fetch from core 1. If you need new MLB data,
-  add a field to a struct in `sports/mlb/mlb_snapshot.h`, publish through
-  the channels in `sports/mlb/mlb_state.cpp` (or
+- **Feed/API calls live in core 0** (`sports/nhl/nhl_data_task.cpp` +
+  `nhl_client.cpp`). Do not fetch from core 1. If you need new NHL data,
+  add a field to a struct in `sports/nhl/nhl_snapshot.h`, publish through
+  the channels in `sports/nhl/nhl_state.cpp` (or
   `common/data/snapshot_channel.h` for a new channel), and read it via a
   `take*Snapshot()` accessor.
 - **Common code must stay sport-agnostic.** `src/common/` and
@@ -217,8 +236,8 @@ every `renderBootSplash()` call).
   `rotateCarousel()`, `updateAtBatResultDisplay()`). All status prints go
   through `DBG_PRINTF` and only fire on state transitions.
 - **Renderer internals stay inside the sport's renderer files.** The data
-  task publishes through the public APIs (`mlb_renderer.h`,
-  `mlb_state.h`). `mlb_renderer_internal.h` is renderer-private — never
+  task publishes through the public APIs (`nhl_renderer.h`,
+  `nhl_state.h`). `nhl_renderer_internal.h` is renderer-private — never
   include it from outside the renderer pair.
 - **All drawing goes through the shared canvas in `TftPanel`** and one
   push call (`pushFull` / `pushBand` / `pushRows`). The only sanctioned
@@ -242,7 +261,7 @@ After any non-trivial change:
    errors. Warnings about unused variables/functions are okay but should
    be addressed before bumping the firmware version. Also sanity-check
    flash size against the 1.5 MB OTA partition (the build prints the
-   percentage; v2.60 sits ~91.2%).
+   percentage; the MLB template's v2.60 sat ~91.2%).
 2. Upload to the device (OTA or USB).
 3. Confirm via Serial Monitor (with `-DSB_DEBUG=1`) or the on-screen
    diagnostics that:
@@ -266,7 +285,7 @@ After any non-trivial change:
 - **Don't block in `loop()`/`sport::tick()`.** Every API call belongs on
   core 0.
 - **Don't keep large `JsonDocument`s on the render core.** The renderer
-  only carries the small schedule cache in `mlb_state.cpp` (used by
+  only carries the small schedule cache in `nhl_state.cpp` (used by
   `findNextGame()`) — keep it that way.
 - **Don't remove the dirty-rect tracking in `renderLinescore()`.**
   Without it the live screen flickers visibly on every 5 s linescore
@@ -292,8 +311,9 @@ Long-lived project notes live under `/memories/repo/` in the assistant's
 memory. The current file `hardware_architecture.md` covers:
 
 - Pin assignments
-- MLB API integration details (TLS heap churn, fields-filter gotchas,
-  standings/news carousel)
+- NHL API integration details → the verified endpoint reference lives in
+  `docs/features/nhl-api/README.md` (HTTPS-only transport, payload
+  budgets, gameState semantics)
 - The ST7789 SPI pin gotcha (DO NOT switch to hardware SPI)
 - Performance notes (debug-flag, dirty-rect, sprite pre-rasterization,
   logo cache)

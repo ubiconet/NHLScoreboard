@@ -30,7 +30,7 @@ namespace sport {
 
 // ---- Identity ----
 
-// Human-facing device name, e.g. "MLB Scoreboard" — drawn on the boot
+// Human-facing device name, e.g. "NHL Scoreboard" — drawn on the boot
 // status page and used for portal branding.
 const char* name();
 
@@ -53,6 +53,12 @@ const int* defaultPreferredTeams();
 // matrices, count LEDs), any boot tests, and the boot splash. Called from
 // setup() before network services start (they connect behind the splash).
 void setup();
+
+// True when the sport wants a bare-metal boot: no splash hold, no network
+// bring-up, no boot/OTA/portal screens — setup() drew the first frame and
+// tick() owns the display from the first loop pass. Used by bench test
+// modes that exercise display wiring without any network dependency.
+bool skipBootUi();
 
 // Create the core-0 feed task. Called after network services start.
 void startDataTask();

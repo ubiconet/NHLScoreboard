@@ -6,3 +6,7 @@
 # Transient serial captures / logs from on-device debugging
 serial_log.txt
 long_boot.log
+audio*.txt
+diag*.txt
+goal*.txt
+zoom_*.png

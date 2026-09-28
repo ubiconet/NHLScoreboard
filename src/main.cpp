@@ -26,18 +26,22 @@ void setup() {
   }
 
   // Sport bring-up: hardware init with the sport's pins, boot tests, and
-  // the boot splash (its logo artwork belongs to the sport).
+  // the boot splash (its logo artwork belongs to the sport). In bare-metal
+  // mode (bench test) this is also the LAST shell step — no network, no
+  // boot UI; the sport's tick owns the display from the first loop pass.
   sport::setup();
 
-  // No blocking hold here: network services start immediately and connect
-  // behind the logo. loop() enforces the minimum splash time instead, so
-  // a fast Wi-Fi handshake can't cut the logo short.
-  NetworkBranding branding = sport::branding();
-  size_t teamOptionCount = 0;
-  startNetworkServices(branding, sport::teamOptions(teamOptionCount),
-                       teamOptionCount, sport::defaultPreferredTeams());
-  startNetworkTask();
-  sport::startDataTask();  // core-0 feed fetches
+  if (!sport::skipBootUi()) {
+    // No blocking hold here: network services start immediately and connect
+    // behind the logo. loop() enforces the minimum splash time instead, so
+    // a fast Wi-Fi handshake can't cut the logo short.
+    NetworkBranding branding = sport::branding();
+    size_t teamOptionCount = 0;
+    startNetworkServices(branding, sport::teamOptions(teamOptionCount),
+                         teamOptionCount, sport::defaultPreferredTeams());
+    startNetworkTask();
+    sport::startDataTask();  // core-0 feed fetches
+  }
 
   // Boot banner — visible over Serial whenever SB_DEBUG=1 so a freshly
   // uploaded firmware can be confirmed at a glance.
@@ -50,6 +54,12 @@ void setup() {
 }
 
 void loop() {
+  if (sport::skipBootUi()) {
+    SportTickContext ctx = {millis(), false, false};
+    sport::tick(ctx);
+    return;
+  }
+
   // Boot sequence: (1) logo splash for BOOT_SPLASH_HOLD_MS while the
   // network task connects Wi-Fi behind it; (2) an in-progress firmware
   // update owns the screen whenever it runs; (3) the status/setup page

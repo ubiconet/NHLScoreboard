@@ -10,7 +10,7 @@
 // public sports data, validation-free TLS pinned ~45 KB of heap (more than
 // the device has to spare alongside the JSON documents), and the handshake
 // allocations (RSA/BIGNUM) fail on the fragmented heap. See the note at the
-// top of the original client implementation (now sports/mlb/mlb_client.cpp)
+// top of the original client implementation (now sports/nhl/nhl_client.cpp)
 // for the full history.
 //
 // The session is kept OPEN between calls: this install's network path
@@ -24,6 +24,13 @@ namespace http_fetch {
 // HTTP status code, or -1 on transport failure.
 int get(const String& url, uint32_t timeoutMs);
 
+// TLS twin of get() (shared WiFiClientSecure, insecure — public sports
+// data). Same retry/keep-alive semantics; used by https-only feeds such as
+// the NHL web API. Only one of the two sessions exists at a time: opening
+// one drops the other (both cost heap, and the device only ever fetches
+// one URL at a time on the data task).
+int getSecure(const String& url, uint32_t timeoutMs);
+
 // Buffers the body of the response from a successful get() and parses it.
 // Call only when get() returned HTTP_CODE_OK. Pass a filter to restrict
 // what is kept, or nullptr to parse the whole body. The connection is left
@@ -34,6 +41,11 @@ DeserializationError parseBody(JsonDocument& doc, JsonDocument* filter = nullptr
 // Drop the shared keep-alive session (used by the OTA updater, which needs
 // the heap + airtime to itself for its TLS download connection).
 void closeSession();
+
+// Debug view of the last buffered body (valid until the next fetch /
+// releaseBodyBuffer). Diagnostic builds only — do not build logic on this.
+const char* debugBody();
+size_t debugBodyLen();
 
 // Return the retained response-body buffer to the heap (the OTA updater
 // does this before mid-session TLS checks to maximize contiguous space).

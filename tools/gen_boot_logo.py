@@ -1,7 +1,7 @@
 from PIL import Image
 
-src = r"c:\projects\MLBScoreboard\src\sports\mlb\assets\mlbscoreboard.png"
-out = r"c:\projects\MLBScoreboard\src\sports\mlb\boot_logo.h"
+src = r"c:\projects\NHLScoreboard\src\sports\nhl\assets\nhlscoreboard.png"
+out = r"c:\projects\NHLScoreboard\src\sports\nhl\boot_logo.h"
 
 im = Image.open(src).convert("RGBA")
 w, h = im.size
@@ -21,10 +21,10 @@ def to_rgb565(r, g, b):
 lines = []
 lines.append("#pragma once")
 lines.append("#include <Arduino.h>")
-lines.append("// Auto-generated from src/mlbscoreboard.png (alpha-composited onto COLOR_BG 0x0821)")
+lines.append("// Auto-generated from src/nhlscoreboard.png (alpha-composited onto COLOR_BG 0x0821)")
 lines.append("static const int BOOT_LOGO_WIDTH = {};".format(w))
 lines.append("static const int BOOT_LOGO_HEIGHT = {};".format(h))
-lines.append("const uint16_t BOOT_LOGO_MLB[{}] PROGMEM = {{".format(w * h))
+lines.append("const uint16_t BOOT_LOGO_NHL[{}] PROGMEM = {{".format(w * h))
 for y in range(h):
     row_vals = []
     for x in range(w):

@@ -26,7 +26,7 @@ void renderBootStatusPage(const char* deviceName) {
   char heading[48];
   snprintf(heading, sizeof(heading), "%s", deviceName);
   for (char* p = heading; *p != '\0'; ++p) {
-    *p = toupper((unsigned char)*p);  // "MLB SCOREBOARD" heading style
+    *p = toupper((unsigned char)*p);  // "NHL SCOREBOARD" heading style
   }
   canvas.setTextColor(COLOR_GOLD);
   canvas.setTextSize(2);

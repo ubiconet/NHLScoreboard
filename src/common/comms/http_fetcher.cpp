@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <HTTPClient.h>
 #include <WiFiClient.h>
+#include <WiFiClientSecure.h>
 
 #include "common/config.h"
 #include "http_fetcher.h"
@@ -11,14 +12,18 @@ namespace {
 // Shared session: one WiFiClient + one HTTPClient reused across the fetches
 // of a single data-task tick via HTTP/1.1 keep-alive, and kept open between
 // ticks. Feed clients that need their own connection (news, OTA) call
-// closeSession() first so the two never overlap.
+// closeSession() first so the two never overlap. A secure session
+// (WiFiClientSecure, insecure handshake — public data) replaces the plain
+// one while any https URL is being fetched; both never coexist.
 WiFiClient* sClient = nullptr;
+WiFiClientSecure* sSecureClient = nullptr;
 HTTPClient sHttp;
 bool sConnected = false;
 
 void resetSession() {
   sHttp.end();
   if (sClient != nullptr) sClient->stop();
+  if (sSecureClient != nullptr) sSecureClient->stop();
   sConnected = false;
 }
 
@@ -53,9 +58,17 @@ class MemoryReadStream : public Stream {
 // HTTPClient::getString() uses an available()-polling loop that bails out
 // with a silent empty/partial String as soon as connected() blips false —
 // which happens routinely on this install's lossy Wi-Fi while body packets
-// are still in flight. This reader waits out the gaps instead, and reads
-// EXACTLY Content-Length bytes so the keep-alive connection stays clean for
-// the next request on the shared session.
+// are still in flight. This reader waits out the gaps instead.
+//
+// Three body framings are handled:
+//   Content-Length  — read exactly that many bytes (keeps keep-alive clean).
+//   chunked         — getSize() is -1 and the body starts with a hex chunk
+//                     size line; HTTPClient does NOT de-chunk getStream(),
+//                     so the framing is decoded here. (Without this, a JSON
+//                     body prefixed by e.g. "10128\r\n" parses as a bare
+//                     number and every object vanishes.)
+//   close-delimited — getSize() is -1 and the first byte isn't a hex digit
+//                     (JSON starts with '{' or '['); read until disconnect.
 bool readResponseBody(HTTPClient& http, uint32_t timeoutMs) {
   WiFiClient* stream = http.getStreamPtr();
   if (stream == nullptr) return false;
@@ -63,7 +76,48 @@ bool readResponseBody(HTTPClient& http, uint32_t timeoutMs) {
   uint32_t deadline = millis() + timeoutMs;
   uint8_t buf[512];
   sResponseBody = "";
-  while ((int)sResponseBody.length() < 0x10000 && millis() < deadline) {
+
+  if (remaining < 0) {
+    // Wait for the first byte to sniff chunked vs close-delimited.
+    while (stream->available() == 0 && stream->connected() &&
+           millis() < deadline) {
+      delay(2);
+    }
+    int first = stream->peek();
+    if (first >= 0 && isxdigit(first)) {
+      // ---- chunked ----
+      while (millis() < deadline) {
+        String sizeLine = stream->readStringUntil('\n');
+        sizeLine.trim();  // strip trailing \r
+        if (sizeLine.length() == 0) continue;
+        long chunk = strtol(sizeLine.c_str(), nullptr, 16);
+        if (chunk <= 0) break;  // terminal chunk; trailers left unread —
+                                // harmless on a keep-alive we close anyway
+        while (chunk > 0 && millis() < deadline) {
+          size_t avail = stream->available();
+          if (avail == 0) {
+            delay(2);
+            continue;
+          }
+          size_t toRead = sizeof(buf);
+          if (toRead > avail) toRead = avail;
+          if ((long)toRead > chunk) toRead = chunk;
+          size_t got = stream->readBytes(buf, toRead);
+          if (got == 0) continue;
+          sResponseBody.concat((const char*)buf, (unsigned)got);
+          chunk -= got;
+          if (sResponseBody.length() >= 0x18000) return true;  // sanity cap
+        }
+        // swallow the CRLF that terminates each chunk's data
+        String crlf = stream->readStringUntil('\n');
+        (void)crlf;
+      }
+      return sResponseBody.length() > 0;
+    }
+    // ---- close-delimited: fall through to the raw reader below ----
+  }
+
+  while (sResponseBody.length() < 0x18000 && millis() < deadline) {
     size_t avail = stream->available();
     if (avail == 0) {
       if (remaining == 0) break;  // known size fully read
@@ -76,7 +130,7 @@ bool readResponseBody(HTTPClient& http, uint32_t timeoutMs) {
     if (remaining > 0 && toRead > (size_t)remaining) toRead = (size_t)remaining;
     size_t got = stream->readBytes(buf, toRead);
     if (got == 0) continue;
-    sResponseBody.concat((const char*)buf, (unsigned int)got);
+    sResponseBody.concat((const char*)buf, (unsigned)got);
     if (remaining > 0) remaining -= (int)got;
     if (remaining == 0) break;
   }
@@ -105,9 +159,31 @@ int get(const String& url, uint32_t timeoutMs) {
   return -1;
 }
 
+int getSecure(const String& url, uint32_t timeoutMs) {
+  if (sSecureClient == nullptr) {
+    sSecureClient = new WiFiClientSecure();
+    sSecureClient->setInsecure();  // public sports data; also immune to the
+                                   // pre-NTP clock making cert times fail
+  }
+  for (int attempt = 0; attempt < 2; attempt++) {
+    sHttp.setReuse(true);
+    sHttp.setTimeout(timeoutMs);
+    if (!sHttp.begin(*sSecureClient, url)) return -1;
+    int code = sHttp.GET();
+    if (code >= 0 || attempt == 1) {
+      sConnected = (code > 0);
+      return code;
+    }
+    resetSession();
+  }
+  return -1;
+}
+
 DeserializationError parseBody(JsonDocument& doc, JsonDocument* filter) {
   int contentLength = sHttp.getSize();
-  bool readOk = readResponseBody(sHttp, 8000);
+  // 15 s: ~66 KB chunked bodies over TLS need more than the old 8 s on a
+  // lossy link — the tail kept arriving just past the deadline.
+  bool readOk = readResponseBody(sHttp, 15000);
   DBG_PRINTF("[HTTP] body %u bytes (content-length %d%s)\n",
              (unsigned)sResponseBody.length(), contentLength,
              readOk ? "" : ", read incomplete");
@@ -124,6 +200,9 @@ DeserializationError parseBody(JsonDocument& doc, JsonDocument* filter) {
 void closeSession() {
   resetSession();
 }
+
+const char* debugBody() { return sResponseBody.c_str(); }
+size_t debugBodyLen() { return sResponseBody.length(); }
 
 void releaseBodyBuffer() {
   sResponseBody = String();
