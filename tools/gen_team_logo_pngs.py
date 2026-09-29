@@ -1,73 +1,35 @@
 # Converts logos/svg/{ABBREV}.svg -> logos/png/{ABBREV}.png — the 64x64
 # RGBA transparent set the team-logo pipeline consumes (same convention as
-# the MLB template's logos/png). reportlab's rasterizer cannot produce an
-# alpha channel (bg is 24-bit RGB only), so each crest is rendered twice —
-# once on pure white, once on pure black — and the true color+alpha are
-# solved per pixel (Cwhite - Cblack = (1-a)*255). Rendering is supersampled
-# 4x, alpha-cropped to the crest, uniformly fitted (longest side = 64) and
-# centered so no logo is stretched. Also regenerates
-# logos/contact-sheet.png as an at-a-glance check sheet.
+# the MLB template's logos/png).
+#
+# Rasterizer: tools/bin/resvg.exe (vendored, v0.47.0). The original
+# svglib+reportlab rasterizer smeared the right side of many crests
+# (dragged-pixel artifacts on ~19 of the 32 logos; the SVGs were always
+# fine). resvg renders with native alpha at 4x zoom, then the crest is
+# alpha-cropped, uniformly fitted (longest side = 64) and centered so no
+# logo is stretched. Also regenerates logos/contact-sheet.png as an
+# at-a-glance check sheet.
 
-import contextlib
 import glob
-import io
 import os
+import subprocess
 
 from PIL import Image
-from reportlab.graphics import renderPM
-from svglib.svglib import svg2rlg
 
 SIZE = 64
-SS = 4  # supersample factor for smooth edges
+ZOOM = 4  # supersample factor for smooth edges
+RESVG = os.path.join(os.path.dirname(__file__), "bin", "resvg.exe")
 
 
-@contextlib.contextmanager
-def muted_stderr():
-    # reportlab's curve flattener prints "colinear!" notes for degenerate
-    # bezier control points straight to fd 2 — noise, not errors.
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    saved = os.dup(2)
-    os.dup2(devnull, 2)
-    try:
-        yield
-    finally:
-        os.dup2(saved, 2)
-        os.close(saved)
-        os.close(devnull)
-
-
-def render_on(svg_path, bg):
-    drawing = svg2rlg(svg_path)
-    w, h = drawing.width, drawing.height
-    scale = (SIZE * SS) / max(w, h)
-    drawing.scale(scale, scale)
-    drawing.width, drawing.height = w * scale, h * scale
-    with muted_stderr():
-        raw = renderPM.drawToString(drawing, fmt="PNG", bg=bg)
-    return Image.open(io.BytesIO(raw)).convert("RGB")
-
-
-def svg_to_png64(svg_path):
-    white, black = render_on(svg_path, 0xFFFFFF), render_on(svg_path, 0x000000)
-    cw, ck = white.load(), black.load()
-    out = Image.new("RGBA", white.size)
-    po = out.load()
-    for y in range(out.height):
-        for x in range(out.width):
-            w, k = cw[x, y], ck[x, y]
-            alpha = 255 - max(w[c] - k[c] for c in range(3))
-            if alpha <= 0:
-                po[x, y] = (0, 0, 0, 0)
-            elif alpha == 255:
-                po[x, y] = (w[0], w[1], w[2], 255)
-            else:
-                po[x, y] = tuple(
-                    max(0, min(255, round((w[c] - (255 - alpha)) * 255 / alpha)))
-                    for c in range(3)) + (alpha,)
-    bb = out.split()[3].getbbox()
+def svg_to_png64(svg_path, tmp_dir):
+    raw = os.path.join(tmp_dir, "raw.png")
+    subprocess.run([RESVG, "--zoom", str(ZOOM), svg_path, raw],
+                   check=True, capture_output=True)
+    im = Image.open(raw).convert("RGBA")
+    bb = im.split()[3].getbbox()
     if bb is None:
         raise RuntimeError("no visible content: %s" % svg_path)
-    im = out.crop(bb)
+    im = im.crop(bb)
     im.thumbnail((SIZE, SIZE), Image.LANCZOS)
     canvas = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     canvas.paste(im, ((SIZE - im.width) // 2, (SIZE - im.height) // 2), im)
@@ -79,17 +41,22 @@ def main():
     svgs = sorted(glob.glob(os.path.join(src_dir, "svg", "*.svg")))
     if not svgs:
         raise SystemExit("no SVGs in logos/svg/ — run the download step first")
+    if not os.path.exists(RESVG):
+        raise SystemExit("missing %s — re-vendor the resvg binary "
+                         "(see the header comment)" % RESVG)
 
+    import tempfile
     pngs = []
     os.makedirs(os.path.join(src_dir, "png"), exist_ok=True)
-    for svg in svgs:
-        base = os.path.basename(svg)[:-4]
-        abbrev = base.split("_")[0]  # tolerate {ABBREV}_light.svg naming
-        out = os.path.join(src_dir, "png", abbrev + ".png")
-        png = svg_to_png64(svg)
-        png.save(out)
-        pngs.append((abbrev, png))
-        print(abbrev, png.size, "content %dx%d" % (png.width, png.height))
+    with tempfile.TemporaryDirectory() as tmp:
+        for svg in svgs:
+            base = os.path.basename(svg)[:-4]
+            abbrev = base.split("_")[0]  # tolerate {ABBREV}_light.svg naming
+            out = os.path.join(src_dir, "png", abbrev + ".png")
+            png = svg_to_png64(svg, tmp)
+            png.save(out)
+            pngs.append((abbrev, png))
+            print(abbrev, png.size)
 
     # Contact sheet: 8 per row on the dark splash background.
     cols = 8
