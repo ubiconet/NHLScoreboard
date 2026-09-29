@@ -551,9 +551,9 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <p class="hint" id="dtestStatus">&nbsp;</p>
 <hr><h3>Manual Mode</h3>
 <p class="hint">Full manual control: clock countdown, scores, period, penalty LEDs, shots — from a dedicated page.</p>
-<p><a style="color:#f5c400" href="/manual">Open Manual Mode &rarr;</a></p>
+<button type="button" onclick="location.href='/manual'">Open Manual Mode</button>
 <hr><h3>Firmware Update</h3>
-<p class="hint">Installed: )html" + String(FIRMWARE_VERSION) + R"html(. Automatic checks run at boot and every 10 minutes.</p>
+<p class="hint">Installed: )html" + String(FIRMWARE_VERSION) + R"html(. Automatic checks run at boot.</p>
 <button type="button" style="margin-top:8px" onclick="otaCheck()">Check for Update Now</button>
 <p class="hint" id="otaStatus">&nbsp;</p>
 <p class="hint">Latest binary (for manual updates):<br>
