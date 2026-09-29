@@ -11,6 +11,8 @@
 // summary by the data task's game-clock math).
 struct NhlPenalty {
   char teamAbbrev[4];  // penalized team
+  char lastName[14];   // committedByPlayer's last name ("" if unknown)
+  int  number;         // sweater number (0 = unknown)
   char desc[14];       // "slashing", "tripping"...
   int  remainSec;      // seconds left on the clock (0 = just expired)
   int  durMin;         // original minutes (2/4/5)

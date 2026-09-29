@@ -98,6 +98,10 @@ GameSnapshot landingToSnapshot(JsonObjectConst d, long gameId) {
       if (cnt < 4) {
         NhlPenalty& p = s.penalties[cnt++];
         strlcpy(p.teamAbbrev, team, sizeof(p.teamAbbrev));
+        strlcpy(p.lastName,
+                pen["committedByPlayer"]["lastName"]["default"] | "",
+                sizeof(p.lastName));
+        p.number = pen["committedByPlayer"]["sweaterNumber"] | 0;
         strlcpy(p.desc, pen["descKey"] | "penalty", sizeof(p.desc));
         p.remainSec = remain;
         p.durMin = dur;

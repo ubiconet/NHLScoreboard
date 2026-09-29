@@ -32,17 +32,18 @@ size_t otherGameCount = 0;
 
 namespace {
 
+using namespace nhl_render;  // otherGames ticker shared with the waiting renderer
+
 GFXcanvas16& canvas() { return tftPanel.canvas(); }
 
 // Layout (320x240):
-//   y  0..26  header: state chip | period | clock
-//   y 30..122 away card (logo+abbrev) + score box at x228
-//   y126..218 home card + score box
-//   y222..239 SOG + penalty strip
-const int CARD_X = 8, CARD_W = 214, CARD_H = 92;
-const int AWAY_Y = 30, HOME_Y = 126;
-const int SCORE_X = 228, SCORE_W = 84;
-const int STRIP_Y = 222;
+//   y   0..26  header: state chip | period | clock
+//   y  30..118 shots-on-goal panels: HOME left, GUEST right
+//   y 124..238 penalties (active: player + remaining) or, when even
+//                strength, scores from the league's live games
+const int SOG_Y = 30, SOG_H = 88, SOG_W = 148;
+const int HOME_SOG_X = 8, GUEST_SOG_X = 164;  // home left, guest right
+const int BOTTOM_Y = 124;
 
 // Last-drawn cache — anything that differs triggers that region's repaint.
 struct Drawn {
@@ -56,7 +57,7 @@ struct Drawn {
   int clockSec = -1;
   bool inIntermission = false;
   int sogH = -1, sogA = -1;
-  char penaltySig[64] = "";
+  char penaltySig[128] = "";
 } d;
 
 void drawHeader(bool all) {
@@ -134,62 +135,96 @@ int liveClockSec() {
   return v > 0 ? v : 0;
 }
 
-void drawTeamRow(int y, const char* abbrev, int teamId) {
-  canvas().fillRoundRect(CARD_X, y, CARD_W, CARD_H, 6, COLOR_CARD);
-  canvas().drawRoundRect(CARD_X, y, CARD_W, CARD_H, 6, COLOR_MUTED);
-  ensureLogoCached(teamId, abbrev);
-  drawTeamLogo64(canvas(), CARD_X + 10, y + 14, teamId, abbrev);
-  canvas().setTextColor(ST77XX_WHITE);
-  canvas().setTextSize(4);  // 24px glyphs
-  canvas().setCursor(CARD_X + 92, y + 34);
-  printClipped(canvas(), abbrev, 4);
-}
-
-void drawScoreBox(int y, int score, bool inverted = false) {
-  // inverted = the goal flash: gold fill with dark digits instead of the
-  // dark card with gold digits.
-  canvas().fillRoundRect(SCORE_X, y, SCORE_W, CARD_H, 6,
+// One shots-on-goal panel: logo left, abbrev above the big shot count.
+// inverted = the goal flash (gold fill, dark content) on the scoring
+// side — the TFT no longer shows the scores themselves (those live on
+// the matrices), so the flash lands here.
+void drawSogPanel(int x, const char* abbrev, int teamId, int sog,
+                  bool inverted) {
+  canvas().fillRoundRect(x, SOG_Y, SOG_W, SOG_H, 6,
                          inverted ? COLOR_GOLD : COLOR_CARD);
-  canvas().drawRoundRect(SCORE_X, y, SCORE_W, CARD_H, 6, COLOR_MUTED);
+  canvas().drawRoundRect(x, SOG_Y, SOG_W, SOG_H, 6, COLOR_MUTED);
+  ensureLogoCached(teamId, abbrev);
+  drawTeamLogo64(canvas(), x + 10, SOG_Y + 12, teamId, abbrev);
+  canvas().setTextColor(COLOR_MUTED);
+  canvas().setTextSize(1);
+  canvas().setCursor(x + SOG_W - 32, SOG_Y + 4);
+  canvas().print("SOG");
+  canvas().setTextColor(inverted ? COLOR_BG : ST77XX_WHITE);
+  canvas().setTextSize(3);
+  drawCenteredText(canvas(), abbrev, x + 76 + 36, SOG_Y + 16);
   char s[4];
-  snprintf(s, sizeof(s), "%d", score < 0 ? 0 : score);
+  snprintf(s, sizeof(s), "%d", sog < 0 ? 0 : sog);
   canvas().setTextColor(inverted ? COLOR_BG : COLOR_GOLD);
-  canvas().setTextSize(6);  // 36px glyphs, up to 2 digits
-  int w = strlen(s) * 36;
-  canvas().setCursor(SCORE_X + (SCORE_W - w) / 2, y + 30);
-  canvas().print(s);
-  tftPanel.pushRows(SCORE_X, y, SCORE_W, CARD_H);
+  canvas().setTextSize(5);
+  drawCenteredText(canvas(), s, x + 76 + 36, SOG_Y + 46);
+  tftPanel.pushRows(x - 2, SOG_Y - 2, SOG_W + 4, SOG_H + 4);
 }
 
-void drawBottomStrip(const GameSnapshot& g) {
-  canvas().fillRect(0, STRIP_Y, 320, 240 - STRIP_Y, COLOR_CARD);
-  char sog[14];
-  snprintf(sog, sizeof(sog), "SOG %d-%d", g.awaySog, g.homeSog);
-  canvas().setTextSize(2);
-  canvas().setTextColor(ST77XX_WHITE);
-  canvas().setCursor(8, STRIP_Y + 2);
-  canvas().print(sog);
-  // penalty detail (right): "TOR slashing 1:23" xN or strength note
+bool liveish(const char* state) {
+  return strcmp(state, "LIVE") == 0 || strcmp(state, "CRIT") == 0;
+}
+
+// Bottom half, penalty view: team, sweater number + last name, and the
+// remaining penalty time for every active penalty.
+void drawPenaltiesHalf(const GameSnapshot& g) {
+  canvas().fillRect(0, BOTTOM_Y, 320, 240 - BOTTOM_Y, COLOR_BG);
+  canvas().setTextColor(COLOR_GOLD);
   canvas().setTextSize(1);
-  if (g.penaltyCount == 0) {
+  canvas().setCursor(12, BOTTOM_Y + 4);
+  canvas().print("PENALTIES");
+  int y = BOTTOM_Y + 22;
+  for (int i = 0; i < g.penaltyCount && i < 4; ++i) {
+    const NhlPenalty& p = g.penalties[i];
     canvas().setTextColor(COLOR_MUTED);
-    canvas().setCursor(120, STRIP_Y + 5);
-    canvas().print(g.homePenaltyCount + g.awayPenaltyCount > 0
-                       ? "POWER PLAY" : "EVEN STRENGTH");
-  } else {
-    int x = 112;
-    for (int i = 0; i < g.penaltyCount && i < 2; ++i) {
-      const NhlPenalty& p = g.penalties[i];
-      char buf[26];
-      snprintf(buf, sizeof(buf), "%s %s %d:%02d", p.teamAbbrev, p.desc,
-               p.remainSec / 60, p.remainSec % 60);
-      canvas().setTextColor(COLOR_GOLD);
-      canvas().setCursor(x, STRIP_Y + 5);
-      printClipped(canvas(), buf, 25);
-      x += 26 * 6 + 8;
-    }
+    canvas().setTextSize(1);
+    canvas().setCursor(16, y + 6);
+    canvas().print(p.teamAbbrev);
+    char who[22];
+    snprintf(who, sizeof(who), "#%d %s", p.number, p.lastName);
+    canvas().setTextColor(ST77XX_WHITE);
+    canvas().setTextSize(2);
+    canvas().setCursor(52, y);
+    printClipped(canvas(), who, 14);
+    char rem[8];
+    snprintf(rem, sizeof(rem), "%d:%02d", p.remainSec / 60, p.remainSec % 60);
+    canvas().setTextColor(COLOR_GOLD);
+    canvas().setCursor(308 - (int)strlen(rem) * 12, y);
+    canvas().print(rem);
+    y += 24;
   }
-  tftPanel.pushRows(0, STRIP_Y, 320, 240 - STRIP_Y);
+  tftPanel.pushRows(0, BOTTOM_Y, 320, 240 - BOTTOM_Y);
+}
+
+// Bottom half, even-strength view: scores of the league's in-progress
+// games (the followed game excluded by updateOtherGames).
+void drawLeagueHalf() {
+  canvas().fillRect(0, BOTTOM_Y, 320, 240 - BOTTOM_Y, COLOR_BG);
+  canvas().setTextColor(COLOR_GOLD);
+  canvas().setTextSize(1);
+  canvas().setCursor(12, BOTTOM_Y + 4);
+  canvas().print("AROUND THE LEAGUE");
+  int y = BOTTOM_Y + 22;
+  int rows = 0;
+  for (size_t i = 0; i < otherGameCount && rows < 4; ++i) {
+    const OtherGameInfo& o = otherGames[i];
+    if (!liveish(o.gameState)) continue;
+    char line[20];
+    snprintf(line, sizeof(line), "%s %2d - %2d %s", o.awayAbbrev, o.awayScore,
+             o.homeScore, o.homeAbbrev);
+    canvas().setTextColor(ST77XX_WHITE);
+    canvas().setTextSize(2);
+    drawCenteredText(canvas(), line, 160, y);
+    y += 24;
+    ++rows;
+  }
+  if (rows == 0) {
+    canvas().setTextColor(COLOR_MUTED);
+    canvas().setTextSize(1);
+    drawCenteredText(canvas(), "No other games in progress", 160,
+                     BOTTOM_Y + 44);
+  }
+  tftPanel.pushRows(0, BOTTOM_Y, 320, 240 - BOTTOM_Y);
 }
 
 }  // namespace
@@ -209,26 +244,28 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
     d.awayTeamId = g.awayTeamId;
     sFlashAwayUntil = sFlashHomeUntil = 0;
     canvas().fillScreen(COLOR_BG);
-    drawTeamRow(AWAY_Y, g.awayAbbrev, g.awayTeamId);
-    drawTeamRow(HOME_Y, g.homeAbbrev, g.homeTeamId);
-    d.homeScore = d.awayScore = -1;  // force score box redraw
+    d.homeScore = d.awayScore = -1;   // force change-driven redraws
+    d.sogH = d.sogA = -1;
+    d.penaltySig[0] = '\0';
+    drawSogPanel(HOME_SOG_X, g.homeAbbrev, g.homeTeamId, g.homeSog, false);
+    drawSogPanel(GUEST_SOG_X, g.awayAbbrev, g.awayTeamId, g.awaySog, false);
+    drawPenaltiesHalf(g);
     tftPanel.pushFull();
   }
 
-  // score boxes + matrices — a score INCREASE (goal) draws the box
-  // inverted (gold fill, dark digits) and schedules the 500 ms flash;
-  // the per-tick hook restores the normal box when it expires.
+  // matrices + goal flash — the score lives on the matrices; a score
+  // INCREASE (goal) inverts that team's SOG panel for the flash window
+  // and the per-tick hook restores it.
+  bool homeGoal = false, awayGoal = false;
   if (g.awayScore != d.awayScore) {
-    bool goal = g.awayScore > d.awayScore && d.awayScore >= 0;
+    awayGoal = g.awayScore > d.awayScore && d.awayScore >= 0;
     d.awayScore = g.awayScore;
-    drawScoreBox(AWAY_Y, g.awayScore, goal);
-    sFlashAwayUntil = goal ? millis() + NHL_SCORE_FLASH_MS : 0;
+    sFlashAwayUntil = awayGoal ? millis() + NHL_SCORE_FLASH_MS : 0;
   }
   if (g.homeScore != d.homeScore) {
-    bool goal = g.homeScore > d.homeScore && d.homeScore >= 0;
+    homeGoal = g.homeScore > d.homeScore && d.homeScore >= 0;
     d.homeScore = g.homeScore;
-    drawScoreBox(HOME_Y, g.homeScore, goal);
-    sFlashHomeUntil = goal ? millis() + NHL_SCORE_FLASH_MS : 0;
+    sFlashHomeUntil = homeGoal ? millis() + NHL_SCORE_FLASH_MS : 0;
   }
   setMax7219Scores(g.awayScore, g.homeScore);
   setCountLeds(g.homePenaltyCount, g.awayPenaltyCount, 0);
@@ -253,17 +290,43 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
     drawHeader(true);
   }
 
-  // bottom strip (SOG + penalties)
-  char sig[64] = "";
-  for (int i = 0; i < g.penaltyCount && i < 2; ++i)
-    snprintf(sig + strlen(sig), sizeof(sig) - strlen(sig), "%s%d",
-             g.penalties[i].teamAbbrev, g.penalties[i].remainSec);
-  if (g.homeSog != d.sogH || g.awaySog != d.sogA ||
-      strcmp(sig, d.penaltySig) != 0 ||
-      g.homePenaltyCount + g.awayPenaltyCount > 0) {
-    d.sogH = g.homeSog; d.sogA = g.awaySog;
+  // SOG panels — a goal also bumps that side's shot count, so the
+  // inverted flash panel rides along on the same redraw.
+  if (g.homeSog != d.sogH || homeGoal) {
+    d.sogH = g.homeSog;
+    drawSogPanel(HOME_SOG_X, g.homeAbbrev, g.homeTeamId, g.homeSog,
+                 sFlashHomeUntil != 0);
+  }
+  if (g.awaySog != d.sogA || awayGoal) {
+    d.sogA = g.awaySog;
+    drawSogPanel(GUEST_SOG_X, g.awayAbbrev, g.awayTeamId, g.awaySog,
+                 sFlashAwayUntil != 0);
+  }
+
+  // bottom half: penalties while any are active, otherwise the league's
+  // live scores. Signature covers both modes' contents so the view
+  // flips and refreshes only on real changes.
+  char sig[128] = "";
+  if (g.penaltyCount > 0) {
+    strlcpy(sig, "P", sizeof(sig));
+    for (int i = 0; i < g.penaltyCount && i < 4; ++i) {
+      const NhlPenalty& p = g.penalties[i];
+      snprintf(sig + strlen(sig), sizeof(sig) - strlen(sig), "|%s%d%s%d",
+               p.teamAbbrev, p.number, p.lastName, p.remainSec);
+    }
+  } else {
+    strlcpy(sig, "L", sizeof(sig));
+    for (size_t i = 0; i < otherGameCount; ++i) {
+      const OtherGameInfo& o = otherGames[i];
+      if (!liveish(o.gameState)) continue;
+      snprintf(sig + strlen(sig), sizeof(sig) - strlen(sig), "|%s%d%d%s",
+               o.awayAbbrev, o.awayScore, o.homeScore, o.homeAbbrev);
+    }
+  }
+  if (strcmp(sig, d.penaltySig) != 0) {
     strlcpy(d.penaltySig, sig, sizeof(d.penaltySig));
-    drawBottomStrip(g);
+    if (g.penaltyCount > 0) drawPenaltiesHalf(g);
+    else drawLeagueHalf();
   }
 
   // Display-binding trace (DBG-gated): one line per fresh snapshot showing
@@ -295,11 +358,11 @@ void tickLiveClock() {
   uint32_t now = millis();
   if (sFlashAwayUntil != 0 && (int32_t)(now - sFlashAwayUntil) >= 0) {
     sFlashAwayUntil = 0;
-    drawScoreBox(AWAY_Y, d.awayScore);
+    drawSogPanel(GUEST_SOG_X, d.awayAbbrev, d.awayTeamId, d.sogA, false);
   }
   if (sFlashHomeUntil != 0 && (int32_t)(now - sFlashHomeUntil) >= 0) {
     sFlashHomeUntil = 0;
-    drawScoreBox(HOME_Y, d.homeScore);
+    drawSogPanel(HOME_SOG_X, d.homeAbbrev, d.homeTeamId, d.sogH, false);
   }
   int clk = liveClockSec();
   if (clk == d.clockSec) return;

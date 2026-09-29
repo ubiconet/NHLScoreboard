@@ -74,6 +74,8 @@ void buildLandingFilter(JsonDocument& filter) {
   pen["timeInPeriod"] = true;
   pen["duration"] = true;
   pen["descKey"] = true;
+  pen["committedByPlayer"]["lastName"]["default"] = true;
+  pen["committedByPlayer"]["sweaterNumber"] = true;
   pen["teamAbbrev"]["default"] = true;
 }
 
