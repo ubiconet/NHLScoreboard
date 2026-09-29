@@ -570,7 +570,11 @@ void rotateCarousel() {
     }
     if (maxScroll > 0) {
       static int32_t lastDrawn = -9999;
-      if (sScrollPx - lastDrawn >= 6 || lastDrawn - sScrollPx >= 6) {
+      // Redraw only on whole character-cell steps: each pushed frame is
+      // internally static (no sub-character sweep tearing on the
+      // bit-banged bus), stepping one glyph at a time like an LED sign.
+      if (sScrollPx - lastDrawn >= TICKER_CHAR_W ||
+          lastDrawn - sScrollPx >= TICKER_CHAR_W) {
         lastDrawn = sScrollPx;
         drawStoryStrip(storyIndexForSlide(slide));
       }
