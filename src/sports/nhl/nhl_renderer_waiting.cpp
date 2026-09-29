@@ -388,17 +388,33 @@ size_t pageCount() {
   return n;
 }
 
-void drawCurrentPage() {
+// Draws the current carousel page. resetScroll=false is used when a
+// schedule publish repaints the SAME slide: the story scroll continues
+// where it was, so frequent republishes can't restart (and thereby never
+// finish) a story. Rotation passes true — a new slide starts at scroll 0.
+void drawCurrentPage(bool resetScroll) {
   canvas().fillScreen(COLOR_BG);
   size_t pages = pageCount();
   size_t slide = pages ? tickerSlide % pages : 0;
-  sScrollPx = 0;
-  sScrollMilliPx = 0;
-  switch (slideKind(slide)) {
+  SlideKind kind = slideKind(slide);
+  size_t storyIdx = (kind == SLIDE_STORY) ? storyIndexForSlide(slide)
+                                          : (size_t)-1;
+  static size_t sLastStoryIdx = (size_t)-1;
+  if (resetScroll || storyIdx != sLastStoryIdx) {
+    sScrollPx = 0;
+    sScrollMilliPx = 0;
+    DBG_PRINTF("[CAR] draw slide=%u/%u kind=%d scroll=reset\n",
+               (unsigned)slide, (unsigned)pages, (int)kind);
+  } else {
+    DBG_PRINTF("[CAR] repaint slide=%u/%u kind=%d scroll=%ldpx kept\n",
+               (unsigned)slide, (unsigned)pages, (int)kind, (long)sScrollPx);
+  }
+  sLastStoryIdx = storyIdx;
+  switch (kind) {
     case SLIDE_CARD:   drawUpcomingCard(slide); break;
     case SLIDE_DIAG:   drawNoGamesPage(); break;
     case SLIDE_LEAGUE: drawLeaguePage(); break;
-    case SLIDE_STORY:  drawNewsStory(storyIndexForSlide(slide)); break;
+    case SLIDE_STORY:  drawNewsStory(storyIdx); break;
     case SLIDE_LIST:   drawUpcomingListPage(); break;
   }
   tftPanel.pushFull();
@@ -434,7 +450,7 @@ void renderWaiting(JsonObjectConst dayScoreJson, const int preferredTeamIds[3]) 
   setMax7219Scores(MAX7219_SCORE_BLANK, MAX7219_SCORE_BLANK);
   setCountLeds(0, 0, 0);
   invalidateTm1637WallClock();  // wall clock repaints on the next tick
-  drawCurrentPage();
+  drawCurrentPage(false);  // schedule repaint: same slide keeps its scroll
 }
 
 void rotateCarousel() {
@@ -482,8 +498,10 @@ void rotateCarousel() {
 
   if (!shouldAdvance) return;
   nhl_render::lastCarouselTime = now;
+  DBG_PRINTF("[CAR] advance from kind=%d slide=%u\n", (int)kind,
+             (unsigned)slide);
   nhl_render::tickerSlide++;
-  if (!nhl_render::hasCurrentLiveGame) drawCurrentPage();
+  if (!nhl_render::hasCurrentLiveGame) drawCurrentPage(true);  // new slide
 }
 
 void updateOtherGames(const ScheduleSnapshot& schedule, long excludeGameId) {

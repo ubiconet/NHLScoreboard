@@ -100,6 +100,7 @@ void drawTeamLogo64(Adafruit_GFX& target, int x, int y, int teamId,
 void drawTeamLogoScaled(Adafruit_GFX& target, int x, int y, int teamId,
                         const char* abbrev, int size) {
   (void)teamId;
+  if (size <= 0) return;
   if (size == 64) {
     drawTeamLogo64(target, x, y, teamId, abbrev);
     return;
@@ -109,14 +110,16 @@ void drawTeamLogoScaled(Adafruit_GFX& target, int x, int y, int teamId,
     drawFallbackBadge(target, x, y, abbrev ? abbrev : "?");
     return;
   }
-  int step = 64 / size;  // nearest-neighbor sample
-  int cell = (size + 63) / 64 + 1;  // >=1 px cell per source pixel
-  for (int row = 0; row < 64; row += step)
-    for (int col = 0; col < 64; col += step) {
-      uint16_t c = px[row * 64 + col];
+  // Destination-driven nearest-neighbor: exactly size x size pixels, each
+  // sampling one source pixel. (The old source-stepped loop computed
+  // step = 64 / size, which is 0 for any size > 64 — an infinite loop the
+  // first time the upcoming card drew its 88 px logos.)
+  for (int dy = 0; dy < size; ++dy) {
+    const uint16_t* srcRow = px + (dy * 64 / size) * 64;
+    for (int dx = 0; dx < size; ++dx) {
+      uint16_t c = srcRow[dx * 64 / size];
       if (c == 0x1909) continue;
-      target.fillRect(x + (col / step) * (64 / size),
-                      y + (row / step) * (64 / size), 64 / size, 64 / size, c);
+      target.drawPixel(x + dx, y + dy, c);
     }
-  (void)cell;
+  }
 }
