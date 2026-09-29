@@ -14,6 +14,7 @@
 #include "nhl_renderer.h"
 #include "nhl_renderer_internal.h"
 #include "nhl_state.h"
+#include "news_font.h"
 
 // Waiting-mode screen, MLB-style carousel: the around-the-league slide
 // when games are on, then upcoming-game cards and news story pages
@@ -272,19 +273,47 @@ int headlineSizeFor(const char* headline) {
   return 2;
 }
 
+// Stock-ticker glyph renderer: the classic 5x7 font stretched vertically
+// to 20 px (8 font rows -> 20, the ~25% bump over text size 2 the ticker
+// asked for) with 2-px-wide columns — the same 12-px advance as size 2,
+// so the scroll math is unchanged. Drawing is clipped to the strip
+// window's inner area (columns slide in from the right during a step).
+// Bit 0 of each font byte is the top pixel row.
+void drawTickerText(int x, int y, const char* s, size_t maxChars,
+                    uint16_t color) {
+  static const int8_t kRowY[8] = {0, 2, 5, 7, 10, 12, 15, 17};  // floor(r*20/8)
+  static const int8_t kRowH[8] = {2, 3, 2, 2, 3, 2, 3, 3};      // sum = 20
+  const int xMin = STRIP_WIN_X + 1;
+  const int xMax = STRIP_WIN_X + STRIP_WIN_W - 1;
+  for (size_t k = 0; k < maxChars && s[k]; ++k) {
+    unsigned char c = (unsigned char)s[k];
+    if (c < 0x20 || c > 0x7E) c = ' ';
+    const uint8_t* glyph = NEWS_FONT[c - 0x20];
+    for (int col = 0; col < 5; ++col) {
+      uint8_t bits = pgm_read_byte(&glyph[col]);
+      if (!bits) continue;
+      int px = x + (int)k * 12 + col * 2;
+      if (px < xMin || px + 2 > xMax) continue;
+      for (int r = 0; r < 8; ++r, bits >>= 1) {
+        if (bits & 1) {
+          canvas().fillRect(px, y + kRowY[r], 2, kRowH[r], color);
+        }
+      }
+    }
+  }
+}
+
 void drawStoryStrip(size_t idx) {
   const char* d = getNewsStory(idx).description;
-  const int CHAR_W = 12;              // text size 2
+  const int CHAR_W = 12;              // ticker glyph advance (see drawTickerText)
   canvas().fillRoundRect(STRIP_WIN_X, STRIP_WIN_Y, STRIP_WIN_W, STRIP_WIN_H,
                          4, COLOR_CARD);
   canvas().drawRoundRect(STRIP_WIN_X, STRIP_WIN_Y, STRIP_WIN_W, STRIP_WIN_H,
                          4, COLOR_MUTED);
-  canvas().setTextColor(COLOR_GOLD);
-  canvas().setTextSize(2);
   int first = sScrollPx / CHAR_W;
   if (first < (int)strlen(d)) {
-    canvas().setCursor(STRIP_WIN_X + 8 - (sScrollPx % CHAR_W), STRIP_WIN_Y + 9);
-    printClipped(canvas(), d + first, STRIP_CHARS);
+    drawTickerText(STRIP_WIN_X + 8 - (sScrollPx % CHAR_W), STRIP_WIN_Y + 7,
+                   d + first, STRIP_CHARS, COLOR_LED_RED);
   }
   tftPanel.pushRows(STRIP_WIN_X - 2, STRIP_WIN_Y - 2, STRIP_WIN_W + 4,
                     STRIP_WIN_H + 4);
