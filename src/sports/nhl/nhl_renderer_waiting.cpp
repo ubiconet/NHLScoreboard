@@ -183,11 +183,14 @@ uint32_t sLastScrollAt = 0;
 const int STRIP_WIN_X = 32;   // centered 80%-width window
 const int STRIP_WIN_W = 256;
 const int STRIP_WIN_Y = 184;
-const int STRIP_WIN_H = 34;
+const int STRIP_WIN_H = 42;
 const int HEADLINE_TOP_Y = 14;
 const int HEADLINE_MAX_W = 296;
 const int HEADLINE_DIVIDER_Y = 172;
-const int STRIP_CHARS = (STRIP_WIN_W - 16) / 12;  // text size 2 chars in window
+// Ticker glyphs: 12-px-wide, 25-px-tall stretched 5x7 (see drawTickerText),
+// 15-px advance. All scroll math keys off this.
+const int TICKER_CHAR_W = 15;
+const int STRIP_CHARS = (STRIP_WIN_W - 16) / TICKER_CHAR_W;
 
 // Greedy word-wrap line count (mirrors drawCenteredWrapped's algorithm;
 // over-long words hard-split at the line width).
@@ -273,16 +276,17 @@ int headlineSizeFor(const char* headline) {
   return 2;
 }
 
-// Stock-ticker glyph renderer: the classic 5x7 font stretched vertically
-// to 20 px (8 font rows -> 20, the ~25% bump over text size 2 the ticker
-// asked for) with 2-px-wide columns — the same 12-px advance as size 2,
-// so the scroll math is unchanged. Drawing is clipped to the strip
-// window's inner area (columns slide in from the right during a step).
-// Bit 0 of each font byte is the top pixel row.
+// Stock-ticker glyph renderer: the classic 5x7 font stretched to 25-px
+// glyphs (8 font rows -> 25, 5 columns -> 12 px) — 25% larger in both
+// dimensions than the previous 20-px/10-px pass — on a 15-px advance.
+// Drawing is clipped to the strip window's inner area (columns slide in
+// from the right during a step). Bit 0 of each font byte is the top row.
 void drawTickerText(int x, int y, const char* s, size_t maxChars,
                     uint16_t color) {
-  static const int8_t kRowY[8] = {0, 2, 5, 7, 10, 12, 15, 17};  // floor(r*20/8)
-  static const int8_t kRowH[8] = {2, 3, 2, 2, 3, 2, 3, 3};      // sum = 20
+  static const int8_t kRowY[8] = {0, 3, 6, 9, 12, 15, 18, 21};  // floor(r*25/8)
+  static const int8_t kRowH[8] = {3, 3, 3, 3, 3, 3, 3, 4};      // sum = 25
+  static const int8_t kColX[5] = {0, 2, 4, 7, 9};               // floor(c*12/5)
+  static const int8_t kColW[5] = {2, 2, 3, 2, 3};               // sum = 12
   const int xMin = STRIP_WIN_X + 1;
   const int xMax = STRIP_WIN_X + STRIP_WIN_W - 1;
   for (size_t k = 0; k < maxChars && s[k]; ++k) {
@@ -292,11 +296,12 @@ void drawTickerText(int x, int y, const char* s, size_t maxChars,
     for (int col = 0; col < 5; ++col) {
       uint8_t bits = pgm_read_byte(&glyph[col]);
       if (!bits) continue;
-      int px = x + (int)k * 12 + col * 2;
-      if (px < xMin || px + 2 > xMax) continue;
+      int px = x + (int)k * TICKER_CHAR_W + kColX[col];
+      int pw = kColW[col];
+      if (px < xMin || px + pw > xMax) continue;
       for (int r = 0; r < 8; ++r, bits >>= 1) {
         if (bits & 1) {
-          canvas().fillRect(px, y + kRowY[r], 2, kRowH[r], color);
+          canvas().fillRect(px, y + kRowY[r], pw, kRowH[r], color);
         }
       }
     }
@@ -305,15 +310,15 @@ void drawTickerText(int x, int y, const char* s, size_t maxChars,
 
 void drawStoryStrip(size_t idx) {
   const char* d = getNewsStory(idx).description;
-  const int CHAR_W = 12;              // ticker glyph advance (see drawTickerText)
   canvas().fillRoundRect(STRIP_WIN_X, STRIP_WIN_Y, STRIP_WIN_W, STRIP_WIN_H,
                          4, COLOR_CARD);
   canvas().drawRoundRect(STRIP_WIN_X, STRIP_WIN_Y, STRIP_WIN_W, STRIP_WIN_H,
                          4, COLOR_MUTED);
-  int first = sScrollPx / CHAR_W;
+  int first = sScrollPx / TICKER_CHAR_W;
   if (first < (int)strlen(d)) {
-    drawTickerText(STRIP_WIN_X + 8 - (sScrollPx % CHAR_W), STRIP_WIN_Y + 7,
-                   d + first, STRIP_CHARS, COLOR_LED_RED);
+    drawTickerText(STRIP_WIN_X + 8 - (sScrollPx % TICKER_CHAR_W),
+                   STRIP_WIN_Y + (STRIP_WIN_H - 25) / 2, d + first,
+                   STRIP_CHARS, COLOR_LED_RED);
   }
   tftPanel.pushRows(STRIP_WIN_X - 2, STRIP_WIN_Y - 2, STRIP_WIN_W + 4,
                     STRIP_WIN_H + 4);
@@ -453,7 +458,8 @@ void rotateCarousel() {
     sScrollMilliPx += dt * NHL_NEWS_SCROLL_PX_PER_SEC;
     sScrollPx = (int32_t)(sScrollMilliPx / 1000);
     const char* d = getNewsStory(storyIndexForSlide(slide)).description;
-    int maxScroll = (int)strlen(d) * 12 - STRIP_CHARS * 12;
+    int maxScroll =
+        (int)strlen(d) * TICKER_CHAR_W - STRIP_CHARS * TICKER_CHAR_W;
     if (maxScroll < 0) maxScroll = 0;
     int endHold = maxScroll + NHL_NEWS_SCROLL_END_HOLD_PX;
     if (sScrollPx > endHold) {
