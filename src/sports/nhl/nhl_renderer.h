@@ -56,10 +56,11 @@ void renderManual();
 // Drops the manual screen's cache so the next renderManual() repaints all.
 void invalidateManualScreen();
 
-// Renders the waiting state: upcoming-game cards — one per preferred team,
-// away @ home with logos, abbrevs, date/time and a countdown — rotating
-// with the league ticker and NHL news slides (rotated by
-// rotateCarousel()); clears matrices/LEDs on entry.
+// Renders the waiting state: around-the-league slide (when games are on)
+// plus upcoming-game cards — one per upcoming game in the week look-ahead,
+// away @ home with logos, abbrevs, date/time and a countdown — interleaved
+// with NHL news stories (rotated by rotateCarousel()); clears
+// matrices/LEDs on entry.
 void renderWaiting(JsonObjectConst dayScoreJson,
                    const int preferredTeamIds[3]);
 

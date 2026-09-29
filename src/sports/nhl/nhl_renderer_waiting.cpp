@@ -15,17 +15,20 @@
 #include "nhl_renderer_internal.h"
 #include "nhl_state.h"
 
-// Waiting-mode screen, MLB-style carousel: upcoming-game cards — one per
-// preferred team, each showing away @ home with logos + 3-letter
-// abbreviations, the local game date/time and a STARTS IN countdown — an
-// around-the-league slide when games are on, then news story pages — the
-// headline as large centered white text over a scrolling detail strip —
-// with an upcoming-games list sprinkled in after every third story.
-// Story slides advance only after the whole description has scrolled
-// through the strip (short stories fall back to a timed dwell); the app
-// re-renders whenever a fresh day-score publish lands. Matrices/penalty
-// LEDs are cleared on entry (the idle clock on the TM1637 is driven by
-// the app via updateTm1637WallClock).
+// Waiting-mode screen, MLB-style carousel: the around-the-league slide
+// when games are on, then upcoming-game cards and news story pages
+// interleaved — card, story, card, story — running the longer tail of
+// whichever side has more entries. Each card covers one upcoming game
+// from the week look-ahead (away @ home with logos + 3-letter
+// abbreviations, local date/time, STARTS IN countdown, GAME X OF Y
+// footer); each story page shows the headline as large centered white
+// text over a scrolling detail strip that plays through the whole
+// description before the slide advances (short stories fall back to a
+// timed dwell, and the scroll keeps its position when a schedule
+// publish repaints the same slide). The app re-renders whenever a
+// fresh day-score publish lands. Matrices/penalty LEDs are cleared on
+// entry (the idle clock on the TM1637 is driven by the app via
+// updateTm1637WallClock).
 
 namespace {
 
@@ -39,7 +42,6 @@ size_t sNewsCount = 0;
 size_t sNewsIndex = 0;
 
 JsonObjectConst sSched;      // view into nhl_state's cached day-score doc
-int sPreferred[3] = {0, 0, 0};
 
 bool isLiveish(const char* state) {
   return strcmp(state, "LIVE") == 0 || strcmp(state, "CRIT") == 0;
@@ -48,50 +50,28 @@ bool isUpcoming(const char* state) {
   return strcmp(state, "FUT") == 0 || strcmp(state, "PREVIEW") == 0;
 }
 
-// ---- Upcoming-game cards (one per preferred team, MLB-style) ----
-const size_t MAX_UPCOMING_CARDS = 3;
+// ---- Upcoming-game cards (one per game, MLB-style) ----
+// Every upcoming game in the week look-ahead gets its own detailed card;
+// the carousel interleaves them with the news stories.
+const size_t MAX_UPCOMING_CARDS = 64;
 
 struct UpcomingCard {
   char awayAbbrev[4];
   char homeAbbrev[4];
   int  awayId, homeId;
-  long gameId;        // de-dupes when two preferred teams share a game
   time_t startUtc;
 };
 UpcomingCard sCards[MAX_UPCOMING_CARDS];
 size_t sCardCount = 0;
 
-// Rebuilds the card list from the cached day-score doc: for each preferred
-// team (priority order) its next upcoming game; when no preferred team is
-// scheduled, the slate's first upcoming games instead so the carousel still
-// shows something. Games without a parseable start time are skipped.
-void buildUpcomingCards(JsonObjectConst sched, const int preferred[3]) {
+// Rebuilds the card list from the cached upcoming doc: one card per
+// upcoming game, in the doc's chronological order (today's fresh slate
+// followed by the rest of the week). Games without a parseable start
+// time are skipped.
+void buildUpcomingCards(JsonObjectConst sched) {
   sCardCount = 0;
   JsonArrayConst games = sched["games"].as<JsonArrayConst>();
   if (games.isNull()) return;
-  for (int p = 0; p < 3 && sCardCount < MAX_UPCOMING_CARDS; ++p) {
-    if (preferred[p] == 0) continue;
-    for (JsonObjectConst g : games) {
-      if (!isUpcoming(g["gameState"] | "")) continue;
-      int a = g["awayTeam"]["id"] | 0, h = g["homeTeam"]["id"] | 0;
-      if (a != preferred[p] && h != preferred[p]) continue;
-      long gid = g["id"] | 0;
-      bool dup = false;
-      for (size_t i = 0; i < sCardCount; ++i) {
-        if (sCards[i].gameId == gid) { dup = true; break; }
-      }
-      if (dup) break;  // this preference's game is already carded
-      time_t start = 0;
-      if (!isoDateToEpoch(g["startTimeUTC"] | "", start) || start == 0) continue;
-      UpcomingCard& c = sCards[sCardCount++];
-      strlcpy(c.awayAbbrev, g["awayTeam"]["abbrev"] | "??", 4);
-      strlcpy(c.homeAbbrev, g["homeTeam"]["abbrev"] | "??", 4);
-      c.awayId = a; c.homeId = h;
-      c.gameId = gid; c.startUtc = start;
-      break;
-    }
-  }
-  if (sCardCount > 0) return;
   for (JsonObjectConst g : games) {
     if (sCardCount >= MAX_UPCOMING_CARDS) break;
     if (!isUpcoming(g["gameState"] | "")) continue;
@@ -102,7 +82,6 @@ void buildUpcomingCards(JsonObjectConst sched, const int preferred[3]) {
     strlcpy(c.homeAbbrev, g["homeTeam"]["abbrev"] | "??", 4);
     c.awayId = g["awayTeam"]["id"] | 0;
     c.homeId = g["homeTeam"]["id"] | 0;
-    c.gameId = g["id"] | 0;
     c.startUtc = start;
   }
 }
@@ -320,72 +299,45 @@ void drawNewsStory(size_t idx) {
   drawStoryStrip(idx);
 }
 
-// ---- Upcoming-games list page ("sprinkled" between story pages) ----
-void drawUpcomingListPage() {
-  canvas().setTextColor(COLOR_GOLD);
-  canvas().setTextSize(1);
-  canvas().setCursor(12, 8);
-  canvas().print("UPCOMING GAMES");
-  int y = 30;
-  JsonArrayConst games = sSched["games"].as<JsonArrayConst>();
-  if (games.isNull()) return;
-  for (JsonObjectConst g : games) {
-    if (y > 212) break;
-    if (!isUpcoming(g["gameState"] | "")) continue;
-    time_t start = 0;
-    isoDateToEpoch(g["startTimeUTC"] | "", start);
-    if (start == 0) continue;
-    tm lt = {};
-    localtime_r(&start, &lt);
-    char when[16];
-    strftime(when, sizeof(when), "%a %l:%M%p", &lt);
-    canvas().setTextColor(COLOR_MUTED);
-    canvas().setTextSize(1);
-    canvas().setCursor(16, y + 6);
-    canvas().print(when);
-    char matchup[12];
-    snprintf(matchup, sizeof(matchup), "%s @ %s",
-             g["awayTeam"]["abbrev"] | "??", g["homeTeam"]["abbrev"] | "??");
-    canvas().setTextColor(ST77XX_WHITE);
-    canvas().setTextSize(2);
-    canvas().setCursor(150, y);
-    canvas().print(matchup);
-    y += 26;
-  }
-}
+// ---- Upcoming-games list page: REMOVED — every upcoming game renders as
+// its own detailed card in the interleaved carousel instead. ----
 
-enum SlideKind { SLIDE_CARD, SLIDE_DIAG, SLIDE_LEAGUE, SLIDE_STORY, SLIDE_LIST };
+enum SlideKind { SLIDE_LEAGUE, SLIDE_CARD, SLIDE_STORY, SLIDE_DIAG };
 
-// Card slides lead the carousel; when there are none, the single slide 0
-// is the no-games diagnostics page instead.
-size_t cardSlideCount() { return sCardCount > 0 ? sCardCount : 1; }
-
-size_t mixedBase() { return cardSlideCount() + (otherGameCount > 0 ? 1 : 0); }
+// Slide 0 is the around-the-league page when games are on; the rest of
+// the carousel interleaves upcoming-game cards with news stories (card,
+// story, card, story...) and runs the longer tail of whichever side has
+// more entries.
+size_t leagueBase() { return otherGameCount > 0 ? 1 : 0; }
 
 SlideKind slideKind(size_t slide) {
-  if (slide < cardSlideCount()) return sCardCount > 0 ? SLIDE_CARD : SLIDE_DIAG;
-  if (otherGameCount > 0 && slide == cardSlideCount()) return SLIDE_LEAGUE;
-  size_t k = slide - mixedBase();
-  if (getNewsStoryCount() == 0) return SLIDE_LIST;
-  // Groups of four slides: three stories, then the upcoming list.
-  return (k % 4 == 3) ? SLIDE_LIST : SLIDE_STORY;
+  if (leagueBase() > 0 && slide == 0) return SLIDE_LEAGUE;
+  size_t i = slide - leagueBase();
+  size_t cards = sCardCount, stories = getNewsStoryCount();
+  if (cards == 0 && stories == 0) return SLIDE_DIAG;
+  size_t m = cards < stories ? cards : stories;
+  if (i < 2 * m) return (i % 2 == 0) ? SLIDE_CARD : SLIDE_STORY;
+  return (cards > stories) ? SLIDE_CARD : SLIDE_STORY;
+}
+
+size_t cardIndexForSlide(size_t slide) {
+  size_t i = slide - leagueBase();
+  size_t m = sCardCount < getNewsStoryCount() ? sCardCount : getNewsStoryCount();
+  return (i < 2 * m) ? (i / 2) : (i - m);
 }
 
 size_t storyIndexForSlide(size_t slide) {
-  size_t k = slide - mixedBase();
-  return (k / 4) * 3 + (k % 4);
+  size_t i = slide - leagueBase();
+  size_t m = sCardCount < getNewsStoryCount() ? sCardCount : getNewsStoryCount();
+  return (i < 2 * m) ? (i / 2) : (i - m);
 }
 
 size_t pageCount() {
-  size_t n = cardSlideCount();  // cards (or the no-games diagnostic page)
-  if (otherGameCount > 0) ++n;
-  size_t news = getNewsStoryCount();
-  if (news > 0) {
-    n += news + news / 3;  // stories + one list page per full trio
-  } else if (sCardCount > 0) {
-    ++n;  // no stories: append one upcoming-list overview page
+  size_t n = leagueBase();
+  if (sCardCount == 0 && getNewsStoryCount() == 0) {
+    return n + 1;  // plus the no-games diagnostic page
   }
-  return n;
+  return n + sCardCount + getNewsStoryCount();
 }
 
 // Draws the current carousel page. resetScroll=false is used when a
@@ -411,11 +363,10 @@ void drawCurrentPage(bool resetScroll) {
   }
   sLastStoryIdx = storyIdx;
   switch (kind) {
-    case SLIDE_CARD:   drawUpcomingCard(slide); break;
-    case SLIDE_DIAG:   drawNoGamesPage(); break;
     case SLIDE_LEAGUE: drawLeaguePage(); break;
+    case SLIDE_CARD:   drawUpcomingCard(cardIndexForSlide(slide)); break;
     case SLIDE_STORY:  drawNewsStory(storyIdx); break;
-    case SLIDE_LIST:   drawUpcomingListPage(); break;
+    case SLIDE_DIAG:   drawNoGamesPage(); break;
   }
   tftPanel.pushFull();
 }
@@ -443,10 +394,10 @@ const NewsStory& getNewsStory(size_t index) {
 }
 
 void renderWaiting(JsonObjectConst dayScoreJson, const int preferredTeamIds[3]) {
+  (void)preferredTeamIds;  // cards cover every upcoming game, not just these
   nhl_render::hasCurrentLiveGame = false;
   sSched = dayScoreJson;
-  for (int i = 0; i < 3; ++i) sPreferred[i] = preferredTeamIds[i];
-  buildUpcomingCards(sSched, sPreferred);
+  buildUpcomingCards(sSched);
   setMax7219Scores(MAX7219_SCORE_BLANK, MAX7219_SCORE_BLANK);
   setCountLeds(0, 0, 0);
   invalidateTm1637WallClock();  // wall clock repaints on the next tick
