@@ -541,6 +541,15 @@ void renderWaiting(JsonObjectConst dayScoreJson, const int preferredTeamIds[3]) 
 }
 
 void rotateCarousel() {
+  // A live game owns the display — no carousel work at all. (The story
+  // scroll's strip redraw used to run unguarded here and painted the news
+  // ticker over the live screen's bottom section.) Keep the scroll clock
+  // fresh so the first story after the game doesn't see a huge dt and
+  // insta-advance.
+  if (nhl_render::hasCurrentLiveGame) {
+    sLastScrollAt = millis();
+    return;
+  }
   uint32_t now = millis();
   size_t pages = pageCount();
   if (pages == 0) return;
