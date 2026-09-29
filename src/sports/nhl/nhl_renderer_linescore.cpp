@@ -93,6 +93,42 @@ void drawHeader(bool all) {
   tftPanel.pushRows(0, 0, 320, 26);
 }
 
+// ---- Local game-clock ticker ----
+// Between the 5 s landing polls the clock counts down locally so the
+// display tracks the real game clock; it freezes when the game clock is
+// stopped (whistle, intermission, final) and re-syncs on every poll. A
+// 2 s deadband while continuously running hides network jitter (a snap
+// every poll would stutter the display a second back and forth); real
+// jumps — period start, a stoppage the poll caught — exceed it and snap,
+// and any run/stop transition always snaps.
+uint32_t sClockSyncedAt = 0;
+int      sClockBasisSec = 0;
+bool     sClockRunning = false;
+
+void syncClockModel(const GameSnapshot& g) {
+  uint32_t now = millis();
+  int local = sClockRunning
+                  ? sClockBasisSec - (int)((now - sClockSyncedAt) / 1000)
+                  : sClockBasisSec;
+  if (local < 0) local = 0;
+  bool running = g.clockRunning && !g.inIntermission;
+  int fresh = g.clockSec < 0 ? 0 : g.clockSec;
+  int drift = fresh - local;
+  if (!running || !sClockRunning || drift > 2 || drift < -2) {
+    sClockBasisSec = fresh;  // re-sync from the poll
+  } else {
+    sClockBasisSec = local;  // keep local continuity within the deadband
+  }
+  sClockSyncedAt = now;
+  sClockRunning = running;
+}
+
+int liveClockSec() {
+  if (!sClockRunning) return sClockBasisSec;
+  int v = sClockBasisSec - (int)((millis() - sClockSyncedAt) / 1000);
+  return v > 0 ? v : 0;
+}
+
 void drawTeamRow(int y, const char* abbrev, int teamId) {
   canvas().fillRoundRect(CARD_X, y, CARD_W, CARD_H, 6, COLOR_CARD);
   canvas().drawRoundRect(CARD_X, y, CARD_W, CARD_H, 6, COLOR_MUTED);
@@ -176,18 +212,22 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
   setMax7219Scores(g.awayScore, g.homeScore);
   setCountLeds(g.homePenaltyCount, g.awayPenaltyCount, 0);
 
-  // TM1637: period clock MM:SS — colon always lit (board convention:
-  // the clock display keeps its colon in every mode and reading).
-  tm1637ShowPair(g.clockSec / 60, g.clockSec % 60, true);
+  // TM1637 + TFT header clock: period clock MM:SS — colon always lit
+  // (board convention: the clock display keeps its colon in every mode
+  // and reading). The model re-syncs from this poll; between polls
+  // tickLiveClock() counts it down while the game clock runs.
+  syncClockModel(g);
+  int clk = liveClockSec();
+  tm1637ShowPair(clk / 60, clk % 60, true);
 
   // header (period / clock / state)
   if (g.period != d.period || strcmp(g.periodType, d.periodType) != 0 ||
-      strcmp(g.gameState, d.state) != 0 || g.clockSec != d.clockSec ||
+      strcmp(g.gameState, d.state) != 0 || clk != d.clockSec ||
       g.inIntermission != d.inIntermission) {
     d.period = g.period;
     strlcpy(d.periodType, g.periodType, sizeof(d.periodType));
     strlcpy(d.state, g.gameState, sizeof(d.state));
-    d.clockSec = g.clockSec;
+    d.clockSec = clk;
     d.inIntermission = g.inIntermission;
     drawHeader(true);
   }
@@ -220,6 +260,18 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
 void forceLiveRepaint(const GameSnapshot& g) {
   d = Drawn{};  // drop every cached value so the whole screen repaints
   renderLiveGame(g);
+}
+
+void tickLiveClock() {
+  // Called every loop pass during a live game: advances the displayed
+  // clock one second at a time between the 5 s landing polls (frozen
+  // while the game clock is stopped). No-op without a live game.
+  if (!nhl_render::hasCurrentLiveGame) return;
+  int clk = liveClockSec();
+  if (clk == d.clockSec) return;
+  d.clockSec = clk;
+  tm1637ShowPair(clk / 60, clk % 60, true);
+  drawHeader(true);
 }
 
 // ---- Manual mode ------------------------------------------------------------

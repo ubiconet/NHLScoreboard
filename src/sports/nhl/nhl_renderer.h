@@ -43,6 +43,12 @@ void renderLiveGame(const GameSnapshot& game);
 // something else owned the display, e.g. the portal display test).
 void forceLiveRepaint(const GameSnapshot& game);
 
+// Advances the live game clock one second at a time between the 5 s
+// landing polls while the real game clock is running (frozen when it is
+// stopped); each poll re-syncs. Updates the TM1637 + TFT header clock
+// only when the displayed second changes. No-op without a live game.
+void tickLiveClock();
+
 // Manual mode (portal "Manual Mode" page owns the values): TFT shows
 // shots per team, matrices show scores + period, TM1637 the manual clock,
 // penalty LEDs follow the manual mask. Value-cached like the live screen.

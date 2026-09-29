@@ -266,6 +266,7 @@ void tick(const SportTickContext& ctx) {
   }
 
   rotateCarousel();
+  tickLiveClock();  // game clock counts down between the 5 s polls
 
   if (consumeScoreboardRelease()) {
     int preferredTeams[3];
