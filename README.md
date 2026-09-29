@@ -71,6 +71,11 @@ is a folder under `src/sports/` that implements the `sport::` contract
      league's transport — the NHL API is HTTPS-only, see
      `docs/features/nhl-api/README.md`).
    - `nhl_data_task.cpp` — poll cadence + parse-to-snapshot publishing.
+     **Keep the OTA wiring**: the loop must call
+     `serviceOtaUpdates(onlineFor)` every pass, hold feeds while
+     `otaUpdateInProgress()`, and gate the first feed fetch behind
+     `otaBootGateReached()` — the NHL port dropped these calls once and
+     the GitHub self-updater was silently dead until v3.19.
    - `nhl_app.cpp` / renderer files — your screens and state machine.
    - `team_logos.h` / `boot_logo.h` — regenerate assets
      (`tools/gen_boot_logo.py` pattern: RGB565, 0x1909 transparent).
