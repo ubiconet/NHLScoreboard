@@ -291,6 +291,65 @@ void fetchScheduleIfDue(bool online) {
   publishUpcomingScheduleJson(upcomingDoc.as<JsonObjectConst>());
 }
 
+// ---- Division standings (waiting-screen pages) ----
+uint32_t gLastStandingsAt = 0;
+bool     gStandingsValid = false;
+
+void fetchStandingsIfDue(bool online) {
+  if (!online || portalEngaged()) return;
+  if (!timeIsSynced()) return;
+  uint32_t now = millis();
+  uint32_t interval = gStandingsValid ? NHL_STANDINGS_TTL_MS
+                                      : NHL_STANDINGS_RETRY_MS;
+  if (gLastStandingsAt != 0 && (now - gLastStandingsAt) < interval) return;
+  gLastStandingsAt = now;
+
+  char date[11];
+  time_t t = time(nullptr);
+  tm lt = {};
+  localtime_r(&t, &lt);
+  if (strftime(date, sizeof(date), "%Y-%m-%d", &lt) == 0) return;
+
+  JsonDocument doc;
+  if (!fetchNhlStandings(doc, date)) {
+    gStandingsValid = false;
+    return;
+  }
+  // Group into the four divisions in first-seen order (the feed orders
+  // rows by league sequence, which is the within-division rank).
+  StandingsSnapshot snap{};
+  for (JsonObjectConst r : doc["standings"].as<JsonArrayConst>()) {
+    const char* div = r["divisionName"] | "";
+    const char* ab = r["teamAbbrev"]["default"] | "";
+    if (div[0] == '\0' || ab[0] == '\0') continue;
+    int d = -1;
+    for (int k = 0; k < 4; ++k) {
+      if (snap.count[k] == 0) continue;
+      if (strncmp(snap.divisionName[k], div, sizeof(snap.divisionName[0])) == 0) {
+        d = k;
+        break;
+      }
+    }
+    if (d < 0) {
+      for (int k = 0; k < 4; ++k) {
+        if (snap.count[k] == 0) { d = k; break; }
+      }
+      if (d < 0) break;  // more than four divisions — take the first four
+      strlcpy(snap.divisionName[d], div, sizeof(snap.divisionName[0]));
+    }
+    if (snap.count[d] >= 8) continue;
+    StandingsRow& row = snap.rows[d][snap.count[d]++];
+    strlcpy(row.abbrev, ab, sizeof(row.abbrev));
+    row.wins = r["wins"] | 0;
+    row.losses = r["losses"] | 0;
+    row.otLosses = r["otLosses"] | 0;
+    row.points = r["points"] | 0;
+  }
+  snap.valid = snap.count[0] > 0;
+  gStandingsValid = snap.valid;
+  if (snap.valid) updateStandings(snap);
+}
+
 void fetchLandingIfDue(bool online) {
   long id = getActiveGameId();
   if (id <= 0 || !online || portalEngaged()) return;
@@ -336,6 +395,7 @@ void nhlDataTaskLoop(void*) {
     }
 
     fetchScheduleIfDue(online);
+    fetchStandingsIfDue(online);
     fetchLandingIfDue(online);
     fetchNewsIfDue(online);
     vTaskDelay(pdMS_TO_TICKS(250));

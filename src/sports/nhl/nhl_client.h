@@ -19,6 +19,10 @@ bool fetchNhlDayScore(JsonDocument& doc, const char* dateStr);
 // upcoming-games carousel.
 bool fetchNhlWeekSchedule(JsonDocument& doc, const char* dateStr);
 
+// Division standings from /v1/standings/{date} (~51 KB raw). Keeps per
+// team: abbrev, divisionName, wins, losses, otLosses, points, sequence.
+bool fetchNhlStandings(JsonDocument& doc, const char* dateStr);
+
 // Live-game summary from /v1/gamecenter/{id}/landing (~11 KB, filtered):
 // gameState, periodDescriptor, clock, team score/sog, penalty summary.
 bool fetchNhlGameLanding(JsonDocument& doc, long gameId);

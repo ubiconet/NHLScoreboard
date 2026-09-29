@@ -17,12 +17,13 @@
 #include "news_font.h"
 
 // Waiting-mode screen, MLB-style carousel: the around-the-league slide
-// when games are on, then upcoming-game cards and news story pages
-// interleaved — card, story, card, story — running the longer tail of
-// whichever side has more entries. Each card covers one upcoming game
-// from the week look-ahead (away @ home with logos + 3-letter
-// abbreviations, local date/time, STARTS IN countdown, GAME X OF Y
-// footer); each story page shows the headline as large centered white
+// when games are on, then one standings page per division, then
+// upcoming-game cards and news story pages interleaved — card, story,
+// card, story — running the longer tail of whichever side has more
+// entries. Cards cover only the followed teams' next games in the week
+// look-ahead (away @ home with logos + 3-letter abbreviations, local
+// date/time, STARTS IN countdown, GAME X OF Y footer); each story page
+// shows the headline as large centered white
 // text over a scrolling detail strip that plays through the whole
 // description before the slide advances (short stories fall back to a
 // timed dwell, and the scroll keeps its position when a schedule
@@ -51,28 +52,57 @@ bool isUpcoming(const char* state) {
   return strcmp(state, "FUT") == 0 || strcmp(state, "PREVIEW") == 0;
 }
 
-// ---- Upcoming-game cards (one per game, MLB-style) ----
-// Every upcoming game in the week look-ahead gets its own detailed card;
-// the carousel interleaves them with the news stories.
-const size_t MAX_UPCOMING_CARDS = 64;
+// ---- Upcoming-game cards (one per followed team, MLB-style) ----
+// Only the teams selected in the portal get cards — each shows that
+// team's next game within the week look-ahead. With no teams selected
+// the carousel falls back to the league's next few games.
+const size_t MAX_UPCOMING_CARDS = 3;
 
 struct UpcomingCard {
   char awayAbbrev[4];
   char homeAbbrev[4];
   int  awayId, homeId;
+  long gameId;        // de-dupes when two followed teams share a game
   time_t startUtc;
 };
 UpcomingCard sCards[MAX_UPCOMING_CARDS];
 size_t sCardCount = 0;
 
-// Rebuilds the card list from the cached upcoming doc: one card per
-// upcoming game, in the doc's chronological order (today's fresh slate
-// followed by the rest of the week). Games without a parseable start
-// time are skipped.
-void buildUpcomingCards(JsonObjectConst sched) {
+// Rebuilds the card list from the cached upcoming doc. Games without a
+// parseable start time are skipped.
+void buildUpcomingCards(JsonObjectConst sched, const int preferred[3]) {
   sCardCount = 0;
   JsonArrayConst games = sched["games"].as<JsonArrayConst>();
   if (games.isNull()) return;
+  bool anyPreferred = preferred[0] != 0 || preferred[1] != 0 ||
+                      preferred[2] != 0;
+  if (anyPreferred) {
+    // One card per followed team: its first upcoming game of the week,
+    // in the doc's chronological order.
+    for (int p = 0; p < 3 && sCardCount < MAX_UPCOMING_CARDS; ++p) {
+      if (preferred[p] == 0) continue;
+      for (JsonObjectConst g : games) {
+        if (!isUpcoming(g["gameState"] | "")) continue;
+        int a = g["awayTeam"]["id"] | 0, h = g["homeTeam"]["id"] | 0;
+        if (a != preferred[p] && h != preferred[p]) continue;
+        long gid = g["id"] | 0;
+        bool dup = false;
+        for (size_t i = 0; i < sCardCount; ++i) {
+          if (sCards[i].gameId == gid) { dup = true; break; }
+        }
+        if (dup) break;  // both followed teams in one game — one card
+        time_t start = 0;
+        if (!isoDateToEpoch(g["startTimeUTC"] | "", start) || start == 0) break;
+        UpcomingCard& c = sCards[sCardCount++];
+        strlcpy(c.awayAbbrev, g["awayTeam"]["abbrev"] | "??", 4);
+        strlcpy(c.homeAbbrev, g["homeTeam"]["abbrev"] | "??", 4);
+        c.awayId = a; c.homeId = h;
+        c.gameId = gid; c.startUtc = start;
+        break;
+      }
+    }
+    return;
+  }
   for (JsonObjectConst g : games) {
     if (sCardCount >= MAX_UPCOMING_CARDS) break;
     if (!isUpcoming(g["gameState"] | "")) continue;
@@ -83,6 +113,7 @@ void buildUpcomingCards(JsonObjectConst sched) {
     strlcpy(c.homeAbbrev, g["homeTeam"]["abbrev"] | "??", 4);
     c.awayId = g["awayTeam"]["id"] | 0;
     c.homeId = g["homeTeam"]["id"] | 0;
+    c.gameId = g["id"] | 0;
     c.startUtc = start;
   }
 }
@@ -336,17 +367,87 @@ void drawNewsStory(size_t idx) {
 // ---- Upcoming-games list page: REMOVED — every upcoming game renders as
 // its own detailed card in the interleaved carousel instead. ----
 
-enum SlideKind { SLIDE_LEAGUE, SLIDE_CARD, SLIDE_STORY, SLIDE_DIAG };
+// ---- Division standings pages (renderer-owned; the data task
+// publishes fresh rows through updateStandings) ----
+StandingsSnapshot sStandings{};
 
-// Slide 0 is the around-the-league page when games are on; the rest of
-// the carousel interleaves upcoming-game cards with news stories (card,
+void drawRight(const char* s, int rightEdge, int y) {
+  canvas().setCursor(rightEdge - (int)strlen(s) * 12, y);
+  canvas().print(s);
+}
+
+void drawStandingsPage(int div) {
+  const StandingsSnapshot& s = sStandings;
+  canvas().setTextColor(COLOR_GOLD);
+  canvas().setTextSize(2);
+  drawCenteredText(canvas(), s.divisionName[div], 160, 8);
+  canvas().setTextColor(COLOR_MUTED);
+  canvas().setTextSize(1);
+  canvas().setCursor(16, 32);
+  canvas().print("TEAM");
+  canvas().setCursor(178, 32);
+  canvas().print("W");
+  canvas().setCursor(222, 32);
+  canvas().print("L");
+  canvas().setCursor(258, 32);
+  canvas().print("OTL");
+  canvas().setCursor(300, 32);
+  canvas().print("PTS");
+  int y = 46;
+  for (int i = 0; i < s.count[div] && i < 8; ++i) {
+    const StandingsRow& r = s.rows[div][i];
+    char buf[6];
+    canvas().setTextColor(ST77XX_WHITE);
+    canvas().setTextSize(2);
+    canvas().setCursor(16, y);
+    canvas().print(r.abbrev);
+    snprintf(buf, sizeof(buf), "%d", r.wins);
+    drawRight(buf, 185, y);
+    snprintf(buf, sizeof(buf), "%d", r.losses);
+    drawRight(buf, 229, y);
+    snprintf(buf, sizeof(buf), "%d", r.otLosses);
+    drawRight(buf, 272, y);
+    snprintf(buf, sizeof(buf), "%d", r.points);
+    canvas().setTextColor(COLOR_GOLD);
+    drawRight(buf, 306, y);
+    y += 24;
+  }
+}
+
+enum SlideKind { SLIDE_LEAGUE, SLIDE_STANDINGS, SLIDE_CARD, SLIDE_STORY, SLIDE_DIAG };
+
+// Static slides lead the carousel: around-the-league (when games are on),
+// then one standings page per division (when standings data is valid).
+// The rest interleaves upcoming-game cards with news stories (card,
 // story, card, story...) and runs the longer tail of whichever side has
 // more entries.
 size_t leagueBase() { return otherGameCount > 0 ? 1 : 0; }
 
+int standingsDivisionFor(size_t idx) {  // slide idx within the standings block
+  size_t seen = 0;
+  for (int k = 0; k < 4; ++k) {
+    if (sStandings.count[k] == 0) continue;
+    if (seen == idx) return k;
+    ++seen;
+  }
+  return -1;
+}
+
+size_t standingsSlideCount() {
+  size_t n = 0;
+  for (int k = 0; k < 4; ++k) {
+    if (sStandings.count[k] > 0) ++n;
+  }
+  return n;
+}
+
+size_t staticBase() { return leagueBase() + standingsSlideCount(); }
+
 SlideKind slideKind(size_t slide) {
   if (leagueBase() > 0 && slide == 0) return SLIDE_LEAGUE;
   size_t i = slide - leagueBase();
+  if (i < standingsSlideCount()) return SLIDE_STANDINGS;
+  i -= standingsSlideCount();
   size_t cards = sCardCount, stories = getNewsStoryCount();
   if (cards == 0 && stories == 0) return SLIDE_DIAG;
   size_t m = cards < stories ? cards : stories;
@@ -355,19 +456,19 @@ SlideKind slideKind(size_t slide) {
 }
 
 size_t cardIndexForSlide(size_t slide) {
-  size_t i = slide - leagueBase();
+  size_t i = slide - staticBase();
   size_t m = sCardCount < getNewsStoryCount() ? sCardCount : getNewsStoryCount();
   return (i < 2 * m) ? (i / 2) : (i - m);
 }
 
 size_t storyIndexForSlide(size_t slide) {
-  size_t i = slide - leagueBase();
+  size_t i = slide - staticBase();
   size_t m = sCardCount < getNewsStoryCount() ? sCardCount : getNewsStoryCount();
   return (i < 2 * m) ? (i / 2) : (i - m);
 }
 
 size_t pageCount() {
-  size_t n = leagueBase();
+  size_t n = staticBase();
   if (sCardCount == 0 && getNewsStoryCount() == 0) {
     return n + 1;  // plus the no-games diagnostic page
   }
@@ -397,10 +498,12 @@ void drawCurrentPage(bool resetScroll) {
   }
   sLastStoryIdx = storyIdx;
   switch (kind) {
-    case SLIDE_LEAGUE: drawLeaguePage(); break;
-    case SLIDE_CARD:   drawUpcomingCard(cardIndexForSlide(slide)); break;
-    case SLIDE_STORY:  drawNewsStory(storyIdx); break;
-    case SLIDE_DIAG:   drawNoGamesPage(); break;
+    case SLIDE_LEAGUE:    drawLeaguePage(); break;
+    case SLIDE_STANDINGS: drawStandingsPage(standingsDivisionFor(
+                              slide - leagueBase())); break;
+    case SLIDE_CARD:      drawUpcomingCard(cardIndexForSlide(slide)); break;
+    case SLIDE_STORY:     drawNewsStory(storyIdx); break;
+    case SLIDE_DIAG:      drawNoGamesPage(); break;
   }
   tftPanel.pushFull();
 }
@@ -428,10 +531,9 @@ const NewsStory& getNewsStory(size_t index) {
 }
 
 void renderWaiting(JsonObjectConst dayScoreJson, const int preferredTeamIds[3]) {
-  (void)preferredTeamIds;  // cards cover every upcoming game, not just these
   nhl_render::hasCurrentLiveGame = false;
   sSched = dayScoreJson;
-  buildUpcomingCards(sSched);
+  buildUpcomingCards(sSched, preferredTeamIds);
   setMax7219Scores(MAX7219_SCORE_BLANK, MAX7219_SCORE_BLANK);
   setCountLeds(0, 0, 0);
   invalidateTm1637WallClock();  // wall clock repaints on the next tick
@@ -477,8 +579,9 @@ void rotateCarousel() {
         : now - nhl_render::lastCarouselTime >= NHL_NEWS_STORY_DWELL_MS;
   } else {
     sLastScrollAt = now;
-    uint32_t dwell = (kind == SLIDE_CARD) ? NHL_UPCOMING_GAMES_ROTATE_MS
-                                          : NHL_CAROUSEL_ROTATE_MS;
+    uint32_t dwell = (kind == SLIDE_CARD || kind == SLIDE_STANDINGS)
+                         ? NHL_UPCOMING_GAMES_ROTATE_MS
+                         : NHL_CAROUSEL_ROTATE_MS;
     shouldAdvance = now - nhl_render::lastCarouselTime >= dwell;
   }
 
@@ -488,6 +591,10 @@ void rotateCarousel() {
              (unsigned)slide);
   nhl_render::tickerSlide++;
   if (!nhl_render::hasCurrentLiveGame) drawCurrentPage(true);  // new slide
+}
+
+void updateStandings(const StandingsSnapshot& standings) {
+  sStandings = standings;
 }
 
 void updateOtherGames(const ScheduleSnapshot& schedule, long excludeGameId) {

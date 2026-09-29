@@ -71,3 +71,7 @@ void rotateCarousel();
 // Apply the latest day-slate snapshot to the around-the-league ticker
 // (excludes the followed game).
 void updateOtherGames(const ScheduleSnapshot& schedule, long excludeGameId);
+
+// Apply the latest division standings — the four division pages join the
+// waiting carousel (after the league page) whenever data is valid.
+void updateStandings(const StandingsSnapshot& standings);

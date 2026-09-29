@@ -29,8 +29,8 @@ static const uint32_t SERIAL_BAUD_RATE = 115200;
 // firmware check + game data all load behind both). With no usable saved
 // Wi-Fi the splash is followed by the AP provisioning page ("connect to the
 // scoreboard") instead of the status page.
-static const uint32_t BOOT_SPLASH_HOLD_MS = 12000;
-static const uint32_t BOOT_SETUP_PAGE_MS = 8000;
+static const uint32_t BOOT_SPLASH_HOLD_MS = 16000;
+static const uint32_t BOOT_SETUP_PAGE_MS = 4000;
 // Past its minimum window the status page keeps showing until the first
 // schedule data lands — or this cap, so a dead network can't trap boot in
 // the setup page forever.

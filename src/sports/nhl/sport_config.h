@@ -99,6 +99,10 @@ static const uint32_t NHL_SCORE_FLASH_MS = 500;
 // retrying into a possibly-flaky TLS window.
 static const uint32_t NHL_WEEK_SCHEDULE_TTL_MS = 6UL * 60UL * 60UL * 1000UL;
 static const uint32_t NHL_WEEK_SCHEDULE_RETRY_MS = 15UL * 60UL * 1000UL;
+// Division standings: rows only change after games — a few refreshes a
+// day is plenty; failed fetches back off before retrying.
+static const uint32_t NHL_STANDINGS_TTL_MS = 6UL * 60UL * 60UL * 1000UL;
+static const uint32_t NHL_STANDINGS_RETRY_MS = 30UL * 60UL * 1000UL;
 // News ticker pacing — LED-marquee style. The bit-banged bus can't push
 // the window fast enough for clean continuous motion (any continuous
 // scroll tears by speed x push time, ~14 px at best), so the ticker

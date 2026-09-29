@@ -169,6 +169,45 @@ bool fetchNhlWeekSchedule(JsonDocument& doc, const char* dateStr) {
   return true;
 }
 
+bool fetchNhlStandings(JsonDocument& doc, const char* dateStr) {
+  String url = String(NHL_API_BASE) + "/standings/" + dateStr;
+  doc.clear();
+  http_fetch::releaseBodyBuffer();
+
+  setScheduleLastUrl("nhl_standings");
+  bumpScheduleFetchAttempt();
+  int code = http_fetch::getSecure(url, 10000);
+  setScheduleLastHttpCode(code);
+  http_fetch::logCall("nhl_standings", code);
+  if (code != HTTP_CODE_OK) {
+    setScheduleLastError(code < 0 ? "transport" : "http");
+    return false;
+  }
+  JsonDocument filter;
+  JsonArray rows = filter["standings"].to<JsonArray>();
+  JsonObject o = rows.add<JsonObject>();
+  o["teamAbbrev"]["default"] = true;
+  o["divisionName"] = true;
+  o["wins"] = true;
+  o["losses"] = true;
+  o["otLosses"] = true;
+  o["points"] = true;
+  o["sequence"] = true;
+  DeserializationError err = http_fetch::parseBody(doc, &filter);
+  http_fetch::releaseBodyBuffer();
+  size_t n = doc["standings"].as<JsonArrayConst>().size();
+  if (err || n == 0) {
+    setScheduleLastError("parse");
+    DBG_PRINTF("[NHL] standings parse error: %s rows=%u\n", err.c_str(),
+               (unsigned)n);
+    return false;
+  }
+  bumpScheduleFetchSuccess();
+  setScheduleLastError("ok");
+  DBG_PRINTF("[NHL] standings parsed: %u rows\n", (unsigned)n);
+  return true;
+}
+
 bool fetchNhlGameLanding(JsonDocument& doc, long gameId) {
   String url = String(NHL_API_BASE) + "/gamecenter/" + String(gameId) +
                "/landing";

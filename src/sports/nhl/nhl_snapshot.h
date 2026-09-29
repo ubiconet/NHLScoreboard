@@ -57,5 +57,19 @@ struct ScheduleSnapshot {
   bool  valid;
 };
 
+// Division standings snapshot (from /v1/standings, refreshed a few times
+// a day — rows only change after games). Four divisions in fixed order,
+// teams pre-sorted by the feed's sequence (points/rank) within division.
+struct StandingsRow {
+  char abbrev[4];
+  int16_t wins, losses, otLosses, points;
+};
+struct StandingsSnapshot {
+  char divisionName[4][12];   // "Atlantic", "Metropolitan", ...
+  StandingsRow rows[4][8];
+  uint8_t count[4];
+  bool valid;
+};
+
 // Core-0 NHL data task lifecycle.
 void startNhlDataTask();
