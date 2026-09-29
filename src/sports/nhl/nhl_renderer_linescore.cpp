@@ -118,14 +118,29 @@ void refreshPenaltyTimes() {
   }
 }
 
+// Feed-truth stop detection: the arena's clock.running flag can lag an
+// actual stoppage, which made the board tick past a dead clock until a
+// later poll snapped it back. A clock that claims to be running but
+// reports the SAME value on consecutive ~5 s polls is stopped at the
+// source (a running clock moves ~5 s per poll; measurement jitter is
+// ~±1 s) — freeze locally until the polled value moves again.
+int sLastPolledClockSec = -1;
+bool sFeedClockStuck = false;
+
 void syncClockModel(const GameSnapshot& g) {
   uint32_t now = millis();
   int local = sClockRunning
                   ? sClockBasisSec - (int)((now - sClockSyncedAt) / 1000)
                   : sClockBasisSec;
   if (local < 0) local = 0;
-  bool running = g.clockRunning && !g.inIntermission;
   int fresh = g.clockSec < 0 ? 0 : g.clockSec;
+  if (g.clockRunning && g.inIntermission == false && fresh > 0) {
+    sFeedClockStuck = (fresh == sLastPolledClockSec);
+  } else {
+    sFeedClockStuck = false;
+  }
+  sLastPolledClockSec = fresh;
+  bool running = g.clockRunning && !g.inIntermission && !sFeedClockStuck;
   int drift = fresh - local;
   if (!running || !sClockRunning || drift > 2 || drift < -2) {
     sClockBasisSec = fresh;  // re-sync from the poll (snap)
