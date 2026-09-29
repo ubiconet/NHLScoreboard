@@ -34,6 +34,23 @@ void buildDayScoreFilter(JsonDocument& filter) {
   o["homeTeam"]["score"] = true;
 }
 
+void buildWeekScheduleFilter(JsonDocument& filter) {
+  JsonArray week = filter["gameWeek"].to<JsonArray>();
+  JsonObject day = week.add<JsonObject>();
+  day["date"] = true;
+  JsonArray games = day["games"].to<JsonArray>();
+  JsonObject o = games.add<JsonObject>();
+  o["id"] = true;
+  o["gameState"] = true;
+  o["startTimeUTC"] = true;
+  o["awayTeam"]["id"] = true;
+  o["awayTeam"]["abbrev"] = true;
+  o["awayTeam"]["score"] = true;
+  o["homeTeam"]["id"] = true;
+  o["homeTeam"]["abbrev"] = true;
+  o["homeTeam"]["score"] = true;
+}
+
 void buildLandingFilter(JsonDocument& filter) {
   filter["gameState"] = true;
   filter["periodDescriptor"]["number"] = true;
@@ -105,6 +122,48 @@ bool fetchNhlDayScore(JsonDocument& doc, const char* dateStr) {
   bumpScheduleFetchSuccess();
   setScheduleLastError("ok");
   DBG_PRINTF("[NHL] day-score parsed: %u games\n", (unsigned)gameCount);
+  return true;
+}
+
+bool fetchNhlWeekSchedule(JsonDocument& doc, const char* dateStr) {
+  String url = String(NHL_API_BASE) + "/schedule/" + dateStr;
+  doc.clear();
+  http_fetch::releaseBodyBuffer();
+
+  setScheduleLastUrl("nhl_week_schedule");
+  bumpScheduleFetchAttempt();
+  int code = http_fetch::getSecure(url, 12000);
+  setScheduleLastHttpCode(code);
+  http_fetch::logCall("nhl_week_schedule", code);
+  if (code != HTTP_CODE_OK) {
+    setScheduleLastError(code < 0 ? "transport" : "http");
+    return false;
+  }
+  JsonDocument filter;
+  buildWeekScheduleFilter(filter);
+  DeserializationError err = http_fetch::parseBody(doc, &filter);
+  http_fetch::releaseBodyBuffer();
+  size_t days = doc["gameWeek"].as<JsonArrayConst>().size();
+  // Tail tolerance (same discipline as the day-score parse): the raw week
+  // body is the largest payload we fetch (~85-115 KB with per-game media
+  // URLs); a truncated tail past the last kept field still yields all
+  // seven day objects. Anything short of a full week, or a structural
+  // error, rejects the fetch so the data task falls back.
+  bool tailOnly = err == DeserializationError::IncompleteInput ||
+                  err == DeserializationError::InvalidInput;
+  if ((!tailOnly && err) || days < 7) {
+    setScheduleLastError("parse");
+    DBG_PRINTF("[NHL] week-schedule parse error: %s days=%u\n", err.c_str(),
+               (unsigned)days);
+    return false;
+  }
+  if (err) {
+    DBG_PRINTF("[NHL] week-schedule tail truncated; using %u days\n",
+               (unsigned)days);
+  }
+  bumpScheduleFetchSuccess();
+  setScheduleLastError("ok");
+  DBG_PRINTF("[NHL] week-schedule parsed: %u days\n", (unsigned)days);
   return true;
 }
 

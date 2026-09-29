@@ -28,6 +28,11 @@ uint32_t gLastScheduleAt = 0;
 bool     gScheduleValid  = false;
 uint32_t gLastLandingAt  = 0;
 
+// ---- Week look-ahead cache (/v1/schedule, Mon-Sun) ----
+JsonDocument gWeekDoc;       // filtered slate: gameWeek[] {date, games[]}
+char     gWeekDate[11] = ""; // Monday the cache covers; "" = no cache
+uint32_t gWeekFetchAt = 0;   // last refresh ATTEMPT (success or failure)
+
 int periodLength(int period) { return period <= 3 ? 1200 : 300; }
 
 int parseMmSs(const char* s) {
@@ -163,7 +168,7 @@ void fetchScheduleIfDue(bool online) {
 
   ScheduleSnapshot snap{};
   size_t n = 0;
-  auto appendGames = [&](const JsonDocument& src) {
+  auto appendGames = [&](JsonObjectConst src) {
     for (JsonObjectConst g : src["games"].as<JsonArrayConst>()) {
       if (n >= 26) break;
       long id = g["id"] | 0;
@@ -183,16 +188,56 @@ void fetchScheduleIfDue(bool online) {
       strlcpy(o.startUtc, g["startTimeUTC"] | "", sizeof(o.startUtc));
     }
   };
-  appendGames(doc);
+  appendGames(doc.as<JsonObjectConst>());
 
-  // Tomorrow look-ahead: on an off day (or after today's slate is done)
-  // the upcoming card should still show the NEXT game, so tomorrow's
-  // slate is fetched and merged into both the snapshot (league ticker)
-  // and the upcoming-games cache the waiting screen walks.
+  // Upcoming-games look-ahead: one /v1/schedule call covers the Mon-Sun
+  // week containing today. The cache only refreshes on TTL (6 h) or when
+  // the week rolls over — future-day states never change, and today's
+  // half of the upcoming doc below always comes from the fresh day-score
+  // fetch above. Failed refreshes retry on their own spacing.
+  {
+    time_t monday = t - ((lt.tm_wday + 6) % 7) * 24 * 60 * 60;
+    tm md = {};
+    localtime_r(&monday, &md);
+    char mondayStr[11];
+    if (strftime(mondayStr, sizeof(mondayStr), "%Y-%m-%d", &md) > 0) {
+      uint32_t sinceFetch = millis() - gWeekFetchAt;
+      bool need = strcmp(gWeekDate, mondayStr) != 0 ||
+                  sinceFetch > NHL_WEEK_SCHEDULE_TTL_MS;
+      bool mayTry = gWeekFetchAt == 0 ||
+                    sinceFetch >= NHL_WEEK_SCHEDULE_RETRY_MS;
+      if (need && mayTry) {
+        gWeekFetchAt = millis();
+        if (fetchNhlWeekSchedule(gWeekDoc, date)) {
+          strlcpy(gWeekDate,
+                  gWeekDoc["gameWeek"][0]["date"] | mondayStr,
+                  sizeof(gWeekDate));
+        } else {
+          gWeekDate[0] = '\0';
+          gWeekDoc.clear();
+        }
+      }
+    }
+  }
+  bool weekValid = gWeekDate[0] != '\0';
+
+  // The upcoming-games cache the waiting screen walks: today's fresh
+  // games, then every later day of the cached week — so the carousel's
+  // per-team cards and the upcoming list span a full seven days.
   JsonDocument upcomingDoc;
   JsonArray merged = upcomingDoc["games"].to<JsonArray>();
   for (JsonObjectConst g : doc["games"].as<JsonArrayConst>()) merged.add(g);
-  {
+  if (weekValid) {
+    for (JsonObjectConst day : gWeekDoc["gameWeek"].as<JsonArrayConst>()) {
+      if (strcmp(day["date"] | "", date) <= 0) continue;  // today merged fresh
+      appendGames(day);  // snapshot/ticker look-ahead (dedup + 26 cap)
+      for (JsonObjectConst g : day["games"].as<JsonArrayConst>()) {
+        merged.add(g);
+      }
+    }
+  } else {
+    // Week fetch unavailable (fresh boot in a bad TLS window): fall back
+    // to the old one-day look-ahead so tomorrow's card still shows.
     time_t tmrw = t + 24 * 60 * 60;
     tm td = {};
     localtime_r(&tmrw, &td);
@@ -200,25 +245,21 @@ void fetchScheduleIfDue(bool online) {
     if (strftime(tdate, sizeof(tdate), "%Y-%m-%d", &td) > 0) {
       JsonDocument tdoc;
       if (fetchNhlDayScore(tdoc, tdate)) {
-        appendGames(tdoc);
+        appendGames(tdoc.as<JsonObjectConst>());
         for (JsonObjectConst g : tdoc["games"].as<JsonArrayConst>()) {
           merged.add(g);
         }
       }
     }
-  }
-
-  // Still nothing scheduled? The day-score response names the next date
-  // with games ("nextDate") — hop to it so multi-day breaks (preseason
-  // gaps) still put an upcoming game on the board.
-  if (n == 0) {
-    const char* nextDate = doc["nextDate"] | "";
-    if (nextDate[0] != '\0') {
-      JsonDocument ndoc;
-      if (fetchNhlDayScore(ndoc, nextDate)) {
-        appendGames(ndoc);
-        for (JsonObjectConst g : ndoc["games"].as<JsonArrayConst>()) {
-          merged.add(g);
+    if (n == 0) {
+      const char* nextDate = doc["nextDate"] | "";
+      if (nextDate[0] != '\0') {
+        JsonDocument ndoc;
+        if (fetchNhlDayScore(ndoc, nextDate)) {
+          appendGames(ndoc.as<JsonObjectConst>());
+          for (JsonObjectConst g : ndoc["games"].as<JsonArrayConst>()) {
+            merged.add(g);
+          }
         }
       }
     }
@@ -235,7 +276,7 @@ void fetchScheduleIfDue(bool online) {
     char ydate[11];
     if (strftime(ydate, sizeof(ydate), "%Y-%m-%d", &yd) > 0) {
       JsonDocument ydoc;
-      if (fetchNhlDayScore(ydoc, ydate)) appendGames(ydoc);
+      if (fetchNhlDayScore(ydoc, ydate)) appendGames(ydoc.as<JsonObjectConst>());
     }
   }
 

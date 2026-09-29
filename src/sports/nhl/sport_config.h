@@ -88,7 +88,14 @@ static const uint32_t NHL_NTP_READY_RETRY_MS = 5000;     // short retry while aw
 static const uint32_t NHL_POSTGAME_GRACE_MS = 300000;    // Keep final followed game visible for 5 min
 static const uint32_t NHL_AT_BAT_RESULT_DISPLAY_MS = 5000; // Full-screen result card duration
 static const uint32_t NHL_CAROUSEL_ROTATE_MS = 5000;      // Rotate live-game stat ticker every 5s
-static const uint32_t NHL_UPCOMING_GAMES_ROTATE_MS = 5000;  // Show each upcoming-game card for 5s
+static const uint32_t NHL_UPCOMING_GAMES_ROTATE_MS = 8000;  // Show each upcoming-game card for 8s
+// Week look-ahead (/v1/schedule, Mon-Sun): the upcoming-games carousel
+// spans a full week. The week cache refreshes at most 4x/day — future-day
+// game states never change (today's half of the upcoming doc always comes
+// from the fresh day-score poll) — and failed refreshes back off before
+// retrying into a possibly-flaky TLS window.
+static const uint32_t NHL_WEEK_SCHEDULE_TTL_MS = 6UL * 60UL * 60UL * 1000UL;
+static const uint32_t NHL_WEEK_SCHEDULE_RETRY_MS = 15UL * 60UL * 1000UL;
 // News ticker pacing — LED-marquee style. The bit-banged bus can't push
 // the window fast enough for clean continuous motion (any continuous
 // scroll tears by speed x push time, ~14 px at best), so the ticker

@@ -13,6 +13,12 @@
 // home/away {id, abbrev, score}.
 bool fetchNhlDayScore(JsonDocument& doc, const char* dateStr);
 
+// Mon-Sun week containing dateStr from /v1/schedule/{date} (~85 KB raw,
+// ~13.5 KB filtered). Keeps gameWeek[] {date, games[] {id, gameState,
+// startTimeUTC, home/away {id, abbrev}}} — the look-ahead source for the
+// upcoming-games carousel.
+bool fetchNhlWeekSchedule(JsonDocument& doc, const char* dateStr);
+
 // Live-game summary from /v1/gamecenter/{id}/landing (~11 KB, filtered):
 // gameState, periodDescriptor, clock, team score/sog, penalty summary.
 bool fetchNhlGameLanding(JsonDocument& doc, long gameId);

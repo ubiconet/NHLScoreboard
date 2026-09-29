@@ -106,7 +106,7 @@ bool readResponseBody(HTTPClient& http, uint32_t timeoutMs) {
           if (got == 0) continue;
           sResponseBody.concat((const char*)buf, (unsigned)got);
           chunk -= got;
-          if (sResponseBody.length() >= 0x18000) return true;  // sanity cap
+          if (sResponseBody.length() >= 0x20000) return true;  // sanity cap
         }
         // swallow the CRLF that terminates each chunk's data
         String crlf = stream->readStringUntil('\n');
@@ -117,7 +117,7 @@ bool readResponseBody(HTTPClient& http, uint32_t timeoutMs) {
     // ---- close-delimited: fall through to the raw reader below ----
   }
 
-  while (sResponseBody.length() < 0x18000 && millis() < deadline) {
+  while (sResponseBody.length() < 0x20000 && millis() < deadline) {
     size_t avail = stream->available();
     if (avail == 0) {
       if (remaining == 0) break;  // known size fully read
