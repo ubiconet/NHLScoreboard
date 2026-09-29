@@ -89,6 +89,9 @@ static const uint32_t NHL_POSTGAME_GRACE_MS = 300000;    // Keep final followed 
 static const uint32_t NHL_AT_BAT_RESULT_DISPLAY_MS = 5000; // Full-screen result card duration
 static const uint32_t NHL_CAROUSEL_ROTATE_MS = 5000;      // Rotate live-game stat ticker every 5s
 static const uint32_t NHL_UPCOMING_GAMES_ROTATE_MS = 8000;  // Show each upcoming-game card for 8s
+// Goal flash: a score increase inverts that team's score box (gold fill,
+// dark digits) for this long before the per-tick hook restores it.
+static const uint32_t NHL_SCORE_FLASH_MS = 500;
 // Week look-ahead (/v1/schedule, Mon-Sun): the upcoming-games carousel
 // spans a full week. The week cache refreshes at most 4x/day — future-day
 // game states never change (today's half of the upcoming doc always comes

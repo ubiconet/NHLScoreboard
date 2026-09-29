@@ -105,6 +105,11 @@ uint32_t sClockSyncedAt = 0;
 int      sClockBasisSec = 0;
 bool     sClockRunning = false;
 
+// Goal flash: millis() deadline of each side's inverted score box
+// (0 = not flashing). Set by renderLiveGame on a score increase.
+uint32_t sFlashAwayUntil = 0;
+uint32_t sFlashHomeUntil = 0;
+
 void syncClockModel(const GameSnapshot& g) {
   uint32_t now = millis();
   int local = sClockRunning
@@ -140,12 +145,15 @@ void drawTeamRow(int y, const char* abbrev, int teamId) {
   printClipped(canvas(), abbrev, 4);
 }
 
-void drawScoreBox(int y, int score) {
-  canvas().fillRoundRect(SCORE_X, y, SCORE_W, CARD_H, 6, COLOR_CARD);
+void drawScoreBox(int y, int score, bool inverted = false) {
+  // inverted = the goal flash: gold fill with dark digits instead of the
+  // dark card with gold digits.
+  canvas().fillRoundRect(SCORE_X, y, SCORE_W, CARD_H, 6,
+                         inverted ? COLOR_GOLD : COLOR_CARD);
   canvas().drawRoundRect(SCORE_X, y, SCORE_W, CARD_H, 6, COLOR_MUTED);
   char s[4];
   snprintf(s, sizeof(s), "%d", score < 0 ? 0 : score);
-  canvas().setTextColor(COLOR_GOLD);
+  canvas().setTextColor(inverted ? COLOR_BG : COLOR_GOLD);
   canvas().setTextSize(6);  // 36px glyphs, up to 2 digits
   int w = strlen(s) * 36;
   canvas().setCursor(SCORE_X + (SCORE_W - w) / 2, y + 30);
@@ -199,6 +207,7 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
     strlcpy(d.awayAbbrev, g.awayAbbrev, sizeof(d.awayAbbrev));
     d.homeTeamId = g.homeTeamId;
     d.awayTeamId = g.awayTeamId;
+    sFlashAwayUntil = sFlashHomeUntil = 0;
     canvas().fillScreen(COLOR_BG);
     drawTeamRow(AWAY_Y, g.awayAbbrev, g.awayTeamId);
     drawTeamRow(HOME_Y, g.homeAbbrev, g.homeTeamId);
@@ -206,9 +215,21 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
     tftPanel.pushFull();
   }
 
-  // score boxes + matrices
-  if (g.awayScore != d.awayScore) { d.awayScore = g.awayScore; drawScoreBox(AWAY_Y, g.awayScore); }
-  if (g.homeScore != d.homeScore) { d.homeScore = g.homeScore; drawScoreBox(HOME_Y, g.homeScore); }
+  // score boxes + matrices — a score INCREASE (goal) draws the box
+  // inverted (gold fill, dark digits) and schedules the 500 ms flash;
+  // the per-tick hook restores the normal box when it expires.
+  if (g.awayScore != d.awayScore) {
+    bool goal = g.awayScore > d.awayScore && d.awayScore >= 0;
+    d.awayScore = g.awayScore;
+    drawScoreBox(AWAY_Y, g.awayScore, goal);
+    sFlashAwayUntil = goal ? millis() + NHL_SCORE_FLASH_MS : 0;
+  }
+  if (g.homeScore != d.homeScore) {
+    bool goal = g.homeScore > d.homeScore && d.homeScore >= 0;
+    d.homeScore = g.homeScore;
+    drawScoreBox(HOME_Y, g.homeScore, goal);
+    sFlashHomeUntil = goal ? millis() + NHL_SCORE_FLASH_MS : 0;
+  }
   setMax7219Scores(g.awayScore, g.homeScore);
   setCountLeds(g.homePenaltyCount, g.awayPenaltyCount, 0);
 
@@ -265,8 +286,21 @@ void forceLiveRepaint(const GameSnapshot& g) {
 void tickLiveClock() {
   // Called every loop pass during a live game: advances the displayed
   // clock one second at a time between the 5 s landing polls (frozen
-  // while the game clock is stopped). No-op without a live game.
-  if (!nhl_render::hasCurrentLiveGame) return;
+  // while the game clock is stopped), and lets the goal flash expire
+  // back to the normal score box. No-op without a live game.
+  if (!nhl_render::hasCurrentLiveGame) {
+    sFlashAwayUntil = sFlashHomeUntil = 0;
+    return;
+  }
+  uint32_t now = millis();
+  if (sFlashAwayUntil != 0 && (int32_t)(now - sFlashAwayUntil) >= 0) {
+    sFlashAwayUntil = 0;
+    drawScoreBox(AWAY_Y, d.awayScore);
+  }
+  if (sFlashHomeUntil != 0 && (int32_t)(now - sFlashHomeUntil) >= 0) {
+    sFlashHomeUntil = 0;
+    drawScoreBox(HOME_Y, d.homeScore);
+  }
   int clk = liveClockSec();
   if (clk == d.clockSec) return;
   d.clockSec = clk;
