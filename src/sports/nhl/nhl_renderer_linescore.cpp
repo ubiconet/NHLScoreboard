@@ -38,12 +38,14 @@ GFXcanvas16& canvas() { return tftPanel.canvas(); }
 
 // Layout (320x240) — no header band; the clock lives on the TM1637 and
 // the period on the middle matrix module:
-//   y   4..96  shots-on-goal panels: HOME left, GUEST right
-//   y 102..238 penalties (active: player + remaining) or, when even
+//   y   8..92  team logos: HOME left, GUEST right
+//   y  98..150 SHOTS row: label + big count under each logo
+//   y 154..238 penalties (active: player + remaining) or, when even
 //                strength, scores from the league's live games
-const int SOG_Y = 4, SOG_H = 92, SOG_W = 148;
-const int HOME_SOG_X = 8, GUEST_SOG_X = 164;  // home left, guest right
-const int BOTTOM_Y = 102;
+const int LOGO_Y = 8, LOGO_SIZE = 84;
+const int HOME_LOGO_X = 26, GUEST_LOGO_X = 210;  // home left, guest right
+const int SHOTS_LBL_Y = 98, SHOTS_NUM_Y = 110;   // per-column shots text
+const int BOTTOM_Y = 154;
 
 // Last-drawn cache — anything that differs triggers that region's repaint.
 struct Drawn {
@@ -98,30 +100,27 @@ int liveClockSec() {
   return v > 0 ? v : 0;
 }
 
-// One shots-on-goal panel: logo left, abbrev above the big shot count.
-// inverted = the goal flash (gold fill, dark content) on the scoring
-// side — the TFT no longer shows the scores themselves (those live on
-// the matrices), so the flash lands here.
-void drawSogPanel(int x, const char* abbrev, int teamId, int sog,
-                  bool inverted) {
-  canvas().fillRoundRect(x, SOG_Y, SOG_W, SOG_H, 6,
-                         inverted ? COLOR_GOLD : COLOR_CARD);
-  canvas().drawRoundRect(x, SOG_Y, SOG_W, SOG_H, 6, COLOR_MUTED);
+// One team column: logo at the top, the shot count clearly labeled
+// SHOTS beneath it. inverted = the goal flash — the shots box fills
+// gold with dark text for the 500 ms window (the score itself lives on
+// the matrices).
+void drawTeamColumn(int logoX, const char* abbrev, int teamId, int shots,
+                    bool inverted) {
   ensureLogoCached(teamId, abbrev);
-  drawTeamLogo64(canvas(), x + 10, SOG_Y + 12, teamId, abbrev);
-  canvas().setTextColor(COLOR_MUTED);
+  drawTeamLogoScaled(canvas(), logoX, LOGO_Y, teamId, abbrev, LOGO_SIZE);
+  const int cx = logoX + LOGO_SIZE / 2;
+  if (inverted) {
+    canvas().fillRoundRect(cx - 66, SHOTS_LBL_Y - 4, 132, 48, 6, COLOR_GOLD);
+  }
+  canvas().setTextColor(inverted ? COLOR_BG : COLOR_MUTED);
   canvas().setTextSize(1);
-  canvas().setCursor(x + SOG_W - 32, SOG_Y + 4);
-  canvas().print("SOG");
-  canvas().setTextColor(inverted ? COLOR_BG : ST77XX_WHITE);
-  canvas().setTextSize(3);
-  drawCenteredText(canvas(), abbrev, x + 76 + 36, SOG_Y + 16);
-  char s[4];
-  snprintf(s, sizeof(s), "%d", sog < 0 ? 0 : sog);
+  drawCenteredText(canvas(), "SHOTS", cx, SHOTS_LBL_Y);
+  char n[4];
+  snprintf(n, sizeof(n), "%d", shots < 0 ? 0 : shots);
   canvas().setTextColor(inverted ? COLOR_BG : COLOR_GOLD);
   canvas().setTextSize(5);
-  drawCenteredText(canvas(), s, x + 76 + 36, SOG_Y + 46);
-  tftPanel.pushRows(x - 2, SOG_Y - 2, SOG_W + 4, SOG_H + 4);
+  drawCenteredText(canvas(), n, cx, SHOTS_NUM_Y);
+  tftPanel.pushRows(logoX - 2, LOGO_Y - 2, LOGO_SIZE + 4, 148);
 }
 
 bool liveish(const char* state) {
@@ -136,8 +135,8 @@ void drawPenaltiesHalf(const GameSnapshot& g) {
   canvas().setTextSize(1);
   canvas().setCursor(12, BOTTOM_Y + 4);
   canvas().print("PENALTIES");
-  int y = BOTTOM_Y + 22;
-  for (int i = 0; i < g.penaltyCount && i < 4; ++i) {
+  int y = BOTTOM_Y + 24;
+  for (int i = 0; i < g.penaltyCount && i < 3; ++i) {
     const NhlPenalty& p = g.penalties[i];
     canvas().setTextColor(COLOR_MUTED);
     canvas().setTextSize(1);
@@ -154,7 +153,7 @@ void drawPenaltiesHalf(const GameSnapshot& g) {
     canvas().setTextColor(COLOR_GOLD);
     canvas().setCursor(308 - (int)strlen(rem) * 12, y);
     canvas().print(rem);
-    y += 24;
+    y += 20;
   }
   tftPanel.pushRows(0, BOTTOM_Y, 320, 240 - BOTTOM_Y);
 }
@@ -167,9 +166,9 @@ void drawLeagueHalf() {
   canvas().setTextSize(1);
   canvas().setCursor(12, BOTTOM_Y + 4);
   canvas().print("AROUND THE LEAGUE");
-  int y = BOTTOM_Y + 22;
+  int y = BOTTOM_Y + 24;
   int rows = 0;
-  for (size_t i = 0; i < otherGameCount && rows < 5; ++i) {
+  for (size_t i = 0; i < otherGameCount && rows < 3; ++i) {
     const OtherGameInfo& o = otherGames[i];
     if (!liveish(o.gameState)) continue;
     char line[20];
@@ -178,7 +177,7 @@ void drawLeagueHalf() {
     canvas().setTextColor(ST77XX_WHITE);
     canvas().setTextSize(2);
     drawCenteredText(canvas(), line, 160, y);
-    y += 24;
+    y += 20;
     ++rows;
   }
   if (rows == 0) {
@@ -210,8 +209,8 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
     d.homeScore = d.awayScore = -1;   // force change-driven redraws
     d.sogH = d.sogA = -1;
     d.penaltySig[0] = '\0';
-    drawSogPanel(HOME_SOG_X, g.homeAbbrev, g.homeTeamId, g.homeSog, false);
-    drawSogPanel(GUEST_SOG_X, g.awayAbbrev, g.awayTeamId, g.awaySog, false);
+    drawTeamColumn(HOME_LOGO_X, g.homeAbbrev, g.homeTeamId, g.homeSog, false);
+    drawTeamColumn(GUEST_LOGO_X, g.awayAbbrev, g.awayTeamId, g.awaySog, false);
     drawPenaltiesHalf(g);
     tftPanel.pushFull();
   }
@@ -250,13 +249,13 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
   // inverted flash panel rides along on the same redraw.
   if (g.homeSog != d.sogH || homeGoal) {
     d.sogH = g.homeSog;
-    drawSogPanel(HOME_SOG_X, g.homeAbbrev, g.homeTeamId, g.homeSog,
-                 sFlashHomeUntil != 0);
+    drawTeamColumn(HOME_LOGO_X, g.homeAbbrev, g.homeTeamId, g.homeSog,
+                   sFlashHomeUntil != 0);
   }
   if (g.awaySog != d.sogA || awayGoal) {
     d.sogA = g.awaySog;
-    drawSogPanel(GUEST_SOG_X, g.awayAbbrev, g.awayTeamId, g.awaySog,
-                 sFlashAwayUntil != 0);
+    drawTeamColumn(GUEST_LOGO_X, g.awayAbbrev, g.awayTeamId, g.awaySog,
+                   sFlashAwayUntil != 0);
   }
 
   // bottom half: penalties while any are active, otherwise the league's
@@ -314,11 +313,11 @@ void tickLiveClock() {
   uint32_t now = millis();
   if (sFlashAwayUntil != 0 && (int32_t)(now - sFlashAwayUntil) >= 0) {
     sFlashAwayUntil = 0;
-    drawSogPanel(GUEST_SOG_X, d.awayAbbrev, d.awayTeamId, d.sogA, false);
+    drawTeamColumn(GUEST_LOGO_X, d.awayAbbrev, d.awayTeamId, d.sogA, false);
   }
   if (sFlashHomeUntil != 0 && (int32_t)(now - sFlashHomeUntil) >= 0) {
     sFlashHomeUntil = 0;
-    drawSogPanel(HOME_SOG_X, d.homeAbbrev, d.homeTeamId, d.sogH, false);
+    drawTeamColumn(HOME_LOGO_X, d.homeAbbrev, d.homeTeamId, d.sogH, false);
   }
   int clk = liveClockSec();
   if (clk == d.clockSec) return;

@@ -22,7 +22,7 @@
 // ---- Firmware identity -----------------------------------------------------
 // tools/release_deploy.py reads FIRMWARE_VERSION from THIS file to name the
 // release binary, so the definition must stay here.
-static const char* FIRMWARE_VERSION = "v3.25";
+static const char* FIRMWARE_VERSION = "v3.26";
 
 // ---- Install location (factory default) -------------------------------------
 // POSIX TZ string used ONLY until the user picks a timezone in the setup
