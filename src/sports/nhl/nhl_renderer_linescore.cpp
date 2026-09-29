@@ -36,14 +36,14 @@ using namespace nhl_render;  // otherGames ticker shared with the waiting render
 
 GFXcanvas16& canvas() { return tftPanel.canvas(); }
 
-// Layout (320x240):
-//   y   0..26  header: state chip | period | clock
-//   y  30..118 shots-on-goal panels: HOME left, GUEST right
-//   y 124..238 penalties (active: player + remaining) or, when even
+// Layout (320x240) — no header band; the clock lives on the TM1637 and
+// the period on the middle matrix module:
+//   y   4..96  shots-on-goal panels: HOME left, GUEST right
+//   y 102..238 penalties (active: player + remaining) or, when even
 //                strength, scores from the league's live games
-const int SOG_Y = 30, SOG_H = 88, SOG_W = 148;
+const int SOG_Y = 4, SOG_H = 92, SOG_W = 148;
 const int HOME_SOG_X = 8, GUEST_SOG_X = 164;  // home left, guest right
-const int BOTTOM_Y = 124;
+const int BOTTOM_Y = 102;
 
 // Last-drawn cache — anything that differs triggers that region's repaint.
 struct Drawn {
@@ -51,48 +51,11 @@ struct Drawn {
   char homeAbbrev[4] = "", awayAbbrev[4] = "";
   int homeTeamId = 0, awayTeamId = 0;
   int homeScore = -1, awayScore = -1;
-  int period = -1;
-  char periodType[4] = "";
-  char state[8] = "";
-  int clockSec = -1;
-  bool inIntermission = false;
+  int period = -1;  // last shown on the period matrix
+  int clockSec = -1;  // tickLiveClock's per-second tracker (TM1637)
   int sogH = -1, sogA = -1;
   char penaltySig[128] = "";
 } d;
-
-void drawHeader(bool all) {
-  (void)all;
-  canvas().fillRect(0, 0, 320, 26, COLOR_CARD);
-  // state chip
-  bool final = strcmp(d.state, "FINAL") == 0 || strcmp(d.state, "OFF") == 0;
-  canvas().setTextSize(1);
-  canvas().setTextColor(final ? COLOR_GOLD : COLOR_LED_RED);
-  canvas().setCursor(8, 9);
-  canvas().print(final ? "FINAL" : (d.state[0] ? d.state : "NHL"));
-  // period
-  char per[10] = "";
-  if (final) strlcpy(per, "GAME OVER", sizeof(per));
-  else if (d.period >= 1) {
-    if (strcmp(d.periodType, "SO") == 0) strlcpy(per, "SHOOTOUT", sizeof(per));
-    else if (strcmp(d.periodType, "OT") == 0)
-      snprintf(per, sizeof(per), "%dOT", d.period - 3);
-    else snprintf(per, sizeof(per), "%d%s", d.period,
-                  d.period == 1 ? "st" : d.period == 2 ? "nd" : "rd");
-  }
-  canvas().setTextSize(2);
-  canvas().setTextColor(ST77XX_WHITE);
-  drawCenteredText(canvas(), per, 160, 6);
-  // clock (mm:ss, or intermission countdown)
-  int t = d.clockSec < 0 ? 0 : d.clockSec;
-  char clk[10];
-  snprintf(clk, sizeof(clk), "%s%d:%02d",
-           d.inIntermission ? "INT " : "", t / 60, t % 60);
-  canvas().setTextColor(d.inIntermission ? COLOR_GOLD : ST77XX_WHITE);
-  int w = strlen(clk) * 12;
-  canvas().setCursor(312 - w, 6);
-  canvas().print(clk);
-  tftPanel.pushRows(0, 0, 320, 26);
-}
 
 // ---- Local game-clock ticker ----
 // Between the 5 s landing polls the clock counts down locally so the
@@ -206,7 +169,7 @@ void drawLeagueHalf() {
   canvas().print("AROUND THE LEAGUE");
   int y = BOTTOM_Y + 22;
   int rows = 0;
-  for (size_t i = 0; i < otherGameCount && rows < 4; ++i) {
+  for (size_t i = 0; i < otherGameCount && rows < 5; ++i) {
     const OtherGameInfo& o = otherGames[i];
     if (!liveish(o.gameState)) continue;
     char line[20];
@@ -267,7 +230,10 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
     d.homeScore = g.homeScore;
     sFlashHomeUntil = homeGoal ? millis() + NHL_SCORE_FLASH_MS : 0;
   }
-  setMax7219Scores(g.awayScore, g.homeScore);
+  // Scores on the outer modules, period on the middle one (blank when
+  // the feed has no period yet).
+  setMax7219Display(g.homeScore, g.awayScore,
+                    g.period >= 1 ? g.period : MAX7219_SCORE_BLANK);
   setCountLeds(g.homePenaltyCount, g.awayPenaltyCount, 0);
 
   // TM1637 + TFT header clock: period clock MM:SS — colon always lit
@@ -278,17 +244,7 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
   int clk = liveClockSec();
   tm1637ShowPair(clk / 60, clk % 60, true);
 
-  // header (period / clock / state)
-  if (g.period != d.period || strcmp(g.periodType, d.periodType) != 0 ||
-      strcmp(g.gameState, d.state) != 0 || clk != d.clockSec ||
-      g.inIntermission != d.inIntermission) {
-    d.period = g.period;
-    strlcpy(d.periodType, g.periodType, sizeof(d.periodType));
-    strlcpy(d.state, g.gameState, sizeof(d.state));
-    d.clockSec = clk;
-    d.inIntermission = g.inIntermission;
-    drawHeader(true);
-  }
+  d.clockSec = clk;  // second tracker for tickLiveClock's TM1637 updates
 
   // SOG panels — a goal also bumps that side's shot count, so the
   // inverted flash panel rides along on the same redraw.
@@ -368,7 +324,6 @@ void tickLiveClock() {
   if (clk == d.clockSec) return;
   d.clockSec = clk;
   tm1637ShowPair(clk / 60, clk % 60, true);
-  drawHeader(true);
 }
 
 // ---- Manual mode ------------------------------------------------------------
