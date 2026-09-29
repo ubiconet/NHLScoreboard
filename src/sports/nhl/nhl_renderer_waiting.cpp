@@ -18,11 +18,11 @@
 // Waiting-mode screen, MLB-style carousel: upcoming-game cards — one per
 // preferred team, each showing away @ home with logos + 3-letter
 // abbreviations, the local game date/time and a STARTS IN countdown — an
-// around-the-league slide when games are on, then news story pages —
-// white headline with the story details scrolling beneath, one story at a
-// time — with an upcoming-games list sprinkled in after every third
-// story. rotateCarousel() advances slides (stories dwell longer so their
-// scroll can run) and animates the story scroll between advances; the app
+// around-the-league slide when games are on, then news story pages — the
+// headline as large centered white text over a scrolling detail strip —
+// with an upcoming-games list sprinkled in after every third story.
+// Story slides advance only after the whole description has scrolled
+// through the strip (short stories fall back to a timed dwell); the app
 // re-renders whenever a fresh day-score publish lands. Matrices/penalty
 // LEDs are cleared on entry (the idle clock on the TM1637 is driven by
 // the app via updateTm1637WallClock).
@@ -107,13 +107,6 @@ void buildUpcomingCards(JsonObjectConst sched, const int preferred[3]) {
   }
 }
 
-void drawHeaderBar() {
-  canvas().fillRect(0, 0, 320, 24, COLOR_CARD);
-  canvas().setTextSize(2);
-  canvas().setTextColor(COLOR_GOLD);
-  drawCenteredText(canvas(), "NHL SCOREBOARD", 160, 5);
-}
-
 // MLB-style upcoming-game card: gold date/time and white STARTS IN
 // countdown up top, away logo + abbrev left, "@" between, home logo +
 // abbrev right, GAME X OF Y footer so the carousel position is visible.
@@ -160,10 +153,9 @@ void drawUpcomingCard(size_t idx) {
 }
 
 void drawNoGamesPage() {
-  drawHeaderBar();
   canvas().setTextColor(ST77XX_WHITE);
   canvas().setTextSize(2);
-  drawCenteredText(canvas(), "No upcoming games", 160, 110);
+  drawCenteredText(canvas(), "No upcoming games", 160, 100);
   // Diagnostics: proves the data task is publishing a schedule document.
   char diag[60];
   uint32_t ago = (getScheduleLastFetchAt() == 0)
@@ -175,17 +167,16 @@ void drawNoGamesPage() {
            getScheduleLastHttpCode(), (unsigned)ago);
   canvas().setTextColor(COLOR_MUTED);
   canvas().setTextSize(1);
-  drawCenteredText(canvas(), diag, 160, 140);
+  drawCenteredText(canvas(), diag, 160, 132);
 }
 
 void drawLeaguePage() {
-  drawHeaderBar();
   canvas().setTextColor(COLOR_GOLD);
   canvas().setTextSize(1);
-  canvas().setCursor(12, 32);
+  canvas().setCursor(12, 8);
   canvas().print("AROUND THE LEAGUE");
-  int y = 50;
-  for (size_t i = 0; i < otherGameCount && i < 8; ++i) {
+  int y = 30;
+  for (size_t i = 0; i < otherGameCount && i < 9; ++i) {
     const OtherGameInfo& g = otherGames[i];
     char line[36];
     snprintf(line, sizeof(line), "%s %2d  %2d %s", g.awayAbbrev, g.awayScore,
@@ -202,18 +193,24 @@ void drawLeaguePage() {
   }
 }
 
-// ---- News story page (MLB-style): white headline scaled to fill the
-// main section, story details scrolling in a centered window (80% of the
-// screen width); one story per page ----
+// ---- News story page: the headline as large centered white text filling
+// the upper section, story details scrolling through a centered window
+// (80% of the screen width); one story per page ----
 int32_t sScrollPx = 0;
+uint32_t sScrollMilliPx = 0;   // fractional scroll accumulator (milli-px)
 uint32_t sLastScrollAt = 0;
 
 const int STRIP_WIN_X = 32;   // centered 80%-width window
 const int STRIP_WIN_W = 256;
-const int STRIP_WIN_Y = 148;
+const int STRIP_WIN_Y = 184;
 const int STRIP_WIN_H = 34;
+const int HEADLINE_TOP_Y = 14;
+const int HEADLINE_MAX_W = 296;
+const int HEADLINE_DIVIDER_Y = 172;
+const int STRIP_CHARS = (STRIP_WIN_W - 16) / 12;  // text size 2 chars in window
 
-// Greedy word-wrap line count (mirrors drawWrappedText's algorithm).
+// Greedy word-wrap line count (mirrors drawCenteredWrapped's algorithm;
+// over-long words hard-split at the line width).
 int countWrapLines(const char* s, int charsPerLine) {
   int lines = 1, cur = 0;
   const char* p = s;
@@ -233,14 +230,63 @@ int countWrapLines(const char* s, int charsPerLine) {
   return lines;
 }
 
-// Largest text size whose wrapped headline fits the main news section
-// (y 46..~122). Bigger headlines get bigger type, long ones fall to 2.
+// Word-wrapped text with every line horizontally centered (the classic
+// font is fixed-width, so wrapping by character count is exact).
+void drawCenteredWrapped(const char* text, int topY, int maxW, int size) {
+  const int charsPerLine = maxW / (6 * size);
+  const int lineH = 8 * size + 4;
+  char line[48];
+  int lineLen = 0;
+  const char* p = text;
+  while (*p) {
+    int wl = 0;
+    while (p[wl] && p[wl] != ' ') ++wl;
+    int add = (lineLen == 0) ? wl : wl + 1;
+    if (lineLen + add > charsPerLine || wl > charsPerLine) {
+      if (lineLen > 0) {  // flush the full line, retry the word below
+        line[lineLen] = '\0';
+        canvas().setTextSize(size);
+        drawCenteredText(canvas(), line, 160, topY);
+        topY += lineH;
+        lineLen = 0;
+        continue;
+      }
+      while (wl > charsPerLine) {  // word longer than a line: hard-split
+        memcpy(line, p, charsPerLine);
+        line[charsPerLine] = '\0';
+        canvas().setTextSize(size);
+        drawCenteredText(canvas(), line, 160, topY);
+        topY += lineH;
+        p += charsPerLine;
+        wl -= charsPerLine;
+      }
+      lineLen = wl < (int)sizeof(line) - 1 ? wl : (int)sizeof(line) - 1;
+      memcpy(line, p, lineLen);
+    } else {
+      if (lineLen > 0) line[lineLen++] = ' ';
+      if (wl > (int)sizeof(line) - 1 - lineLen) wl = (int)sizeof(line) - 1 - lineLen;
+      memcpy(line + lineLen, p, wl);
+      lineLen += wl;
+    }
+    p += wl;
+    if (*p == ' ') ++p;
+  }
+  if (lineLen > 0) {
+    line[lineLen] = '\0';
+    canvas().setTextSize(size);
+    drawCenteredText(canvas(), line, 160, topY);
+  }
+}
+
+// Largest text size whose wrapped headline fits the headline section
+// (headline top to the divider). Short headlines get big type, long ones
+// fall to 2.
 int headlineSizeFor(const char* headline) {
-  const int AVAIL_H = 76;
-  const int sizes[] = {4, 3, 2};
+  const int AVAIL_H = HEADLINE_DIVIDER_Y - 8 - HEADLINE_TOP_Y;
+  const int sizes[] = {5, 4, 3, 2};
   for (int size : sizes) {
     int charW = 6 * size;
-    if (countWrapLines(headline, 296 / charW) * (8 * size) <= AVAIL_H) {
+    if (countWrapLines(headline, HEADLINE_MAX_W / charW) * (8 * size + 4) <= AVAIL_H) {
       return size;
     }
   }
@@ -250,7 +296,6 @@ int headlineSizeFor(const char* headline) {
 void drawStoryStrip(size_t idx) {
   const char* d = getNewsStory(idx).description;
   const int CHAR_W = 12;              // text size 2
-  const int MAX_CHARS = 20;           // 20 x 12 = 240 <= window inner width
   canvas().fillRoundRect(STRIP_WIN_X, STRIP_WIN_Y, STRIP_WIN_W, STRIP_WIN_H,
                          4, COLOR_CARD);
   canvas().drawRoundRect(STRIP_WIN_X, STRIP_WIN_Y, STRIP_WIN_W, STRIP_WIN_H,
@@ -260,44 +305,32 @@ void drawStoryStrip(size_t idx) {
   int first = sScrollPx / CHAR_W;
   if (first < (int)strlen(d)) {
     canvas().setCursor(STRIP_WIN_X + 8 - (sScrollPx % CHAR_W), STRIP_WIN_Y + 9);
-    printClipped(canvas(), d + first, MAX_CHARS);
+    printClipped(canvas(), d + first, STRIP_CHARS);
   }
   tftPanel.pushRows(STRIP_WIN_X - 2, STRIP_WIN_Y - 2, STRIP_WIN_W + 4,
                     STRIP_WIN_H + 4);
 }
 
 void drawNewsStory(size_t idx) {
-  size_t n = getNewsStoryCount();
-  drawHeaderBar();
-  canvas().setTextColor(COLOR_GOLD);
-  canvas().setTextSize(1);
-  canvas().setCursor(12, 32);
-  canvas().print("NHL NEWS");
-  char tag[10];
-  snprintf(tag, sizeof(tag), "%u/%u", (unsigned)(idx + 1), (unsigned)n);
-  canvas().setTextColor(COLOR_MUTED);
-  canvas().setCursor(300 - strlen(tag) * 6, 33);
-  canvas().print(tag);
-  int size = headlineSizeFor(getNewsStory(idx).headline);
+  const NewsStory& story = getNewsStory(idx);
   canvas().setTextColor(ST77XX_WHITE);
-  drawWrappedText(canvas(), getNewsStory(idx).headline, 12, 46, 296, 6 * size,
-                  8 * size, 4);
-  canvas().drawLine(12, 130, 308, 130, COLOR_MUTED);
+  drawCenteredWrapped(story.headline, HEADLINE_TOP_Y, HEADLINE_MAX_W,
+                      headlineSizeFor(story.headline));
+  canvas().drawLine(20, HEADLINE_DIVIDER_Y, 300, HEADLINE_DIVIDER_Y, COLOR_MUTED);
   drawStoryStrip(idx);
 }
 
 // ---- Upcoming-games list page ("sprinkled" between story pages) ----
 void drawUpcomingListPage() {
-  drawHeaderBar();
   canvas().setTextColor(COLOR_GOLD);
   canvas().setTextSize(1);
-  canvas().setCursor(12, 32);
+  canvas().setCursor(12, 8);
   canvas().print("UPCOMING GAMES");
-  int y = 54;
+  int y = 30;
   JsonArrayConst games = sSched["games"].as<JsonArrayConst>();
   if (games.isNull()) return;
   for (JsonObjectConst g : games) {
-    if (y > 210) break;
+    if (y > 212) break;
     if (!isUpcoming(g["gameState"] | "")) continue;
     time_t start = 0;
     isoDateToEpoch(g["startTimeUTC"] | "", start);
@@ -360,6 +393,7 @@ void drawCurrentPage() {
   size_t pages = pageCount();
   size_t slide = pages ? tickerSlide % pages : 0;
   sScrollPx = 0;
+  sScrollMilliPx = 0;
   switch (slideKind(slide)) {
     case SLIDE_CARD:   drawUpcomingCard(slide); break;
     case SLIDE_DIAG:   drawNoGamesPage(); break;
@@ -408,32 +442,45 @@ void rotateCarousel() {
   size_t pages = pageCount();
   if (pages == 0) return;
   size_t slide = nhl_render::tickerSlide % pages;
+  SlideKind kind = slideKind(slide);
 
-  // Story pages scroll their detail strip continuously (called every
-  // loop pass); other pages just refresh the scroll clock.
-  if (slideKind(slide) == SLIDE_STORY) {
+  bool shouldAdvance = false;
+  if (kind == SLIDE_STORY) {
+    // Story pages scroll their detail strip continuously (called every
+    // loop pass) and advance only once the WHOLE description has passed
+    // through the window, plus a short end hold. Descriptions shorter
+    // than the window have nothing to scroll and fall back to the timed
+    // dwell. The milli-pixel accumulator keeps the speed exact even when
+    // individual loop passes are too short to yield a whole pixel.
     uint32_t dt = now - (sLastScrollAt == 0 ? now : sLastScrollAt);
     sLastScrollAt = now;
-    sScrollPx += (int32_t)(dt * NHL_NEWS_SCROLL_PX_PER_SEC / 1000);
+    sScrollMilliPx += dt * NHL_NEWS_SCROLL_PX_PER_SEC;
+    sScrollPx = (int32_t)(sScrollMilliPx / 1000);
     const char* d = getNewsStory(storyIndexForSlide(slide)).description;
-    int maxScroll = (int)strlen(d) * 12 - 240;  // last 20 chars visible
+    int maxScroll = (int)strlen(d) * 12 - STRIP_CHARS * 12;
+    if (maxScroll < 0) maxScroll = 0;
+    int endHold = maxScroll + NHL_NEWS_SCROLL_END_HOLD_PX;
+    if (sScrollPx > endHold) {
+      sScrollPx = endHold;
+      sScrollMilliPx = (uint32_t)endHold * 1000;
+    }
     if (maxScroll > 0) {
-      if (sScrollPx > maxScroll + 30) sScrollPx = maxScroll + 30;  // end hold
       static int32_t lastDrawn = -9999;
       if (sScrollPx - lastDrawn >= 6 || lastDrawn - sScrollPx >= 6) {
         lastDrawn = sScrollPx;
         drawStoryStrip(storyIndexForSlide(slide));
       }
     }
+    shouldAdvance = (maxScroll > 0) ? sScrollPx >= endHold
+        : now - nhl_render::lastCarouselTime >= NHL_NEWS_STORY_DWELL_MS;
   } else {
     sLastScrollAt = now;
+    uint32_t dwell = (kind == SLIDE_CARD) ? NHL_UPCOMING_GAMES_ROTATE_MS
+                                          : NHL_CAROUSEL_ROTATE_MS;
+    shouldAdvance = now - nhl_render::lastCarouselTime >= dwell;
   }
 
-  SlideKind kind = slideKind(slide);
-  uint32_t dwell = (kind == SLIDE_STORY) ? NHL_NEWS_STORY_DWELL_MS
-                   : (kind == SLIDE_CARD) ? NHL_UPCOMING_GAMES_ROTATE_MS
-                                          : NHL_CAROUSEL_ROTATE_MS;
-  if (now - nhl_render::lastCarouselTime < dwell) return;
+  if (!shouldAdvance) return;
   nhl_render::lastCarouselTime = now;
   nhl_render::tickerSlide++;
   if (!nhl_render::hasCurrentLiveGame) drawCurrentPage();

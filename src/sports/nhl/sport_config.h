@@ -104,3 +104,7 @@ static const uint32_t NHL_NEWS_RETRY_MS     = 60UL * 1000UL;       // Retry fail
 // longer than the other slides so the scroll has time to run.
 static const uint32_t NHL_NEWS_STORY_DWELL_MS = 10000;   // story page dwell
 static const uint32_t NHL_NEWS_SCROLL_PX_PER_SEC = 45;   // detail scroll speed
+// How far past its end the detail scroll holds before the story slide
+// advances (~1.3 s at the default scroll speed), so the tail of the story
+// is readable before the carousel moves on.
+static const int NHL_NEWS_SCROLL_END_HOLD_PX = 60;
