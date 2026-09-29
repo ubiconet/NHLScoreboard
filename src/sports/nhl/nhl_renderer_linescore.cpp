@@ -167,18 +167,32 @@ void drawPenaltiesHalf(const GameSnapshot& g) {
 }
 
 // Bottom half, even-strength view: scores of the league's in-progress
-// games (the followed game excluded by updateOtherGames).
+// games (the followed game excluded by updateOtherGames). Three rows per
+// page; when more than three games are on, the window rotates through
+// them one game per ~5 s (driven by tickLiveClock).
+size_t sLeagueStart = 0;        // first live game on the current page
+size_t sLeagueLiveCount = 0;    // live games this draw
+uint32_t sLeagueRotateAt = 0;   // millis deadline for the next rotation
+bool sBottomIsLeague = false;   // current bottom-half mode
+
 void drawLeagueHalf() {
   canvas().fillRect(0, BOTTOM_Y, 320, 240 - BOTTOM_Y, COLOR_BG);
   canvas().setTextColor(COLOR_GOLD);
   canvas().setTextSize(1);
   canvas().setCursor(12, BOTTOM_Y + 4);
   canvas().print("AROUND THE LEAGUE");
+  // Collect the live games once so the start index can wrap cleanly.
+  const OtherGameInfo* live[MAX_OTHER_GAMES];
+  size_t n = 0;
+  for (size_t i = 0; i < otherGameCount; ++i) {
+    if (liveish(otherGames[i].gameState)) live[n++] = &otherGames[i];
+  }
+  sLeagueLiveCount = n;
+  sLeagueRotateAt = millis() + NHL_CAROUSEL_ROTATE_MS;
+  if (sLeagueStart >= n) sLeagueStart = 0;
   int y = BOTTOM_Y + 24;
-  int rows = 0;
-  for (size_t i = 0; i < otherGameCount && rows < 3; ++i) {
-    const OtherGameInfo& o = otherGames[i];
-    if (!liveish(o.gameState)) continue;
+  for (size_t r = 0; r < 3 && n > 0; ++r) {
+    const OtherGameInfo& o = *live[(sLeagueStart + r) % n];
     char line[20];
     snprintf(line, sizeof(line), "%s %2d - %2d %s", o.awayAbbrev, o.awayScore,
              o.homeScore, o.homeAbbrev);
@@ -186,9 +200,8 @@ void drawLeagueHalf() {
     canvas().setTextSize(2);
     drawCenteredText(canvas(), line, 160, y);
     y += 20;
-    ++rows;
   }
-  if (rows == 0) {
+  if (n == 0) {
     canvas().setTextColor(COLOR_MUTED);
     canvas().setTextSize(1);
     drawCenteredText(canvas(), "No other games in progress", 160,
@@ -288,7 +301,8 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
   }
   if (strcmp(sig, d.penaltySig) != 0) {
     strlcpy(d.penaltySig, sig, sizeof(d.penaltySig));
-    if (g.penaltyCount > 0) drawPenaltiesHalf(g);
+    sBottomIsLeague = g.penaltyCount == 0;
+    if (!sBottomIsLeague) drawPenaltiesHalf(g);
     else drawLeagueHalf();
   }
 
@@ -319,6 +333,11 @@ void tickLiveClock() {
     return;
   }
   uint32_t now = millis();
+  if (sBottomIsLeague && sLeagueLiveCount > 3 &&
+      (int32_t)(now - sLeagueRotateAt) >= 0) {
+    sLeagueStart = (sLeagueStart + 1) % sLeagueLiveCount;
+    drawLeagueHalf();
+  }
   if (sFlashAwayUntil != 0 && (int32_t)(now - sFlashAwayUntil) >= 0) {
     sFlashAwayUntil = 0;
     drawTeamColumn(GUEST_LOGO_X, d.awayAbbrev, d.awayTeamId, d.sogA, false);
