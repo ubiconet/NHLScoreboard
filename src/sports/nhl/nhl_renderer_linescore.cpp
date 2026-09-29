@@ -86,9 +86,17 @@ void syncClockModel(const GameSnapshot& g) {
   int fresh = g.clockSec < 0 ? 0 : g.clockSec;
   int drift = fresh - local;
   if (!running || !sClockRunning || drift > 2 || drift < -2) {
-    sClockBasisSec = fresh;  // re-sync from the poll
+    sClockBasisSec = fresh;  // re-sync from the poll (snap)
+  } else if (drift > 0) {
+    // Behind the feed even within the deadband: catch up now — holding
+    // the local estimate here would pin a permanent 1-2 s lag.
+    sClockBasisSec = fresh;
   } else {
-    sClockBasisSec = local;  // keep local continuity within the deadband
+    // Ahead of the feed by <= 2 s while continuously running: that is
+    // just transport staleness (the polled value is ~1 s old when it
+    // lands), so keep the locally ticking estimate — snapping to it
+    // would stutter the display backward every poll.
+    sClockBasisSec = local;
   }
   sClockSyncedAt = now;
   sClockRunning = running;
