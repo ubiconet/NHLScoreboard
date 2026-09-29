@@ -63,6 +63,7 @@ static const uint32_t NETWORK_FIRST_CONNECT_MIN_MS = 0;
 // repo identity, not framework policy).
 static const uint32_t OTA_FIRST_CHECK_AFTER_ONLINE_MS = 5000; // runs behind the boot screens; needs the pristine boot heap
 static const uint32_t OTA_BOOT_GATE_TIMEOUT_MS = 25000; // feeds must not starve behind failed TLS attempts
-static const uint32_t OTA_CHECK_INTERVAL_MS = 12UL * 60UL * 60UL * 1000UL; // recheck
-static const uint32_t OTA_CHECK_RETRY_MS = 10UL * 60UL * 1000UL;  // retry failed checks — keep after a flaky network
+// No periodic recheck: the automatic OTA check is boot-only (one session
+// per power cycle, before any feed fetch); the portal can still trigger
+// one on demand.
 static const uint32_t OTA_DOWNLOAD_STALL_MS = 30000;  // abort a download with no progress

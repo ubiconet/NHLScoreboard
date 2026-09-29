@@ -126,12 +126,15 @@ void serviceOtaUpdates(uint32_t onlineForMs) {
   sCheckRequested = false;
   if (!requested) {
     if (onlineForMs < OTA_FIRST_CHECK_AFTER_ONLINE_MS) return;
+    // Boot-only policy: exactly one automatic check session per boot (the
+    // boot attempts below), while the heap is still pristine. No periodic
+    // mid-session recheck — on this network the post-feed heap can't
+    // reliably fund a TLS handshake, and a display board that wants an
+    // update can simply be power-cycled. The portal's "check now" still
+    // bypasses this pacing on demand.
+    if (sCheckedOnce) return;
     uint32_t now = millis();
-    if (sCheckedOnce) {
-      uint32_t interval =
-          sLastCheckOk ? OTA_CHECK_INTERVAL_MS : OTA_CHECK_RETRY_MS;
-      if ((now - sLastCheckAt) < interval) return;
-    } else if (sBootAttempts > 0 && (now - sLastCheckAt) < 5000) {
+    if (sBootAttempts > 0 && (now - sLastCheckAt) < 5000) {
       return;
     }
   }
@@ -156,6 +159,12 @@ void serviceOtaUpdates(uint32_t onlineForMs) {
   // needed, the binary: this network path refuses a second fresh TLS
   // connection opened moments after the first, so a second handshake for
   // the download reliably failed.
+  // NOTE: the 2x16 KB handshake buffers cannot be shrunk on this core —
+  // WiFiClientSecure::setBufferSizes() only exists in Arduino-ESP32 3.x,
+  // and 2.0.x bakes MBEDTLS_SSL_{IN,OUT}_CONTENT_LEN into the prebuilt
+  // mbedTLS. That's acceptable under the boot-only policy above: the
+  // pristine boot heap funds the handshake, and this is the session's
+  // first TLS connection (the AP refuses later fresh handshakes).
   WiFiClientSecure client;
   client.setInsecure();
   client.setHandshakeTimeout(10);  // default 120 s would stall the data task
