@@ -76,6 +76,48 @@ bool     sClockRunning = false;
 uint32_t sFlashAwayUntil = 0;
 uint32_t sFlashHomeUntil = 0;
 
+// ---- Penalty countdown tick ----
+// Penalty remaining times ride the period clock: they count down only
+// while the game clock runs, freeze with it, and re-anchor to the feed's
+// remainSec on every 5 s poll (the data task derives remainSec from the
+// same game-elapsed math below).
+int sPenElapsedBase = 0;  // game elapsed seconds at the last poll
+int sPenElapsedTick = 0;  // locally ticked game elapsed seconds
+
+int periodLengthOf(int period) { return period <= 3 ? 1200 : 300; }
+
+int gameElapsedOf(int period, int secRemaining) {
+  int e = 0;
+  for (int p = 1; p < period; ++p) e += periodLengthOf(p);
+  return e + (periodLengthOf(period) - secRemaining);
+}
+
+// Displayed remaining seconds for a penalty: the polled remainSec minus
+// the game time ticked since that poll (never negative).
+int displayRemainOf(const NhlPenalty& p) {
+  int r = p.remainSec - (sPenElapsedTick - sPenElapsedBase);
+  return r > 0 ? r : 0;
+}
+
+// Repaints just the right-aligned time cell of each penalty row (called
+// once per second from tickLiveClock while penalties are on screen).
+void refreshPenaltyTimes() {
+  const GameSnapshot& g = nhl_render::currentGame;
+  int y = BOTTOM_Y + 24;
+  for (int i = 0; i < g.penaltyCount && i < 3; ++i) {
+    char rem[8];
+    snprintf(rem, sizeof(rem), "%d:%02d", displayRemainOf(g.penalties[i]) / 60,
+             displayRemainOf(g.penalties[i]) % 60);
+    canvas().fillRect(244, y, 76, 18, COLOR_BG);
+    canvas().setTextColor(COLOR_GOLD);
+    canvas().setTextSize(2);
+    canvas().setCursor(308 - (int)strlen(rem) * 12, y);
+    canvas().print(rem);
+    tftPanel.pushRows(244, y - 2, 80, 22);
+    y += 20;
+  }
+}
+
 void syncClockModel(const GameSnapshot& g) {
   uint32_t now = millis();
   int local = sClockRunning
@@ -157,7 +199,8 @@ void drawPenaltiesHalf(const GameSnapshot& g) {
     canvas().setCursor(52, y);
     printClipped(canvas(), who, 14);
     char rem[8];
-    snprintf(rem, sizeof(rem), "%d:%02d", p.remainSec / 60, p.remainSec % 60);
+    snprintf(rem, sizeof(rem), "%d:%02d", displayRemainOf(p) / 60,
+             displayRemainOf(p) % 60);
     canvas().setTextColor(COLOR_GOLD);
     canvas().setCursor(308 - (int)strlen(rem) * 12, y);
     canvas().print(rem);
@@ -263,6 +306,9 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
   syncClockModel(g);
   int clk = liveClockSec();
   tm1637ShowPair(clk / 60, clk % 60, true);
+  // Penalty countdown re-anchors to the feed every poll.
+  sPenElapsedBase = sPenElapsedTick =
+      gameElapsedOf(g.period > 0 ? g.period : 1, g.clockSec);
 
   d.clockSec = clk;  // second tracker for tickLiveClock's TM1637 updates
 
@@ -350,6 +396,10 @@ void tickLiveClock() {
   if (clk == d.clockSec) return;
   d.clockSec = clk;
   tm1637ShowPair(clk / 60, clk % 60, true);
+  if (sClockRunning) {
+    ++sPenElapsedTick;  // penalties run with the period clock
+    if (!sBottomIsLeague) refreshPenaltyTimes();
+  }
 }
 
 // ---- Manual mode ------------------------------------------------------------
