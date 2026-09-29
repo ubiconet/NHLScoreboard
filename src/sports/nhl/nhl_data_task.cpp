@@ -5,6 +5,7 @@
 
 #include "config.h"
 #include "common/comms/network_service.h"
+#include "common/comms/ota_update.h"
 #include "common/data/time_util.h"
 #include "nhl_client.h"
 #include "nhl_renderer.h"
@@ -305,8 +306,35 @@ void fetchLandingIfDue(bool online) {
 }
 
 void nhlDataTaskLoop(void*) {
+  // Online-since tracking for the OTA boot gate/pacing below.
+  static uint32_t sOnlineSince = 0;
   while (true) {
-    bool online = isOnline();
+    if (isOnline()) {
+      if (sOnlineSince == 0) sOnlineSince = millis();
+    } else {
+      sOnlineSince = 0;
+    }
+    bool online = sOnlineSince != 0;
+    uint32_t onlineFor = online ? millis() - sOnlineSince : 0;
+
+    // OTA self-update service: check for a newer GitHub release each pass
+    // (it paces itself — boot-only automatic checks plus the portal's
+    // on-demand request). While a download is in flight this loop does
+    // nothing else, and the feed fetches below must not start until the
+    // boot check has run: its TLS handshake needs the pristine boot heap
+    // (see otaBootGateReached in common/comms/ota_update.cpp). This wiring
+    // existed in the MLB data task and was lost in the NHL port — the
+    // updater was dead code until it was restored.
+    serviceOtaUpdates(onlineFor);
+    if (otaUpdateInProgress()) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+      continue;
+    }
+    if (!otaBootGateReached(onlineFor)) {
+      vTaskDelay(pdMS_TO_TICKS(50));
+      continue;
+    }
+
     fetchScheduleIfDue(online);
     fetchLandingIfDue(online);
     fetchNewsIfDue(online);
