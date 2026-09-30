@@ -321,8 +321,23 @@ void tick(const SportTickContext& ctx) {
       bool sameGame = sLastGame.valid && sLastGame.gameId == game.gameId;
       int prevHome = sameGame ? sLastGame.homeScore : -1;
       int prevAway = sameGame ? sLastGame.awayScore : -1;
+      // Edge triggers for the end-of-period/game buzzer (once per
+      // transition; sound setting still applies).
+      bool periodEnded = sameGame && !sLastGame.inIntermission &&
+                         game.inIntermission;
+      bool gameEnded = sameGame &&
+          !(strcmp(sLastGame.gameState, "FINAL") == 0 ||
+            strcmp(sLastGame.gameState, "OFF") == 0 ||
+            strcmp(sLastGame.gameState, "OVER") == 0) &&
+          (strcmp(game.gameState, "FINAL") == 0 ||
+           strcmp(game.gameState, "OFF") == 0 ||
+           strcmp(game.gameState, "OVER") == 0);
       sLastGame = game;
       renderLiveGame(game);
+      if ((periodEnded || gameEnded) && isAudioEnabled()) {
+        Serial.printf("[AUDIO] %s buzzer\n", gameEnded ? "game" : "period");
+        startClip(BUZZER_PCM, BUZZER_SAMPLES, BUZZER_RATE);
+      }
       bool homeScored = prevHome >= 0 && game.homeScore > prevHome;
       bool awayScored = prevAway >= 0 && game.awayScore > prevAway;
       if (homeScored || awayScored) {

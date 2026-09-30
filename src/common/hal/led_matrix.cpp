@@ -48,6 +48,12 @@ const uint8_t FONT_5X7[10][7] = {
   {0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100}  // 9
 };
 
+// 3x5 letters for the shootout indicator on the period module ("SO")
+const uint8_t FONT3X5_S[5] = {
+    0b111, 0b100, 0b111, 0b001, 0b111};  // S
+const uint8_t FONT3X5_O[5] = {
+    0b111, 0b101, 0b101, 0b101, 0b111};  // O
+
 // 5x7 font letters used only for the boot-time matrix test (H = home, A = away)
 const uint8_t LETTER_H_5X7[7] = {
   0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001
@@ -219,6 +225,21 @@ void setMax7219Display(int homeScore, int awayScore, int periodValue) {
 void setMax7219Scores(int awayScore, int homeScore) {
   // Period module stays dark in normal mode until the renderer drives it.
   setMax7219Display(homeScore, awayScore, MAX7219_SCORE_BLANK);
+}
+
+void setMax7219Shootout(int homeScore, int awayScore) {
+  // Scores on the outer modules, "SO" on the period module (two 3x5
+  // letters in the same slot layout as a two-digit period number).
+  uint8_t awayRows[8], homeRows[8], soRows[8] = {0};
+  scoreToMatrixRows(awayScore, awayRows);
+  scoreToMatrixRows(homeScore, homeRows);
+  for (int r = 0; r < 5; ++r) {
+    soRows[r + 1] = ((FONT3X5_S[r] & 0x07) << 4) | (FONT3X5_O[r] & 0x07);
+  }
+  writeMatrixRows(awayRows, homeRows, soRows);
+  max7219Send3(MAX7219_REG_INTENSITY, kModuleIntensity[0],
+               MAX7219_REG_INTENSITY, kModuleIntensity[2],
+               MAX7219_REG_INTENSITY, kModuleIntensity[1]);
 }
 
 void setMax7219PositionTest(int position, bool on) {

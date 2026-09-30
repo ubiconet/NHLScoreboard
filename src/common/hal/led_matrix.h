@@ -15,6 +15,8 @@ void setMax7219Scores(int awayScore, int homeScore);
 // Full 3-module chain write: home / guest(away) / period in one 24-bit
 // burst (MAX7219_SCORE_BLANK leaves that module dark).
 void setMax7219Display(int homeScore, int awayScore, int periodValue);
+// Scores on the outer modules with "SO" on the period module (shootout).
+void setMax7219Shootout(int homeScore, int awayScore);
 // Display-test register helpers: all LEDs on one chain position (1 = home,
 // 2 = guest, 3 = period) or on all three at once, bypassing digit data.
 void setMax7219PositionTest(int position, bool on);

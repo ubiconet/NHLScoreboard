@@ -92,6 +92,10 @@ void applyScoreMatrices(bool blankBlinkSide) {
     if (sBlinkSide & 0x1) home = MAX7219_SCORE_BLANK;
     if (sBlinkSide & 0x2) away = MAX7219_SCORE_BLANK;
   }
+  if (strcmp(g.periodType, "SO") == 0) {
+    setMax7219Shootout(home, away);  // shootout: SO on the period module
+    return;
+  }
   setMax7219Display(home, away,
                     dispPeriod >= 1 ? dispPeriod : MAX7219_SCORE_BLANK);
 }
