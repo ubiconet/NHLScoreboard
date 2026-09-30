@@ -234,6 +234,21 @@ bool liveish(const char* state) {
   return strcmp(state, "LIVE") == 0 || strcmp(state, "CRIT") == 0;
 }
 
+bool gameOverState(const char* state) {
+  return strcmp(state, "FINAL") == 0 || strcmp(state, "OFF") == 0 ||
+         strcmp(state, "OVER") == 0;
+}
+
+// Bottom half once the game ends: GAME OVER centered in white, below
+// the shot counters, for the postgame grace window.
+void drawGameOverHalf() {
+  canvas().fillRect(0, BOTTOM_Y, 320, 240 - BOTTOM_Y, COLOR_BG);
+  canvas().setTextColor(ST77XX_WHITE);
+  canvas().setTextSize(3);
+  drawCenteredText(canvas(), "GAME OVER", 160, BOTTOM_Y + 26);
+  tftPanel.pushRows(0, BOTTOM_Y, 320, 240 - BOTTOM_Y);
+}
+
 // Bottom half, penalty view: team, sweater number + last name, and the
 // remaining penalty time for every active penalty.
 void drawPenaltiesHalf(const GameSnapshot& g) {
@@ -274,6 +289,7 @@ size_t sLeagueStart = 0;        // first live game on the current page
 size_t sLeagueLiveCount = 0;    // live games this draw
 uint32_t sLeagueRotateAt = 0;   // millis deadline for the next rotation
 bool sBottomIsLeague = false;   // current bottom-half mode
+bool sBottomIsPenalties = false;  // penalty rows visible (per-sec refresh)
 
 void drawLeagueHalf() {
   canvas().fillRect(0, BOTTOM_Y, 320, 240 - BOTTOM_Y, COLOR_BG);
@@ -385,6 +401,9 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
   // live scores. Signature covers both modes' contents so the view
   // flips and refreshes only on real changes.
   char sig[128] = "";
+  if (gameOverState(g.gameState)) {
+    strlcpy(sig, "G", sizeof(sig));  // postgame: GAME OVER, nothing else
+  } else {
   int penCount = g.inIntermission ? 0 : g.penaltyCount;  // hidden between periods
   if (penCount > 0) {
     strlcpy(sig, "P", sizeof(sig));
@@ -402,11 +421,19 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
                o.awayAbbrev, o.awayScore, o.homeScore, o.homeAbbrev);
     }
   }
+  }
   if (strcmp(sig, d.penaltySig) != 0) {
     strlcpy(d.penaltySig, sig, sizeof(d.penaltySig));
-    sBottomIsLeague = penCount == 0;
-    if (!sBottomIsLeague) drawPenaltiesHalf(g);
-    else drawLeagueHalf();
+    if (gameOverState(g.gameState)) {
+      sBottomIsLeague = false;
+      sBottomIsPenalties = false;
+      drawGameOverHalf();
+    } else {
+      sBottomIsLeague = g.penaltyCount == 0 && !g.inIntermission;
+      sBottomIsPenalties = !sBottomIsLeague;
+      if (!sBottomIsLeague) drawPenaltiesHalf(g);
+      else drawLeagueHalf();
+    }
   }
 
   // Display-binding trace (DBG-gated): one line per fresh snapshot showing
@@ -469,7 +496,7 @@ void tickLiveClock() {
   tm1637ShowPair(clk / 60, clk % 60, true);
   if (sClockRunning) {
     ++sPenElapsedTick;  // penalties run with the period clock
-    if (!sBottomIsLeague) refreshPenaltyTimes();
+    if (sBottomIsPenalties) refreshPenaltyTimes();
   }
 }
 
