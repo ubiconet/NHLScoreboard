@@ -61,9 +61,9 @@ bool clockShown = false;
 const uint8_t MATRIX_CLOCK_INTENSITY = 0x01;
 
 // Per-module display intensity (send order: pos3, pos2, pos1 = home,
-// period, guest) — all three modules identical, scaled ~25% down from
-// full (11/15) for comfortable viewing.
-const uint8_t kModuleIntensity[3] = {0x0B, 0x0B, 0x0B};
+// period, guest) — all three modules identical, cut 25% twice from
+// full (15 -> 11 -> 8) for comfortable viewing.
+const uint8_t kModuleIntensity[3] = {0x08, 0x08, 0x08};
 
 void max7219ShiftByte(uint8_t data) {
   for (int i = 7; i >= 0; i--) {
