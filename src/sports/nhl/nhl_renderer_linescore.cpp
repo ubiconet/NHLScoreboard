@@ -42,10 +42,13 @@ GFXcanvas16& canvas() { return tftPanel.canvas(); }
 //   y  98..150 SHOTS row: label + big count under each logo
 //   y 154..238 penalties (active: player + remaining) or, when even
 //                strength, scores from the league's live games
-const int LOGO_Y = 8, LOGO_SIZE = 84;
+const int LOGO_Y = 6, LOGO_SIZE = 84;
 const int HOME_LOGO_X = 26, GUEST_LOGO_X = 210;  // home left, guest right
-const int SHOTS_LBL_Y = 98, SHOTS_NUM_Y = 110;   // per-column shots text
-const int BOTTOM_Y = 154;
+// Scoreboard-style shots box under each logo: white border, white label,
+// big gold count (the goal flash fills it gold with dark text).
+const int SHOTS_BOX_Y = 94, SHOTS_BOX_H = 60, SHOTS_BOX_PAD = 4;
+const int SHOTS_LBL_Y = 100, SHOTS_NUM_Y = 118;
+const int BOTTOM_Y = 158;
 
 // Last-drawn cache — anything that differs triggers that region's repaint.
 struct Drawn {
@@ -129,6 +132,17 @@ bool sFeedClockStuck = false;
 
 void syncClockModel(const GameSnapshot& g) {
   uint32_t now = millis();
+  if (g.inIntermission) {
+    // Between periods (the flag means a real intermission, not a
+    // commercial break): display the NEXT period already — its opening
+    // clock (20:00 regulation / 5:00 OT), frozen until puck drop.
+    sClockBasisSec =
+        periodLengthOf((g.period > 0 ? g.period : 3) + 1);
+    sClockSyncedAt = now;
+    sClockRunning = false;
+    sLastPolledClockSec = -1;  // resume must not look like a stuck clock
+    return;
+  }
   int local = sClockRunning
                   ? sClockBasisSec - (int)((now - sClockSyncedAt) / 1000)
                   : sClockBasisSec;
@@ -165,27 +179,33 @@ int liveClockSec() {
   return v > 0 ? v : 0;
 }
 
-// One team column: logo at the top, the shot count clearly labeled
-// SHOTS beneath it. inverted = the goal flash — the shots box fills
-// gold with dark text for the 500 ms window (the score itself lives on
-// the matrices).
+// One team column: logo at the top, then a scoreboard-style SHOTS box —
+// white rounded border, white label, big gold count. inverted = the goal
+// flash: the box fills gold with dark text for the 500 ms window (the
+// score itself lives on the matrices).
 void drawTeamColumn(int logoX, const char* abbrev, int teamId, int shots,
                     bool inverted) {
   ensureLogoCached(teamId, abbrev);
   drawTeamLogoScaled(canvas(), logoX, LOGO_Y, teamId, abbrev, LOGO_SIZE);
+  const int bx = logoX - SHOTS_BOX_PAD, bw = LOGO_SIZE + 2 * SHOTS_BOX_PAD;
   const int cx = logoX + LOGO_SIZE / 2;
   if (inverted) {
-    canvas().fillRoundRect(cx - 66, SHOTS_LBL_Y - 4, 132, 48, 6, COLOR_GOLD);
+    canvas().fillRoundRect(bx, SHOTS_BOX_Y, bw, SHOTS_BOX_H, 8, COLOR_GOLD);
   }
-  canvas().setTextColor(inverted ? COLOR_BG : COLOR_MUTED);
-  canvas().setTextSize(1);
+  // 2-px white border (arena-stat-panel look)
+  canvas().drawRoundRect(bx, SHOTS_BOX_Y, bw, SHOTS_BOX_H, 8, ST77XX_WHITE);
+  canvas().drawRoundRect(bx + 1, SHOTS_BOX_Y + 1, bw - 2, SHOTS_BOX_H - 2, 8,
+                         ST77XX_WHITE);
+  canvas().setTextColor(inverted ? COLOR_BG : ST77XX_WHITE);
+  canvas().setTextSize(2);
   drawCenteredText(canvas(), "SHOTS", cx, SHOTS_LBL_Y);
   char n[4];
   snprintf(n, sizeof(n), "%d", shots < 0 ? 0 : shots);
   canvas().setTextColor(inverted ? COLOR_BG : COLOR_GOLD);
-  canvas().setTextSize(5);
+  canvas().setTextSize(4);
   drawCenteredText(canvas(), n, cx, SHOTS_NUM_Y);
-  tftPanel.pushRows(logoX - 2, LOGO_Y - 2, LOGO_SIZE + 4, 148);
+  tftPanel.pushRows(logoX - SHOTS_BOX_PAD - 2, LOGO_Y - 2,
+                    LOGO_SIZE + 2 * SHOTS_BOX_PAD + 4, 154);
 }
 
 bool liveish(const char* state) {
@@ -310,9 +330,11 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
   }
   // Scores on the outer modules, period on the middle one (blank when
   // the feed has no period yet).
+  int dispPeriod = g.inIntermission ? g.period + 1 : g.period;
   setMax7219Display(g.homeScore, g.awayScore,
-                    g.period >= 1 ? g.period : MAX7219_SCORE_BLANK);
-  setCountLeds(g.homePenaltyCount, g.awayPenaltyCount, 0);
+                    dispPeriod >= 1 ? dispPeriod : MAX7219_SCORE_BLANK);
+  setCountLeds(g.inIntermission ? 0 : g.homePenaltyCount,
+               g.inIntermission ? 0 : g.awayPenaltyCount, 0);
 
   // TM1637 + TFT header clock: period clock MM:SS — colon always lit
   // (board convention: the clock display keeps its colon in every mode
@@ -344,7 +366,8 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
   // live scores. Signature covers both modes' contents so the view
   // flips and refreshes only on real changes.
   char sig[128] = "";
-  if (g.penaltyCount > 0) {
+  int penCount = g.inIntermission ? 0 : g.penaltyCount;  // hidden between periods
+  if (penCount > 0) {
     strlcpy(sig, "P", sizeof(sig));
     for (int i = 0; i < g.penaltyCount && i < 4; ++i) {
       const NhlPenalty& p = g.penalties[i];
@@ -362,7 +385,7 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
   }
   if (strcmp(sig, d.penaltySig) != 0) {
     strlcpy(d.penaltySig, sig, sizeof(d.penaltySig));
-    sBottomIsLeague = g.penaltyCount == 0;
+    sBottomIsLeague = penCount == 0;
     if (!sBottomIsLeague) drawPenaltiesHalf(g);
     else drawLeagueHalf();
   }
