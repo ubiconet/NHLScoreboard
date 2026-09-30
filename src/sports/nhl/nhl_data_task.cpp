@@ -350,17 +350,31 @@ void fetchStandingsIfDue(bool online) {
   if (snap.valid) updateStandings(snap);
 }
 
+// Landing failure backoff: a dead keep-alive socket means every retry
+// pays a fresh TLS handshake, and this AP's flood protection refuses
+// exactly those for a window after a burst — retrying every 5 s flat
+// prolongs the outage (the same reasoning as the schedule backoff,
+// ADR-0002). Doubles per consecutive failure, capped, reset on success.
+uint32_t gLandingRetryInterval = NHL_LIVE_POLL_INTERVAL_MS;
+
 void fetchLandingIfDue(bool online) {
   long id = getActiveGameId();
   if (id <= 0 || !online || portalEngaged()) return;
   uint32_t now = millis();
-  if (gLastLandingAt != 0 && (now - gLastLandingAt) < NHL_LIVE_POLL_INTERVAL_MS) {
+  if (gLastLandingAt != 0 && (now - gLastLandingAt) < gLandingRetryInterval) {
     return;
   }
   gLastLandingAt = now;
 
   JsonDocument doc;
-  if (!fetchNhlGameLanding(doc, id)) return;
+  if (!fetchNhlGameLanding(doc, id)) {
+    gLandingRetryInterval *= 2;
+    if (gLandingRetryInterval > NHL_LANDING_RETRY_MAX_MS) {
+      gLandingRetryInterval = NHL_LANDING_RETRY_MAX_MS;
+    }
+    return;
+  }
+  gLandingRetryInterval = NHL_LIVE_POLL_INTERVAL_MS;
   nhl_data::publishGame(landingToSnapshot(doc.as<JsonObjectConst>(), id));
 }
 

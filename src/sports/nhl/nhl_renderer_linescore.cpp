@@ -394,6 +394,16 @@ void tickLiveClock() {
     return;
   }
   uint32_t now = millis();
+  // Stale-snapshot continuation: with no fresh landing data for 90 s
+  // (18 missed polls), the frozen display is worse than a guess — resume
+  // the clock and let penalties expire on their own until data returns.
+  // Real stoppages never trip this: every successful poll refreshes
+  // sClockSyncedAt.
+  if (!sClockRunning && sClockSyncedAt != 0 &&
+      now - sClockSyncedAt > NHL_LANDING_STALE_MS) {
+    sClockRunning = true;
+    sClockSyncedAt = now;
+  }
   if (sBottomIsLeague && sLeagueLiveCount > 3 &&
       (int32_t)(now - sLeagueRotateAt) >= 0) {
     sLeagueStart = (sLeagueStart + 1) % sLeagueLiveCount;

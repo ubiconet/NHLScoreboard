@@ -76,6 +76,11 @@ static const uint16_t COLOR_LED_OFF = 0x2100;   // Dark unlit LED dot background
 
 // ---- NHL feed polling + UI timing -------------------------------------------
 static const uint32_t NHL_LIVE_POLL_INTERVAL_MS = 5000;  // 5 second live linescore tick
+// Landing-fetch failure backoff cap (doubles from the 5 s poll up to
+// this), and how long without a fresh snapshot before the renderer's
+// clock/penalties continue on their own instead of freezing mid-play.
+static const uint32_t NHL_LANDING_RETRY_MAX_MS = 60000;
+static const uint32_t NHL_LANDING_STALE_MS = 90000;
 static const uint32_t NHL_SCHEDULE_POLL_INTERVAL_MS = 60000; // Detect followed-game start/end within 1 min
 static const uint32_t NHL_SCHEDULE_RETRY_MS = 15000;   // Base retry while the last schedule fetch failed (flaky Wi-Fi)
 static const uint32_t NHL_RETRY_BACKOFF_MAX_MS = 120000; // Exponential backoff cap for failed fetch retries.
