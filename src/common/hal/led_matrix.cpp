@@ -60,9 +60,10 @@ int lastClockMinute = -1;
 bool clockShown = false;
 const uint8_t MATRIX_CLOCK_INTENSITY = 0x01;
 
-// Per-module display intensity by send order below (pos3=guest, pos2=period,
-// pos1=home). Home and period run full brightness; the guest module ~50%.
-const uint8_t kModuleIntensity[3] = {0x07, 0x0F, 0x0F};
+// Per-module display intensity (send order: pos3, pos2, pos1 = home,
+// period, guest). Scaled ~25% down from full for comfortable viewing:
+// 11/15 for home and period, 5/15 for the dimmer guest module.
+const uint8_t kModuleIntensity[3] = {0x0B, 0x0B, 0x05};
 
 void max7219ShiftByte(uint8_t data) {
   for (int i = 7; i >= 0; i--) {
@@ -73,10 +74,10 @@ void max7219ShiftByte(uint8_t data) {
 }
 
 // Send three (reg, data) command pairs down the 3-device cascade in one
-// CS burst. Data shifts through module 1 (home, DIN from the MCU) into
-// module 2 (period) and module 3 (guest): the FIRST pair shifted travels
-// furthest and lands in module 3 (guest), so the argument order is guest,
-// period, home.
+// CS burst. Data shifts through module 1 (guest, DIN from the MCU) into
+// module 2 (period) and module 3 (home): the FIRST pair shifted travels
+// furthest and lands in module 3 (home), so the argument order is home,
+// period, guest.
 void max7219Send3(uint8_t regH, uint8_t dataH, uint8_t regP, uint8_t dataP,
                   uint8_t regG, uint8_t dataG) {
   digitalWrite(CS_PIN, LOW);
@@ -91,12 +92,12 @@ void max7219SendAll(uint8_t reg, uint8_t data) {
 }
 
 // Sends one 16-bit (reg, data) command to a single chain position; the
-// other two slots get NOOP. Position 1 = home (nearest the MCU's DIN),
-// 2 = period, 3 = guest.
+// other two slots get NOOP. Position 1 = guest (nearest the MCU's DIN),
+// 2 = period, 3 = home.
 void sendPosCmd(int pos, uint16_t cmd) {
-  uint16_t p3 = pos == 3 ? cmd : 0x0000;  // guest slot (first shifted)
+  uint16_t p3 = pos == 3 ? cmd : 0x0000;  // home slot (first shifted)
   uint16_t p2 = pos == 2 ? cmd : 0x0000;  // period slot
-  uint16_t p1 = pos == 1 ? cmd : 0x0000;  // home slot (last shifted)
+  uint16_t p1 = pos == 1 ? cmd : 0x0000;  // guest slot (last shifted)
   digitalWrite(CS_PIN, LOW);
   max7219ShiftByte(p3 >> 8); max7219ShiftByte(p3 & 0xFF);
   max7219ShiftByte(p2 >> 8); max7219ShiftByte(p2 & 0xFF);
@@ -159,7 +160,7 @@ void scoreToMatrixRows(int score, uint8_t rows[8], bool compactSingleDigit = fal
   }
 }
 
-// Chain order (MCU DIN -> out): 1 = home, 2 = period, 3 = guest. The
+// Chain order (MCU DIN -> out): 1 = guest, 2 = period, 3 = home. The
 // period module (position 2) carries the mounting rotation above.
 // Intensity is NOT set here — callers choose per-module (game) or uniform
 // (idle clock) brightness.
@@ -168,7 +169,7 @@ void writeMatrixRows(uint8_t awayRows[8], uint8_t homeRows[8],
   rotateMatrix90Ccw(periodRows);
   for (uint8_t row = 0; row < 8; row++) {
     uint8_t reg = MAX7219_REG_DIGIT0 + row;
-    max7219Send3(reg, awayRows[row], reg, periodRows[row], reg, homeRows[row]);
+    max7219Send3(reg, homeRows[row], reg, periodRows[row], reg, awayRows[row]);
   }
 }
 
@@ -273,8 +274,8 @@ void runMax7219ChainDiagnostic() {
   const uint16_t NOOP = 0x0000;
   const uint16_t TEST_ON = (uint16_t(MAX7219_REG_DISPLAYTEST) << 8) | 0x01;
   const uint16_t TEST_OFF = (uint16_t(MAX7219_REG_DISPLAYTEST) << 8) | 0x00;
-  const char* role[3] = {"1 = HOME (first after MCU DIN)", "2 = PERIOD",
-                         "3 = GUEST"};
+  const char* role[3] = {"1 = GUEST (first after MCU DIN)", "2 = PERIOD",
+                         "3 = HOME"};
   // send3 argument order is (pos3, pos2, pos1): first pair shifted lands in
   // the LAST module of the chain.
   auto sendPos = [&](int pos, uint16_t cmd) {
@@ -352,7 +353,7 @@ void runMax7219BootTest() {
 
   for (uint8_t row = 0; row < 8; row++) {
     uint8_t reg = MAX7219_REG_DIGIT0 + row;
-    max7219Send3(reg, awayRows[row], reg, periodRows[row], reg, homeRows[row]);
+    max7219Send3(reg, homeRows[row], reg, periodRows[row], reg, awayRows[row]);
   }
 
   Serial.println("[HW TEST] MAX7219 boot test: H=home, A=away");
