@@ -42,12 +42,14 @@ GFXcanvas16& canvas() { return tftPanel.canvas(); }
 //   y  98..150 SHOTS row: label + big count under each logo
 //   y 154..238 penalties (active: player + remaining) or, when even
 //                strength, scores from the league's live games
-const int LOGO_Y = 6, LOGO_SIZE = 84;
-const int HOME_LOGO_X = 26, GUEST_LOGO_X = 210;  // home left, guest right
-// Scoreboard-style shots box under each logo: white border, white label,
-// big gold count (the goal flash fills it gold with dark text).
-const int SHOTS_BOX_Y = 94, SHOTS_BOX_H = 60, SHOTS_BOX_PAD = 4;
-const int SHOTS_LBL_Y = 100, SHOTS_NUM_Y = 118;
+const int LOGO_Y = 6, LOGO_SIZE = 67;  // ~20% down from 84
+// Column centers stay put (68 / 252); logos re-centered on them.
+const int HOME_LOGO_X = 35, GUEST_LOGO_X = 219;  // home left, guest right
+// Scoreboard-style shots box under each logo (white border, white
+// label, big gold count; goal flash fills it gold) — PAD widens the
+// box past the smaller logo and Y leaves a clear gap below the crest.
+const int SHOTS_BOX_Y = 88, SHOTS_BOX_H = 60, SHOTS_BOX_PAD = 12;
+const int SHOTS_LBL_Y = 94, SHOTS_NUM_Y = 112;
 const int BOTTOM_Y = 158;
 
 // Last-drawn cache — anything that differs triggers that region's repaint.
@@ -205,7 +207,8 @@ void drawTeamColumn(int logoX, const char* abbrev, int teamId, int shots,
   canvas().setTextSize(4);
   drawCenteredText(canvas(), n, cx, SHOTS_NUM_Y);
   tftPanel.pushRows(logoX - SHOTS_BOX_PAD - 2, LOGO_Y - 2,
-                    LOGO_SIZE + 2 * SHOTS_BOX_PAD + 4, 154);
+                    LOGO_SIZE + 2 * SHOTS_BOX_PAD + 4,
+                    SHOTS_BOX_Y + SHOTS_BOX_H + 2 - (LOGO_Y - 2));
 }
 
 bool liveish(const char* state) {
