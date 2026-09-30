@@ -76,10 +76,30 @@ uint32_t sClockSyncedAt = 0;
 int      sClockBasisSec = 0;
 bool     sClockRunning = false;
 
-// Goal flash: millis() deadline of each side's inverted score box
-// (0 = not flashing). Set by renderLiveGame on a score increase.
-uint32_t sFlashAwayUntil = 0;
-uint32_t sFlashHomeUntil = 0;
+// Goal blink: the scoring team's NEW score flashes on its matrix
+// (NHL_SCORE_BLINK_FLASHES x 250 ms on / 250 ms off), then returns to
+// the steady display. bit 1 = home, bit 2 = guest.
+uint32_t sBlinkStart = 0;
+uint8_t sBlinkSide = 0;    // 0 = idle
+uint8_t sBlinkPhase = 0;   // last applied half-period index
+
+void applyScoreMatrices(bool blankBlinkSide) {
+  const GameSnapshot& g = nhl_render::currentGame;
+  int dispPeriod = g.inIntermission ? g.period + 1 : g.period;
+  int home = d.homeScore, away = d.awayScore;
+  if (blankBlinkSide) {
+    if (sBlinkSide & 0x1) home = MAX7219_SCORE_BLANK;
+    if (sBlinkSide & 0x2) away = MAX7219_SCORE_BLANK;
+  }
+  setMax7219Display(home, away,
+                    dispPeriod >= 1 ? dispPeriod : MAX7219_SCORE_BLANK);
+}
+
+void startScoreBlink(uint8_t side) {
+  sBlinkSide |= side;
+  sBlinkStart = millis();
+  sBlinkPhase = 0;   // begins in the ON (score showing) half
+}
 
 // ---- Penalty countdown tick ----
 // Penalty remaining times ride the period clock: they count down only
@@ -181,29 +201,24 @@ int liveClockSec() {
   return v > 0 ? v : 0;
 }
 
-// One team column: logo at the top, then a scoreboard-style SHOTS box —
-// white rounded border, white label, big gold count. inverted = the goal
-// flash: the box fills gold with dark text for the 500 ms window (the
-// score itself lives on the matrices).
-void drawTeamColumn(int logoX, const char* abbrev, int teamId, int shots,
-                    bool inverted) {
+// One team column: logo at the top, then the scoreboard-style SHOTS box
+// — white rounded border, white label, big gold count. Deliberately
+// static in every state: goal feedback blinks the score MATRIX instead.
+void drawTeamColumn(int logoX, const char* abbrev, int teamId, int shots) {
   ensureLogoCached(teamId, abbrev);
   drawTeamLogoScaled(canvas(), logoX, LOGO_Y, teamId, abbrev, LOGO_SIZE);
   const int bx = logoX - SHOTS_BOX_PAD, bw = LOGO_SIZE + 2 * SHOTS_BOX_PAD;
   const int cx = logoX + LOGO_SIZE / 2;
-  if (inverted) {
-    canvas().fillRoundRect(bx, SHOTS_BOX_Y, bw, SHOTS_BOX_H, 8, COLOR_GOLD);
-  }
   // 2-px white border (arena-stat-panel look)
   canvas().drawRoundRect(bx, SHOTS_BOX_Y, bw, SHOTS_BOX_H, 8, ST77XX_WHITE);
   canvas().drawRoundRect(bx + 1, SHOTS_BOX_Y + 1, bw - 2, SHOTS_BOX_H - 2, 8,
                          ST77XX_WHITE);
-  canvas().setTextColor(inverted ? COLOR_BG : ST77XX_WHITE);
+  canvas().setTextColor(ST77XX_WHITE);
   canvas().setTextSize(2);
   drawCenteredText(canvas(), "SHOTS", cx, SHOTS_LBL_Y);
   char n[4];
   snprintf(n, sizeof(n), "%d", shots < 0 ? 0 : shots);
-  canvas().setTextColor(inverted ? COLOR_BG : COLOR_GOLD);
+  canvas().setTextColor(COLOR_GOLD);
   canvas().setTextSize(4);
   drawCenteredText(canvas(), n, cx, SHOTS_NUM_Y);
   tftPanel.pushRows(logoX - SHOTS_BOX_PAD - 2, LOGO_Y - 2,
@@ -306,13 +321,13 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
     strlcpy(d.awayAbbrev, g.awayAbbrev, sizeof(d.awayAbbrev));
     d.homeTeamId = g.homeTeamId;
     d.awayTeamId = g.awayTeamId;
-    sFlashAwayUntil = sFlashHomeUntil = 0;
+    sBlinkSide = 0;
     canvas().fillScreen(COLOR_BG);
     d.homeScore = d.awayScore = -1;   // force change-driven redraws
     d.sogH = d.sogA = -1;
     d.penaltySig[0] = '\0';
-    drawTeamColumn(HOME_LOGO_X, g.homeAbbrev, g.homeTeamId, g.homeSog, false);
-    drawTeamColumn(GUEST_LOGO_X, g.awayAbbrev, g.awayTeamId, g.awaySog, false);
+    drawTeamColumn(HOME_LOGO_X, g.homeAbbrev, g.homeTeamId, g.homeSog);
+    drawTeamColumn(GUEST_LOGO_X, g.awayAbbrev, g.awayTeamId, g.awaySog);
     drawPenaltiesHalf(g);
     tftPanel.pushFull();
   }
@@ -324,18 +339,17 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
   if (g.awayScore != d.awayScore) {
     awayGoal = g.awayScore > d.awayScore && d.awayScore >= 0;
     d.awayScore = g.awayScore;
-    sFlashAwayUntil = awayGoal ? millis() + NHL_SCORE_FLASH_MS : 0;
   }
   if (g.homeScore != d.homeScore) {
     homeGoal = g.homeScore > d.homeScore && d.homeScore >= 0;
     d.homeScore = g.homeScore;
-    sFlashHomeUntil = homeGoal ? millis() + NHL_SCORE_FLASH_MS : 0;
   }
-  // Scores on the outer modules, period on the middle one (blank when
-  // the feed has no period yet).
-  int dispPeriod = g.inIntermission ? g.period + 1 : g.period;
-  setMax7219Display(g.homeScore, g.awayScore,
-                    dispPeriod >= 1 ? dispPeriod : MAX7219_SCORE_BLANK);
+  // A goal starts the score blink on that side's matrix (the blink
+  // driver in tickLiveClock owns the matrices until it finishes);
+  // otherwise scores on the outer modules, period on the middle one.
+  if (awayGoal) startScoreBlink(0x2);
+  if (homeGoal) startScoreBlink(0x1);
+  if (sBlinkSide == 0) applyScoreMatrices(false);
   setCountLeds(g.inIntermission ? 0 : g.homePenaltyCount,
                g.inIntermission ? 0 : g.awayPenaltyCount, 0);
 
@@ -354,15 +368,13 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
 
   // SOG panels — a goal also bumps that side's shot count, so the
   // inverted flash panel rides along on the same redraw.
-  if (g.homeSog != d.sogH || homeGoal) {
+  if (g.homeSog != d.sogH) {
     d.sogH = g.homeSog;
-    drawTeamColumn(HOME_LOGO_X, g.homeAbbrev, g.homeTeamId, g.homeSog,
-                   sFlashHomeUntil != 0);
+    drawTeamColumn(HOME_LOGO_X, g.homeAbbrev, g.homeTeamId, g.homeSog);
   }
-  if (g.awaySog != d.sogA || awayGoal) {
+  if (g.awaySog != d.sogA) {
     d.sogA = g.awaySog;
-    drawTeamColumn(GUEST_LOGO_X, g.awayAbbrev, g.awayTeamId, g.awaySog,
-                   sFlashAwayUntil != 0);
+    drawTeamColumn(GUEST_LOGO_X, g.awayAbbrev, g.awayTeamId, g.awaySog);
   }
 
   // bottom half: penalties while any are active, otherwise the league's
@@ -416,10 +428,22 @@ void tickLiveClock() {
   // while the game clock is stopped), and lets the goal flash expire
   // back to the normal score box. No-op without a live game.
   if (!nhl_render::hasCurrentLiveGame) {
-    sFlashAwayUntil = sFlashHomeUntil = 0;
+    sBlinkSide = 0;
     return;
   }
   uint32_t now = millis();
+  // Score blink: 250 ms on / 250 ms off x3 on the scoring side's matrix,
+  // then back to the steady display.
+  if (sBlinkSide != 0) {
+    uint8_t phase = (now - sBlinkStart) / NHL_SCORE_BLINK_HALF_MS;
+    if (phase >= 2 * NHL_SCORE_BLINK_FLASHES) {
+      sBlinkSide = 0;
+      applyScoreMatrices(false);
+    } else if (phase != sBlinkPhase) {
+      sBlinkPhase = phase;
+      applyScoreMatrices(phase % 2 == 1);
+    }
+  }
   // Stale-snapshot continuation: with no fresh landing data for 90 s
   // (18 missed polls), the frozen display is worse than a guess — resume
   // the clock and let penalties expire on their own until data returns.
@@ -434,14 +458,6 @@ void tickLiveClock() {
       (int32_t)(now - sLeagueRotateAt) >= 0) {
     sLeagueStart = (sLeagueStart + 1) % sLeagueLiveCount;
     drawLeagueHalf();
-  }
-  if (sFlashAwayUntil != 0 && (int32_t)(now - sFlashAwayUntil) >= 0) {
-    sFlashAwayUntil = 0;
-    drawTeamColumn(GUEST_LOGO_X, d.awayAbbrev, d.awayTeamId, d.sogA, false);
-  }
-  if (sFlashHomeUntil != 0 && (int32_t)(now - sFlashHomeUntil) >= 0) {
-    sFlashHomeUntil = 0;
-    drawTeamColumn(HOME_LOGO_X, d.homeAbbrev, d.homeTeamId, d.sogH, false);
   }
   int clk = liveClockSec();
   if (clk == d.clockSec) return;
