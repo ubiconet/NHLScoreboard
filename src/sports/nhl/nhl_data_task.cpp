@@ -82,8 +82,19 @@ GameSnapshot landingToSnapshot(JsonObjectConst d, long gameId) {
 
   // Active penalties: the summary lists every penalty with its start
   // (period + elapsed stamp) and duration; a penalty is active while
-  // start + duration > now on the game clock.
-  int now = gameElapsedFromClock(s.period > 0 ? s.period : 1, s.clockSec);
+  // start + duration > now on the game clock. During an intermission the
+  // feed's clock carries the BREAK countdown, not period time — deriving
+  // elapsed from it would burn penalty time during the pause, so penalty
+  // math anchors to the last in-play clock reading instead (penalty
+  // clocks stop with play, like the real thing).
+  static int sPlayPeriod = 1, sPlayClockSec = 1200;
+  if (!s.inIntermission && s.period > 0) {
+    sPlayPeriod = s.period;
+    sPlayClockSec = s.clockSec;
+  }
+  int now = gameElapsedFromClock(s.inIntermission ? sPlayPeriod
+                                                  : (s.period > 0 ? s.period : 1),
+                                 s.inIntermission ? sPlayClockSec : s.clockSec);
   int cnt = 0;
   for (JsonObjectConst grp : d["summary"]["penalties"].as<JsonArrayConst>()) {
     int pPeriod = grp["periodDescriptor"]["number"] | 0;
