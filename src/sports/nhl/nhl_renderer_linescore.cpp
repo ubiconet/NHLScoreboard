@@ -48,8 +48,9 @@ const int HOME_LOGO_X = 35, GUEST_LOGO_X = 219;  // home left, guest right
 // Scoreboard-style shots box under each logo (white border, white
 // label, big gold count; goal flash fills it gold) — PAD widens the
 // box past the smaller logo and Y leaves a clear gap below the crest.
-const int SHOTS_BOX_Y = 88, SHOTS_BOX_H = 60, SHOTS_BOX_PAD = 12;
-const int SHOTS_LBL_Y = 94, SHOTS_NUM_Y = 112;
+const int ABBREV_Y = 76;  // white 3-letter abbrev between logo and box
+const int SHOTS_BOX_Y = 94, SHOTS_BOX_H = 58, SHOTS_BOX_PAD = 12;
+const int SHOTS_LBL_Y = 98, SHOTS_NUM_Y = 116;
 const int BOTTOM_Y = 158;
 
 // Last-drawn cache — anything that differs triggers that region's repaint.
@@ -209,6 +210,9 @@ void drawTeamColumn(int logoX, const char* abbrev, int teamId, int shots) {
   drawTeamLogoScaled(canvas(), logoX, LOGO_Y, teamId, abbrev, LOGO_SIZE);
   const int bx = logoX - SHOTS_BOX_PAD, bw = LOGO_SIZE + 2 * SHOTS_BOX_PAD;
   const int cx = logoX + LOGO_SIZE / 2;
+  canvas().setTextColor(ST77XX_WHITE);
+  canvas().setTextSize(2);
+  drawCenteredText(canvas(), abbrev, cx, ABBREV_Y);
   // 2-px white border (arena-stat-panel look)
   canvas().drawRoundRect(bx, SHOTS_BOX_Y, bw, SHOTS_BOX_H, 8, ST77XX_WHITE);
   canvas().drawRoundRect(bx + 1, SHOTS_BOX_Y + 1, bw - 2, SHOTS_BOX_H - 2, 8,
