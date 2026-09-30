@@ -144,56 +144,62 @@ void refreshPenaltyTimes() {
   }
 }
 
-// Feed-truth stop detection: the arena's clock.running flag can lag an
-// actual stoppage, which made the board tick past a dead clock until a
-// later poll snapped it back. A clock that claims to be running but
-// reports the SAME value on consecutive ~5 s polls is stopped at the
-// source (a running clock moves ~5 s per poll; measurement jitter is
-// ~±1 s) — freeze locally until the polled value moves again.
-int sLastPolledClockSec = -1;
-bool sFeedClockStuck = false;
+// Clock sync strategy (the 1 Hz display tick itself is tickLiveClock):
+// - While feed and display agree play is running, the display ticks on
+//   wall time and is NEVER re-anchored — transport staleness (the polled
+//   value is ~0-3 s old, i.e. slightly ABOVE the display) is absorbed,
+//   not corrected, so the clock cannot stutter mid-play.
+// - A stoppage is caught within one poll: the polled value stops
+//   dropping against the ticking display (drift turns positive and
+//   grows). The display freezes immediately, capping any over-tick at
+//   CLOCK_NORMAL_DRIFT seconds.
+// - The displayed value never increases ("rewinds") except one
+//   deliberate case: accumulated error beyond CLOCK_MAX_LEAD snaps to
+//   feed truth in a single visible correction. Small leads persist and
+//   re-anchor for free at the next stoppage. Resumes anchor to the
+//   lower of feed/display so puck drop never rewinds the clock.
+const int CLOCK_NORMAL_DRIFT = 3;  // s: feed transport-latency allowance
+const int CLOCK_MAX_LEAD = 5;      // s: max display-ahead before a snap
 
 void syncClockModel(const GameSnapshot& g) {
   uint32_t now = millis();
   if (g.inIntermission) {
-    // Between periods (the flag means a real intermission, not a
-    // commercial break): display the NEXT period already — its opening
+    // Between periods: display the NEXT period already — its opening
     // clock (20:00 regulation / 5:00 OT), frozen until puck drop.
-    sClockBasisSec =
-        periodLengthOf((g.period > 0 ? g.period : 3) + 1);
+    sClockBasisSec = periodLengthOf((g.period > 0 ? g.period : 3) + 1);
     sClockSyncedAt = now;
     sClockRunning = false;
-    sLastPolledClockSec = -1;  // resume must not look like a stuck clock
     return;
   }
+  int fresh = g.clockSec < 0 ? 0 : g.clockSec;
   int local = sClockRunning
                   ? sClockBasisSec - (int)((now - sClockSyncedAt) / 1000)
                   : sClockBasisSec;
   if (local < 0) local = 0;
-  int fresh = g.clockSec < 0 ? 0 : g.clockSec;
-  if (g.clockRunning && g.inIntermission == false && fresh > 0) {
-    sFeedClockStuck = (fresh == sLastPolledClockSec);
+  int drift = fresh - local;  // > 0: feed value above the display
+
+  if (!g.clockRunning) {
+    // Stopped per feed: freeze. Hold the displayed value when the gap is
+    // small (no visible jump); snap only past CLOCK_MAX_LEAD.
+    sClockBasisSec = (drift > CLOCK_MAX_LEAD)
+                         ? fresh
+                         : (sClockRunning ? local : sClockBasisSec);
+    sClockRunning = false;
+  } else if (!sClockRunning) {
+    // Resume: take whichever is lower so the display never rewinds.
+    sClockBasisSec = (drift > CLOCK_MAX_LEAD) ? fresh : local;
+    sClockRunning = true;
+  } else if (drift > CLOCK_NORMAL_DRIFT) {
+    // Feed well above the ticking display: the clock actually stopped
+    // while the running flag lagged. Freeze NOW (caps the over-tick);
+    // snap only past CLOCK_MAX_LEAD.
+    sClockBasisSec = (drift > CLOCK_MAX_LEAD) ? fresh : local;
+    sClockRunning = false;
   } else {
-    sFeedClockStuck = false;
-  }
-  sLastPolledClockSec = fresh;
-  bool running = g.clockRunning && !g.inIntermission && !sFeedClockStuck;
-  int drift = fresh - local;
-  if (!running || !sClockRunning || drift > 2 || drift < -2) {
-    sClockBasisSec = fresh;  // re-sync from the poll (snap)
-  } else if (drift > 0) {
-    // Behind the feed even within the deadband: catch up now — holding
-    // the local estimate here would pin a permanent 1-2 s lag.
-    sClockBasisSec = fresh;
-  } else {
-    // Ahead of the feed by <= 2 s while continuously running: that is
-    // just transport staleness (the polled value is ~1 s old when it
-    // lands), so keep the locally ticking estimate — snapping to it
-    // would stutter the display backward every poll.
+    // Normal running: keep the ticking estimate untouched — smoothness.
     sClockBasisSec = local;
   }
   sClockSyncedAt = now;
-  sClockRunning = running;
 }
 
 int liveClockSec() {

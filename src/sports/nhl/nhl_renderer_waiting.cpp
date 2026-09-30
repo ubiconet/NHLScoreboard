@@ -381,17 +381,19 @@ void drawStandingsPage(int div) {
   canvas().setTextColor(COLOR_GOLD);
   canvas().setTextSize(2);
   drawCenteredText(canvas(), s.divisionName[div], 160, 8);
+  // Headers centered over their value columns (values are right-aligned
+  // at the column edges used below).
   canvas().setTextColor(COLOR_MUTED);
   canvas().setTextSize(1);
   canvas().setCursor(16, 32);
   canvas().print("TEAM");
-  canvas().setCursor(178, 32);
+  canvas().setCursor(169, 32);   // W column [160,185], center 172
   canvas().print("W");
-  canvas().setCursor(222, 32);
+  canvas().setCursor(213, 32);   // L column [204,229], center 216
   canvas().print("L");
-  canvas().setCursor(258, 32);
+  canvas().setCursor(247, 32);   // OTL column [240,272], center 256
   canvas().print("OTL");
-  canvas().setCursor(300, 32);
+  canvas().setCursor(284, 32);   // PTS column [280,306], center 293
   canvas().print("PTS");
   int y = 46;
   for (int i = 0; i < s.count[div] && i < 8; ++i) {
