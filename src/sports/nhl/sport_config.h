@@ -19,11 +19,15 @@
 // The 5-arg software-SPI constructor is deliberate: on ESP32-S3 the 3-arg
 // hardware-SPI variant binds SPI.begin() to the variant's default VSPI pins
 // instead of these, leaving a blank screen. See main.cpp's display comment.
-static const int TFT_SCLK_PIN = 13;
-static const int TFT_MOSI_PIN = 12;
-static const int TFT_CS_PIN = 9;
-static const int TFT_DC_PIN = 10;
-static const int TFT_RESET_PIN = 11;
+// Backplane-PCB rev map (v3.44): SCL=8, SDA=3, CS=10, DC=9, RES=46. GPIO 3
+// and 46 are strapping pins — fine as outputs after boot (46's reset-time
+// state only gates ROM log output), but the TFT must not drive them during
+// power-up (its SDA/RES lines are inputs, so it can't).
+static const int TFT_SCLK_PIN = 8;
+static const int TFT_MOSI_PIN = 3;
+static const int TFT_CS_PIN = 10;
+static const int TFT_DC_PIN = 9;
+static const int TFT_RESET_PIN = 46;
 static const int TFT_BACKLIGHT_PIN = -1;
 static const int TFT_NATIVE_WIDTH = 240;
 static const int TFT_NATIVE_HEIGHT = 320;
@@ -43,13 +47,16 @@ static const int TM1637_DIO_PIN = 17;
 static const int TM1637_BRIGHTNESS = 3;   // 0..7
 
 // ---- Penalty LEDs (home P1/P2, guest P1/P2) --------------------------------
-// Target physical map: left header pos 4-7. count_leds drives a 3/2/2 pin
-// grouping; penalties need 2+2, so the unused slots point at free pins.
+// Backplane-PCB rev map (v3.44): home 4/5, guest 11/12 (guest moved off
+// 6/7 for the new routing). count_leds drives a 3/2/2 pin grouping;
+// penalties need 2+2, so the unused slots point at free pins. FILL_A must
+// stay off GPIO 8 (now the TFT SCL — initCountLeds would claim it) and sits
+// on 13, the freed old TFT SCK.
 static const int PENALTY_HOME1_PIN = 4;
 static const int PENALTY_HOME2_PIN = 5;
-static const int PENALTY_AWAY1_PIN = 6;
-static const int PENALTY_AWAY2_PIN = 7;
-static const int PENALTY_FILL_A  = 8;    // group A 3rd slot (never lit)
+static const int PENALTY_AWAY1_PIN = 11;
+static const int PENALTY_AWAY2_PIN = 12;
+static const int PENALTY_FILL_A  = 13;    // group A 3rd slot (never lit)
 static const int PENALTY_FILL_B1 = 15;   // group C slots (never lit)
 static const int PENALTY_FILL_B2 = 18;
 

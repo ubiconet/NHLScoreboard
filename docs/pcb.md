@@ -87,11 +87,11 @@ of the pads may go unrouted.
 | 3V3 (two pins) | rail | J2 VCC, J3 VCC |
 | 5V | rail | J9-1, J4/J5/J6 VCC, J7 VIN |
 | GND (4 pins) | rail | everything (star at J9-2) |
-| GPIO 13/12/11/10/9 | TFT | J2 SCL/SDA/RES/DC/CS |
+| GPIO 8/3/46/9/10 | TFT | J2 SCL/SDA/RES/DC/CS |
 | GPIO 16/17 | TM1637 | J3 CLK/DIO |
 | GPIO 40/39/38 | matrices | J4 DIN, CLK bus (39), CS bus (38) |
 | GPIO 1/2/42 | I2S | J7 BCLK/LRC/DIN |
-| GPIO 4/5/6/7 | LEDs | R1/R2/R3/R4 |
+| GPIO 4/5/11/12 | LEDs | R1/R2/R3/R4 (H1 H2 G1 G2) |
 
 Matrix daisy-chain ON the PCB: J4 DOUT pad → J5 DIN, J5 DOUT → J6 DIN
 (short jumpers on the copper side; label them on the silk).
@@ -173,9 +173,14 @@ J5 DOUT→J6 DIN with dupont jumpers; CLK/CS/5V/GND tap from J4's spare pins.
 8. J4 CS wire: (−92,−15) → J4 CS pin (continue to J5/J6 CS)
 9. J4 CLK wire: (−87,−12) → J4 CLK pin
 
-### Required firmware pin changes (bump FIRMWARE_VERSION!)
-- I2S: DIN 42→1, BCLK 1→43, LRC 2→44 (right-row pads freed the bus lanes)
-- Penalty LEDs: HOME1 4→5, HOME2 5→4 (escape-corridor order)
+### Firmware pin changes — final routing (applied in v3.44)
+- TFT: SCK 13→8, MOSI 12→3, RESET 11→46, CS 9→10, DC 10→9
+- Penalty LEDs: GUEST1 6→11, GUEST2 7→12 (home stay 4/5)
+- PENALTY_FILL_A 8→13 (GPIO 8 became the TFT SCL — `initCountLeds`
+  configures the fill pins, so it can no longer sit there)
+- The first routing's proposals (I2S to BCLK=43/LRC=44/DIN=1, home LED
+  4↔5 swap) were superseded by the final routing — I2S stays
+  BCLK=1, LRC=2, DIN=42; home LEDs stay 4/5.
 
 **Verify against hardware before cutting** (per your note): header
 positions/orientations, J6 rotation, LED hole alignment, DevKit placement

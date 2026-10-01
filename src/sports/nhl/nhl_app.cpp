@@ -247,6 +247,10 @@ void tick(const SportTickContext& ctx) {
       sInManual = true;
       invalidateManualScreen();
     }
+    if (consumeManualPeriodEndBuzzer() && isAudioEnabled()) {
+      Serial.println("[AUDIO] manual end-of-period buzzer");
+      startClip(BUZZER_PCM, BUZZER_SAMPLES, BUZZER_RATE);
+    }
     renderManual();
     return;
   }

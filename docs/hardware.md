@@ -3,10 +3,13 @@
 The NHL build's outputs, their drivers, and the GPIO plan mapped to the
 **physical header positions** of the actual dev board (the logical GPIO
 numbers are NOT in order on its headers, so assignments below are chosen
-for physical sequence). Since v2.0 the firmware drives this target map for
-the TM1637, penalty LEDs, and the MAX7219 chain; the remaining topography
-items are the third (period) MAX7219 module — the `led_matrix` HAL still
-drives two — and the MAX98357 I2S audio output.
+for physical sequence). **v3.44 moved the TFT and the guest penalty LEDs
+to the backplane-PCB routing** (`pcb.md`) — the dev-board headers below
+are now intermediate, but the GPIO↔position map is still the board's
+truth. Since v2.0 the firmware drives this target map for the TM1637,
+penalty LEDs, and the MAX7219 chain; the remaining topography items are
+the third (period) MAX7219 module — the `led_matrix` HAL still drives
+two — and the MAX98357 I2S audio output.
 
 For building the physical board see **[`assembly.md`](assembly.md)** —
 parts list, wiring tables, the rendered wiring diagram
@@ -35,8 +38,8 @@ position 18 and a GPIO can't appear twice).
 | 4 | Period clock | TM1637 4-digit 7-seg | MM:SS game clock | 2-wire bit-bang | 16/17 |
 | 5 | Audio | MAX98357 I2S amp + speaker | goal horn / cues | I2S | 1/2/42 |
 | 6 | Home penalties | 2 discrete LEDs | penalty 1 / penalty 2 | GPIO direct | 4/5 |
-| 7 | Guest penalties | 2 discrete LEDs | penalty 1 / penalty 2 | GPIO direct | 6/7 |
-| 8 | Game details | 2.0" ST7789 240×320 TFT | linescore, carousel, portal | software SPI | 9/10/11/12/13 |
+| 7 | Guest penalties | 2 discrete LEDs | penalty 1 / penalty 2 | GPIO direct | 11/12 |
+| 8 | Game details | 2.0" ST7789 240×320 TFT | linescore, carousel, portal | software SPI | 8/3/9/10/46 |
 
 **Total: 17 GPIOs.** Wiring-friendly split: **left header = indicators +
 displays**, **right header = serial buses** (audio + score matrices).
@@ -52,20 +55,20 @@ displays**, **right header = serial buses** (audio + score matrices).
 | 3 | RST | — | |
 | 4 | GPIO4 | Home penalty LED 1 | |
 | 5 | GPIO5 | Home penalty LED 2 | |
-| 6 | GPIO6 | Guest penalty LED 1 | |
-| 7 | GPIO7 | Guest penalty LED 2 | |
+| 6 | GPIO6 | — spare — | guest LED until the PCB rev (v3.44) |
+| 7 | GPIO7 | — spare — | guest LED until the PCB rev (v3.44) |
 | 8 | GPIO15 | — gap — | spare |
 | 9 | GPIO16 | TM1637 CLK | |
 | 10 | GPIO17 | TM1637 DIO | |
 | 11 | GPIO18 | — gap — | spare |
-| 12 | GPIO8 | — spare — | was MLB matrix DIN |
-| 13 | GPIO3 | — spare — | strap-adjacent; proven as LED on the MLB build |
-| 14 | GPIO46 | — spare — | strapping pin — avoid using |
-| 15 | GPIO9 | TFT CS | proven template pins, |
-| 16 | GPIO10 | TFT DC | now also physically |
-| 17 | GPIO11 | TFT RESET | consecutive |
-| 18 | GPIO12 | TFT MOSI | |
-| 19 | GPIO13 | TFT SCK | |
+| 12 | GPIO8 | TFT SCL (SCK) | PCB rev v3.44 |
+| 13 | GPIO3 | TFT SDA (MOSI) | strapping pin (JTAG source) — output OK after boot |
+| 14 | GPIO46 | TFT RESET | strapping pin — output OK after boot; reset state only gates ROM log |
+| 15 | GPIO9 | TFT DC | |
+| 16 | GPIO10 | TFT CS | |
+| 17 | GPIO11 | Guest penalty LED 1 | |
+| 18 | GPIO12 | Guest penalty LED 2 | |
+| 19 | GPIO13 | — spare — | PENALTY_FILL_A dummy (init'd, never lit) |
 | 20 | GPIO14 | — gap — | spare |
 | 21 | 5V | — | power for MAX7219 chain + MAX98357 |
 | 22 | GND | — | |
@@ -107,14 +110,18 @@ displays**, **right header = serial buses** (audio + score matrices).
    chain (CLK + CS common, data cascades DOUT→DIN), so the Period matrix
    costs zero extra pins. TM1637 is 2 pins, MAX98357 is 3 (I2S), penalty
    LEDs are 4.
-3. **Proven pins survive.** The TFT lands on `CS=9, DC=10, RESET=11,
-   MOSI=12, SCK=13` — the exact wiring the MLB template proved — purely
-   because those GPIOs happen to sit consecutively (left 15–19) on this
-   board. The penalty LEDs are a subset of the old GPIO 1–7 LED harness.
-4. **Avoided by design:** GPIO 35–37 (octal PSRAM on N8R8), 0/45/46
+3. **PCB routing wins (v3.44).** The original map put the TFT on the
+   MLB-proven `CS=9, DC=10, RESET=11, MOSI=12, SCK=13` run (left 15–19)
+   and the guest LEDs on 6/7; the backplane PCB's routing moved the TFT to
+   `SCK=8, MOSI=3, CS=10, DC=9, RESET=46` and the guest LEDs to 11/12.
+   GPIO 3 and 46 are strapping pins, but both are TFT inputs on the module
+   side, so the strap sample at reset is undisturbed and both work fine
+   as outputs once firmware drives them.
+4. **Avoided by design:** GPIO 35–37 (octal PSRAM on N8R8), 0/45
    (straps), 48 (onboard RGB), 19/20 (native USB), 43/44 (debug UART).
-   3/46 sit as spares only because 46 is a strap — prefer GPIO 15/18/14
-   (left) or 41/47/21 (right) when adding parts.
+   46 (strap) is now the TFT reset — tolerated because its reset-time
+   state only gates ROM log output. When adding parts prefer GPIO 15/18/14
+   (left) or 41/47/21 (right).
 
 ## Wiring notes
 

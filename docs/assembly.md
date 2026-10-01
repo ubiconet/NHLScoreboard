@@ -3,8 +3,9 @@
 Everything needed to wire the scoreboard end to end. The pin plan and its
 rationale live in [`hardware.md`](hardware.md); this document is the
 build-side companion: parts, wiring tables, the rendered diagram, assembly
-order, and the first-boot checklist. Firmware v2.0 already drives the pin
-map used here.
+order, and the first-boot checklist. Firmware **v3.44** drives the
+backplane-PCB pin map used here (TFT and guest penalty LEDs moved — see
+`hardware.md`).
 
 ![Wiring diagram](wiring-diagram.png)
 
@@ -39,11 +40,11 @@ the end nearest the RST button / top of the board photo).
 |---|---|---|---|
 | VCC | 3V3 | — | L1/L2 |
 | GND | GND | — | L22 |
-| SCL/SCK | TFT SCK | 13 | L19 |
-| SDA/MOSI | TFT MOSI | 12 | L18 |
-| RES | TFT RESET | 11 | L17 |
-| DC | TFT DC | 10 | L16 |
-| CS | TFT CS | 9 | L15 |
+| SCL/SCK | TFT SCK | 8 | L12 |
+| SDA/MOSI | TFT MOSI | 3 | L13 |
+| RES | TFT RESET | 46 | L14 |
+| DC | TFT DC | 9 | L15 |
+| CS | TFT CS | 10 | L16 |
 | BLK | *(leave unconnected — backlight always on)* | — | — |
 
 ### TM1637 — period clock / wall clock (left header)
@@ -63,8 +64,8 @@ GPIO → LED anode → resistor → GND, one per LED:
 |---|---|---|---|
 | Home penalty 1 | 4 | L4 | 330–470 Ω |
 | Home penalty 2 | 5 | L5 | 330–470 Ω |
-| Guest penalty 1 | 6 | L6 | 330–470 Ω |
-| Guest penalty 2 | 7 | L7 | 330–470 Ω |
+| Guest penalty 1 | 11 | L17 | 330–470 Ω |
+| Guest penalty 2 | 12 | L18 | 330–470 Ω |
 
 ### MAX7219 chain — scores + period (right header)
 
@@ -115,7 +116,7 @@ Speaker lands on the amp's screw terminals (4 Ω/3 W or 8 Ω).
    ground tying every module back to the board.
 4. TFT (7 wires, left header 15–19 + rails).
 5. TM1637 (4 wires, left 9–10 + rails — 3V3!).
-6. Penalty LEDs + resistors (left 4–7).
+6. Penalty LEDs + resistors (home left 4–5, guest left 17–18).
 7. MAX7219 modules: mount in order, wire the shared CLK/CS, feed DIN of
    module 1 from GPIO 40, then jumper DOUT→DIN between modules.
 8. MAX98357 + speaker (right 4–6 + rails).
@@ -141,7 +142,7 @@ Speaker lands on the amp's screw terminals (4 Ω/3 W or 8 Ω).
 ## Troubleshooting
 
 - **Blank TFT**: check BLK isn't tied low, and that SCL/SDA didn't swap
-  (GPIO 13 = SCK, GPIO 12 = MOSI).
+  (GPIO 8 = SCK, GPIO 3 = MOSI on the PCB-rev map).
 - **Garbled/one dead matrix**: the chain is positional — module 1 must be
   the one receiving GPIO 40 DIN; DOUT→DIN jumpers seat fully.
 - **Dim or dead TM1637**: it's on 3V3 by design; on 5 V its inputs may
@@ -150,3 +151,9 @@ Speaker lands on the amp's screw terminals (4 Ω/3 W or 8 Ω).
   wired for the day it lands — see `hardware.md` driver notes).
 - **Everything dead at once**: measure 5 V at the board and at the far
   MAX7219; a starved rail browns out the matrices first.
+- **First matrix works, downstream matrices dark**: measure the 5 V rail
+  under load (during the display test's all-on phase — worst case ~1 A).
+  A supply that sags browns out the modules further down the power bus
+  while the one nearest the feed keeps running; it looks exactly like a
+  broken DOUT→DIN chain link but isn't. (Seen in the field: fine on a
+  boosted 5 V supply, modules 2–3 dark on a weaker one.)

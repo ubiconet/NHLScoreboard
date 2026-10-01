@@ -22,9 +22,9 @@ without surprises.
   `docs/hardware.md`; since v2.0 the firmware drives the target pin map
   for matrices/penalty LEDs/TM1637 — remaining: 3rd period matrix, I2S):**
   - 2.0" ST7789 TFT, 320×240, game details — **software-SPI** on pins
-    `SCK=13, MOSI=12, CS=9, DC=10, RESET=11` (the proven template pins —
-    also physically consecutive, left header pos 15–19). Never switch to
-    hardware SPI; see the gotcha note in
+    `SCK=8, MOSI=3, CS=10, DC=9, RESET=46` (backplane-PCB rev map since
+    v3.44; GPIO 3/46 are strapping pins but work as outputs after boot).
+    Never switch to hardware SPI; see the gotcha note in
     `memories/repo/hardware_architecture.md` and in
     `src/common/hal/tft_panel.h`.
   - 3× MAX7219 8×8 matrices, one daisy chain (home score / guest score /
@@ -33,8 +33,8 @@ without surprises.
     (left header pos 9–10).
   - MAX98357 I2S audio amp (goal horn) — target `BCLK=1, LRC=2, DIN=42`
     (right header pos 4–6).
-  - 4 penalty LEDs (home P1/P2, guest P1/P2) — target GPIO `4, 5, 6, 7`
-    (left header pos 4–7).
+  - 4 penalty LEDs (home P1/P2, guest P1/P2) — target GPIO `4, 5, 11, 12`
+    (guest pair moved off 6/7 for the PCB rev, v3.44).
 - **Firmware:** Arduino-ESP32 framework, PlatformIO build system.
 - **Build envs:**
   - `esp32-s3-devkitc-1` → USB CDC upload.

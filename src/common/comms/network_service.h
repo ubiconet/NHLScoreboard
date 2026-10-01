@@ -63,6 +63,10 @@ int  getManualPeriod();
 int  getManualPenaltyMask();   // bit0=home P1, 1=home P2, 2=guest P1, 3=guest P2
 int  getManualHomeShots();
 int  getManualGuestShots();
+// True exactly once per manual-clock expiry (0:00): the sport layer
+// answers with the end-of-period buzzer — it owns the audio clips, so
+// common code only raises the request.
+bool consumeManualPeriodEndBuzzer();
 // Saved Wi-Fi SSID ("" when none) and the device's current IP ("" while
 // not online) — read by the boot status page.
 const char* getSavedWifiSsid();
