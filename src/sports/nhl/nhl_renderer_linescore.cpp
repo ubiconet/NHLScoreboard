@@ -230,11 +230,26 @@ void drawTeamColumn(int logoX, const char* abbrev, int teamId, int shots) {
   canvas().setTextColor(ST77XX_WHITE);
   canvas().setTextSize(2);
   drawCenteredText(canvas(), "SHOTS", cx, SHOTS_LBL_Y);
+  // Count: wipe the number region first, then draw each digit in its own
+  // fixed cell. Text renders transparently on this canvas, so without the
+  // wipe every value change (9 -> 10, 12 -> 13) smears the old glyph
+  // remnants into the new number; fixed cells keep multi-digit counts
+  // evenly spaced.
   char n[4];
   snprintf(n, sizeof(n), "%d", shots < 0 ? 0 : shots);
+  canvas().fillRect(bx + 3, SHOTS_NUM_Y - 2, bw - 6,
+                    SHOTS_BOX_Y + SHOTS_BOX_H - 3 - (SHOTS_NUM_Y - 2),
+                    COLOR_BG);
   canvas().setTextColor(COLOR_GOLD);
   canvas().setTextSize(4);
-  drawCenteredText(canvas(), n, cx, SHOTS_NUM_Y);
+  const int kDigitCell = 30;  // 20-px size-4 glyph + breathing room
+  int digits = (int)strlen(n);
+  int x0 = cx - (digits * kDigitCell) / 2;
+  for (int i = 0; i < digits; ++i) {
+    canvas().setCursor(x0 + i * kDigitCell + (kDigitCell - 20) / 2,
+                       SHOTS_NUM_Y);
+    canvas().print(n[i]);
+  }
   tftPanel.pushRows(logoX - SHOTS_BOX_PAD - 2, LOGO_Y - 2,
                     LOGO_SIZE + 2 * SHOTS_BOX_PAD + 4,
                     SHOTS_BOX_Y + SHOTS_BOX_H + 2 - (LOGO_Y - 2));
