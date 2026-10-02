@@ -46,7 +46,7 @@ const int LOGO_Y = 6, LOGO_SIZE = 67;  // ~20% down from 84
 // Column centers stay put (68 / 252); logos re-centered on them.
 const int HOME_LOGO_X = 35, GUEST_LOGO_X = 219;  // home left, guest right
 // Scoreboard-style shots box under each logo (white border, white
-// label, big gold count; goal flash fills it gold) — PAD widens the
+// label, big gold count) — PAD widens the
 // box past the smaller logo and Y leaves a clear gap below the crest.
 const int ABBREV_Y = 76;  // white 3-letter abbrev between logo and box
 const int SHOTS_BOX_Y = 94, SHOTS_BOX_H = 58, SHOTS_BOX_PAD = 12;
@@ -363,8 +363,8 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
   }
 
   // matrices + goal flash — the score lives on the matrices; a score
-  // INCREASE (goal) inverts that team's SOG panel for the flash window
-  // and the per-tick hook restores it.
+  // INCREASE (goal) blinks that team's NEW score on its matrix (the
+  // SOG panels never change appearance — goal feedback is matrix-only).
   bool homeGoal = false, awayGoal = false;
   if (g.awayScore != d.awayScore) {
     awayGoal = g.awayScore > d.awayScore && d.awayScore >= 0;
@@ -396,8 +396,8 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
 
   d.clockSec = clk;  // second tracker for tickLiveClock's TM1637 updates
 
-  // SOG panels — a goal also bumps that side's shot count, so the
-  // inverted flash panel rides along on the same redraw.
+  // SOG panels — redrawn only when the value changes; the look never
+  // changes (goal feedback lives on the matrices, not here).
   if (g.homeSog != d.sogH) {
     d.sogH = g.homeSog;
     drawTeamColumn(HOME_LOGO_X, g.homeAbbrev, g.homeTeamId, g.homeSog);

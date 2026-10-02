@@ -346,7 +346,7 @@ void tick(const SportTickContext& ctx) {
       bool awayScored = prevAway >= 0 && game.awayScore > prevAway;
       if (homeScored || awayScored) {
         // Goal horn fires only when one of the user's own teams scored
-        // (the renderer's inverted-box flash fires for either side).
+        // (the matrix score blink fires for either side).
         bool favorite = false;
         for (int i = 0; i < 3 && !favorite; ++i) {
           if (preferredTeams[i] == 0) continue;
