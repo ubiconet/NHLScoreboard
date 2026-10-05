@@ -325,6 +325,11 @@ void tick(const SportTickContext& ctx) {
       bool sameGame = sLastGame.valid && sLastGame.gameId == game.gameId;
       int prevHome = sameGame ? sLastGame.homeScore : -1;
       int prevAway = sameGame ? sLastGame.awayScore : -1;
+      bool goalDetailsUpdated = sameGame && sLastGame.latestGoal.valid &&
+          game.latestGoal.valid &&
+          sLastGame.latestGoal.eventId == game.latestGoal.eventId &&
+          sLastGame.latestGoal.scorer.number <= 0 &&
+          game.latestGoal.scorer.number > 0;
       // Edge triggers for the end-of-period/game buzzer (once per
       // transition; sound setting still applies).
       bool periodEnded = sameGame && !sLastGame.inIntermission &&
@@ -338,6 +343,7 @@ void tick(const SportTickContext& ctx) {
            strcmp(game.gameState, "OVER") == 0);
       sLastGame = game;
       renderLiveGame(game);
+      if (goalDetailsUpdated) updateGoalAnnouncement(game.latestGoal);
       if ((periodEnded || gameEnded) && isAudioEnabled()) {
         Serial.printf("[AUDIO] %s buzzer\n", gameEnded ? "game" : "period");
         startClip(BUZZER_PCM, BUZZER_SAMPLES, BUZZER_RATE);
@@ -345,6 +351,7 @@ void tick(const SportTickContext& ctx) {
       bool homeScored = prevHome >= 0 && game.homeScore > prevHome;
       bool awayScored = prevAway >= 0 && game.awayScore > prevAway;
       if (homeScored || awayScored) {
+        startGoalAnnouncement(game.latestGoal);
         // Goal horn fires only when one of the user's own teams scored
         // (the matrix score blink fires for either side).
         bool favorite = false;

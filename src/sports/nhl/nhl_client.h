@@ -27,6 +27,11 @@ bool fetchNhlStandings(JsonDocument& doc, const char* dateStr);
 // gameState, periodDescriptor, clock, team score/sog, penalty summary.
 bool fetchNhlGameLanding(JsonDocument& doc, long gameId);
 
+// Filtered roster jersey numbers from /v1/gamecenter/{id}/play-by-play.
+// Requested only when a live-game score increases and the landing goal
+// summary does not supply the scorer's sweater number.
+bool fetchNhlGameRoster(JsonDocument& doc, long gameId);
+
 // News headlines from ESPN (plain HTTP — see the News section of the API
 // doc for why the RSS host lost to the api host).
 bool fetchEspnNhlNews(JsonDocument& doc, int limit = 10);

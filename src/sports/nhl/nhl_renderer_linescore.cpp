@@ -77,6 +77,15 @@ uint32_t sClockSyncedAt = 0;
 int      sClockBasisSec = 0;
 bool     sClockRunning = false;
 
+enum class GoalDisplayPhase : uint8_t { NONE, ANNOUNCEMENT, DETAILS };
+GoalDisplayPhase sGoalDisplayPhase = GoalDisplayPhase::NONE;
+uint32_t sGoalDisplayStartedAt = 0;
+NhlGoal sDisplayedGoal{};
+
+bool goalDisplayActive() {
+  return sGoalDisplayPhase != GoalDisplayPhase::NONE;
+}
+
 // Goal blink: the scoring team's NEW score flashes on its matrix
 // (NHL_SCORE_BLINK_FLASHES x 250 ms on / 250 ms off), then returns to
 // the steady display. bit 1 = home, bit 2 = guest.
@@ -274,6 +283,68 @@ void drawGameOverHalf() {
   tftPanel.pushRows(0, BOTTOM_Y, 320, 240 - BOTTOM_Y);
 }
 
+void drawGoalAnnouncement() {
+  canvas().fillScreen(COLOR_BG);
+  canvas().setTextColor(COLOR_GOLD);
+  canvas().setTextSize(5);
+  drawCenteredText(canvas(), "GOAL!!!", 160, 104);
+  tftPanel.pushFull();
+}
+
+void drawGoalDetails() {
+  canvas().fillScreen(COLOR_BG);
+  canvas().setTextColor(COLOR_GOLD);
+  canvas().setTextSize(2);
+  if (!sDisplayedGoal.valid) {
+    drawCenteredText(canvas(), "SCORER DETAILS", 160, 72);
+    drawCenteredText(canvas(), "UNAVAILABLE", 160, 106);
+    tftPanel.pushFull();
+    return;
+  }
+  drawCenteredText(canvas(), "GOAL SCORED BY", 160, 38);
+
+  char line[52];
+  snprintf(line, sizeof(line), "#%d %s",
+           sDisplayedGoal.scorer.number > 0
+               ? sDisplayedGoal.scorer.number : 0,
+           sDisplayedGoal.scorer.name[0] != '\0'
+               ? sDisplayedGoal.scorer.name : "Unknown");
+  if (sDisplayedGoal.scorer.number <= 0) {
+    snprintf(line, sizeof(line), "#? %s",
+             sDisplayedGoal.scorer.name[0] != '\0'
+                 ? sDisplayedGoal.scorer.name : "Unknown");
+  }
+  canvas().setTextColor(ST77XX_WHITE);
+  canvas().setTextSize(2);
+  int scorerChars = strlen(line) > 25 ? 25 : strlen(line);
+  canvas().setCursor(160 - scorerChars * 6, 82);
+  printClipped(canvas(), line, 25);
+
+  canvas().setTextColor(COLOR_GOLD);
+  canvas().setTextSize(1);
+  drawCenteredText(canvas(), sDisplayedGoal.assistCount ? "ASSISTS" : "UNASSISTED",
+                   160, 130);
+  canvas().setTextColor(ST77XX_WHITE);
+  canvas().setTextSize(2);
+  if (sDisplayedGoal.assistCount == 0) {
+    drawCenteredText(canvas(), "No assists", 160, 164);
+  } else {
+    for (int i = 0; i < sDisplayedGoal.assistCount; ++i) {
+      const NhlGoalPlayer& assist = sDisplayedGoal.assists[i];
+      if (assist.name[0] == '\0') continue;
+      if (assist.number > 0) {
+        snprintf(line, sizeof(line), "#%d %s", assist.number, assist.name);
+      } else {
+        snprintf(line, sizeof(line), "#? %s", assist.name);
+      }
+      int chars = strlen(line) > 25 ? 25 : strlen(line);
+      canvas().setCursor(160 - chars * 6, 150 + i * 24);
+      printClipped(canvas(), line, 25);
+    }
+  }
+  tftPanel.pushFull();
+}
+
 // Bottom half, penalty view: team, sweater number + last name, and the
 // remaining penalty time for every active penalty.
 void drawPenaltiesHalf(const GameSnapshot& g) {
@@ -367,14 +438,16 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
     d.homeTeamId = g.homeTeamId;
     d.awayTeamId = g.awayTeamId;
     sBlinkSide = 0;
-    canvas().fillScreen(COLOR_BG);
     d.homeScore = d.awayScore = -1;   // force change-driven redraws
     d.sogH = d.sogA = -1;
     d.penaltySig[0] = '\0';
-    drawTeamColumn(HOME_LOGO_X, g.homeAbbrev, g.homeTeamId, g.homeSog);
-    drawTeamColumn(GUEST_LOGO_X, g.awayAbbrev, g.awayTeamId, g.awaySog);
-    drawPenaltiesHalf(g);
-    tftPanel.pushFull();
+    if (!goalDisplayActive()) {
+      canvas().fillScreen(COLOR_BG);
+      drawTeamColumn(HOME_LOGO_X, g.homeAbbrev, g.homeTeamId, g.homeSog);
+      drawTeamColumn(GUEST_LOGO_X, g.awayAbbrev, g.awayTeamId, g.awaySog);
+      drawPenaltiesHalf(g);
+      tftPanel.pushFull();
+    }
   }
 
   // matrices + goal flash — the score lives on the matrices; a score
@@ -415,11 +488,13 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
   // changes (goal feedback lives on the matrices, not here).
   if (g.homeSog != d.sogH) {
     d.sogH = g.homeSog;
-    drawTeamColumn(HOME_LOGO_X, g.homeAbbrev, g.homeTeamId, g.homeSog);
+    if (!goalDisplayActive())
+      drawTeamColumn(HOME_LOGO_X, g.homeAbbrev, g.homeTeamId, g.homeSog);
   }
   if (g.awaySog != d.sogA) {
     d.sogA = g.awaySog;
-    drawTeamColumn(GUEST_LOGO_X, g.awayAbbrev, g.awayTeamId, g.awaySog);
+    if (!goalDisplayActive())
+      drawTeamColumn(GUEST_LOGO_X, g.awayAbbrev, g.awayTeamId, g.awaySog);
   }
 
   // bottom half: penalties while any are active, otherwise the league's
@@ -452,12 +527,14 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
     if (gameOverState(g.gameState)) {
       sBottomIsLeague = false;
       sBottomIsPenalties = false;
-      drawGameOverHalf();
+      if (!goalDisplayActive()) drawGameOverHalf();
     } else {
       sBottomIsLeague = g.penaltyCount == 0 && !g.inIntermission;
       sBottomIsPenalties = !sBottomIsLeague;
-      if (!sBottomIsLeague) drawPenaltiesHalf(g);
-      else drawLeagueHalf();
+      if (!goalDisplayActive()) {
+        if (!sBottomIsLeague) drawPenaltiesHalf(g);
+        else drawLeagueHalf();
+      }
     }
   }
 
@@ -473,7 +550,21 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
              g.penaltyCount);
 }
 
+void startGoalAnnouncement(const NhlGoal& goal) {
+  sDisplayedGoal = goal;
+  sGoalDisplayPhase = GoalDisplayPhase::ANNOUNCEMENT;
+  sGoalDisplayStartedAt = millis();
+  drawGoalAnnouncement();
+}
+
+void updateGoalAnnouncement(const NhlGoal& goal) {
+  if (!goalDisplayActive() || sDisplayedGoal.eventId != goal.eventId) return;
+  sDisplayedGoal = goal;
+  if (sGoalDisplayPhase == GoalDisplayPhase::DETAILS) drawGoalDetails();
+}
+
 void forceLiveRepaint(const GameSnapshot& g) {
+  sGoalDisplayPhase = GoalDisplayPhase::NONE;
   d = Drawn{};  // drop every cached value so the whole screen repaints
   renderLiveGame(g);
 }
@@ -485,9 +576,20 @@ void tickLiveClock() {
   // back to the normal score box. No-op without a live game.
   if (!nhl_render::hasCurrentLiveGame) {
     sBlinkSide = 0;
+    sGoalDisplayPhase = GoalDisplayPhase::NONE;
     return;
   }
   uint32_t now = millis();
+  if (sGoalDisplayPhase == GoalDisplayPhase::ANNOUNCEMENT &&
+      now - sGoalDisplayStartedAt >= NHL_GOAL_ANNOUNCEMENT_MS) {
+    sGoalDisplayPhase = GoalDisplayPhase::DETAILS;
+    sGoalDisplayStartedAt = now;
+    drawGoalDetails();
+  } else if (sGoalDisplayPhase == GoalDisplayPhase::DETAILS &&
+             now - sGoalDisplayStartedAt >= NHL_GOAL_DETAILS_MS) {
+    sGoalDisplayPhase = GoalDisplayPhase::NONE;
+    forceLiveRepaint(nhl_render::currentGame);
+  }
   // Score blink: 250 ms on / 250 ms off x3 on the scoring side's matrix,
   // then back to the steady display.
   if (sBlinkSide != 0) {
@@ -510,7 +612,7 @@ void tickLiveClock() {
     sClockRunning = true;
     sClockSyncedAt = now;
   }
-  if (sBottomIsLeague && sLeagueLiveCount > 3 &&
+  if (!goalDisplayActive() && sBottomIsLeague && sLeagueLiveCount > 3 &&
       (int32_t)(now - sLeagueRotateAt) >= 0) {
     sLeagueStart = (sLeagueStart + 1) % sLeagueLiveCount;
     drawLeagueHalf();
@@ -521,7 +623,7 @@ void tickLiveClock() {
   tm1637ShowPair(clk / 60, clk % 60, true);
   if (sClockRunning) {
     ++sPenElapsedTick;  // penalties run with the period clock
-    if (sBottomIsPenalties) refreshPenaltyTimes();
+    if (!goalDisplayActive() && sBottomIsPenalties) refreshPenaltyTimes();
   }
 }
 

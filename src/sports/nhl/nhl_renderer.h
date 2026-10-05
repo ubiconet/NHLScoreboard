@@ -39,6 +39,13 @@ const NewsStory& getNewsStory(size_t index);
 // a fresh landing snapshot. Value-cached: only changed regions repaint.
 void renderLiveGame(const GameSnapshot& game);
 
+// Temporarily replaces the TFT live screen with a goal banner followed by
+// the scorer and assist details; the matrix scores and live clocks continue.
+void startGoalAnnouncement(const NhlGoal& goal);
+
+// Supplies jersey numbers fetched after the immediate goal announcement.
+void updateGoalAnnouncement(const NhlGoal& goal);
+
 // Forces the next renderLiveGame() to repaint EVERYTHING (used after
 // something else owned the display, e.g. the portal display test).
 void forceLiveRepaint(const GameSnapshot& game);

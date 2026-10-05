@@ -122,6 +122,12 @@ A period-by-period **linescore is derived** from `summary.scoring[]` (count
 exposed here — only game totals (`sog`); per-period shots must be aggregated
 from play-by-play if a screen ever needs them.
 
+The live scoreboard also filters each scoring entry's scorer and assist
+names, IDs, and sweater numbers from this summary. If the scorer's sweater
+number is absent, it makes a one-time, roster-only filtered
+`/v1/gamecenter/{id}/play-by-play` request when the score first increases;
+the large play/event list is not retained or fetched on routine polls.
+
 `situationCode` encodes strength as four digits —
 `[awayGoalies][awaySkaters][homeSkaters][homeGoalies]`, e.g. `"1551"` = 5v5
 with both goalies, `"0651"` = away team on an empty-net extra attacker. This

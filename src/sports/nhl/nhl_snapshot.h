@@ -18,6 +18,22 @@ struct NhlPenalty {
   int  durMin;         // original minutes (2/4/5)
 };
 
+struct NhlGoalPlayer {
+  int  playerId;
+  int  number;
+  char name[32];
+};
+
+struct NhlGoal {
+  bool valid;
+  long eventId;
+  int  homeScore, awayScore;
+  char teamAbbrev[4];
+  NhlGoalPlayer scorer;
+  NhlGoalPlayer assists[2];
+  uint8_t assistCount;
+};
+
 // Live-game state from /v1/gamecenter/{id}/landing (5 s poll).
 struct GameSnapshot {
   bool  valid;
@@ -35,6 +51,7 @@ struct GameSnapshot {
   int   homePenaltyCount, awayPenaltyCount;  // active (0..2 LEDs each)
   NhlPenalty penalties[4];   // active ones, newest first (TFT detail strip)
   int   penaltyCount;
+  NhlGoal latestGoal;
 };
 
 // One game from the day slate (/v1/score/{date}).

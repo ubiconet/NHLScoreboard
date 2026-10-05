@@ -99,6 +99,8 @@ static const uint32_t NHL_RETRY_BACKOFF_MAX_MS = 120000; // Exponential backoff 
 static const uint32_t NHL_NTP_READY_RETRY_MS = 5000;     // short retry while awaiting first time sync
 static const uint32_t NHL_POSTGAME_GRACE_MS = 120000;    // Keep final followed game visible for 2 min
 static const uint32_t NHL_AT_BAT_RESULT_DISPLAY_MS = 5000; // Full-screen result card duration
+static const uint32_t NHL_GOAL_ANNOUNCEMENT_MS = 5000; // Full-screen GOAL! duration
+static const uint32_t NHL_GOAL_DETAILS_MS = 5000; // Scorer details before returning live
 static const uint32_t NHL_CAROUSEL_ROTATE_MS = 5000;      // Rotate live-game stat ticker every 5s
 static const uint32_t NHL_UPCOMING_GAMES_ROTATE_MS = 8000;  // Show each upcoming-game card for 8s
 // Goal blink: a score increase flashes that team's NEW score on its

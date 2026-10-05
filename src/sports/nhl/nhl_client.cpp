@@ -77,6 +77,23 @@ void buildLandingFilter(JsonDocument& filter) {
   pen["committedByPlayer"]["lastName"]["default"] = true;
   pen["committedByPlayer"]["sweaterNumber"] = true;
   pen["teamAbbrev"]["default"] = true;
+
+  JsonArray scoring = filter["summary"]["scoring"].to<JsonArray>();
+  JsonObject period = scoring.add<JsonObject>();
+  JsonArray goals = period["goals"].to<JsonArray>();
+  JsonObject goal = goals.add<JsonObject>();
+  goal["eventId"] = true;
+  goal["playerId"] = true;
+  goal["name"]["default"] = true;
+  goal["teamAbbrev"]["default"] = true;
+  goal["sweaterNumber"] = true;
+  goal["homeScore"] = true;
+  goal["awayScore"] = true;
+  JsonArray assists = goal["assists"].to<JsonArray>();
+  JsonObject assist = assists.add<JsonObject>();
+  assist["playerId"] = true;
+  assist["name"]["default"] = true;
+  assist["sweaterNumber"] = true;
 }
 
 }  // namespace
@@ -223,6 +240,30 @@ bool fetchNhlGameLanding(JsonDocument& doc, long gameId) {
   http_fetch::releaseBodyBuffer();
   if (err) {
     DBG_PRINTF("[NHL] landing parse error: %s\n", err.c_str());
+    return false;
+  }
+  return true;
+}
+
+bool fetchNhlGameRoster(JsonDocument& doc, long gameId) {
+  String url = String(NHL_API_BASE) + "/gamecenter/" + String(gameId) +
+               "/play-by-play";
+  doc.clear();
+  http_fetch::releaseBodyBuffer();
+
+  int code = http_fetch::getSecure(url, 8000);
+  http_fetch::logCall("nhl_goal_roster", code);
+  if (code != HTTP_CODE_OK) return false;
+
+  JsonDocument filter;
+  JsonArray roster = filter["rosterSpots"].to<JsonArray>();
+  JsonObject player = roster.add<JsonObject>();
+  player["playerId"] = true;
+  player["sweaterNumber"] = true;
+  DeserializationError err = http_fetch::parseBody(doc, &filter);
+  http_fetch::releaseBodyBuffer();
+  if (err) {
+    DBG_PRINTF("[NHL] goal roster parse error: %s\n", err.c_str());
     return false;
   }
   return true;

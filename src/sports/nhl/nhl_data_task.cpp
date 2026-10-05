@@ -80,6 +80,41 @@ GameSnapshot landingToSnapshot(JsonObjectConst d, long gameId) {
   s.awaySog = d["awayTeam"]["sog"] | 0;
   s.homeSog = d["homeTeam"]["sog"] | 0;
 
+  NhlGoal latestGoal{};
+  for (JsonObjectConst scoringPeriod :
+       d["summary"]["scoring"].as<JsonArrayConst>()) {
+    for (JsonObjectConst goal :
+         scoringPeriod["goals"].as<JsonArrayConst>()) {
+      if ((goal["homeScore"] | -1) != s.homeScore ||
+          (goal["awayScore"] | -1) != s.awayScore) {
+        continue;
+      }
+      NhlGoal parsed{};
+      parsed.eventId = goal["eventId"] | 0;
+      parsed.homeScore = goal["homeScore"] | 0;
+      parsed.awayScore = goal["awayScore"] | 0;
+      parsed.scorer.playerId = goal["playerId"] | 0;
+      parsed.scorer.number = goal["sweaterNumber"] | 0;
+      strlcpy(parsed.scorer.name, goal["name"]["default"] | "",
+              sizeof(parsed.scorer.name));
+      strlcpy(parsed.teamAbbrev, goal["teamAbbrev"]["default"] | "",
+              sizeof(parsed.teamAbbrev));
+      for (JsonObjectConst assist :
+           goal["assists"].as<JsonArrayConst>()) {
+        if (parsed.assistCount >= 2) break;
+        NhlGoalPlayer& player = parsed.assists[parsed.assistCount++];
+        player.playerId = assist["playerId"] | 0;
+        player.number = assist["sweaterNumber"] | 0;
+        strlcpy(player.name, assist["name"]["default"] | "",
+                sizeof(player.name));
+      }
+      parsed.valid = parsed.scorer.playerId > 0 &&
+                     parsed.teamAbbrev[0] != '\0';
+      if (parsed.valid) latestGoal = parsed;
+    }
+  }
+  s.latestGoal = latestGoal;
+
   // Active penalties: the summary lists every penalty with its start
   // (period + elapsed stamp) and duration; a penalty is active while
   // start + duration > now on the game clock. During an intermission the
@@ -369,6 +404,9 @@ void fetchStandingsIfDue(bool online) {
 uint32_t gLandingRetryInterval = NHL_LIVE_POLL_INTERVAL_MS;
 
 void fetchLandingIfDue(bool online) {
+  static long lastGameId = 0;
+  static int lastHomeScore = -1;
+  static int lastAwayScore = -1;
   long id = getActiveGameId();
   if (id <= 0 || !online || portalEngaged()) return;
   uint32_t now = millis();
@@ -386,7 +424,38 @@ void fetchLandingIfDue(bool online) {
     return;
   }
   gLandingRetryInterval = NHL_LIVE_POLL_INTERVAL_MS;
-  nhl_data::publishGame(landingToSnapshot(doc.as<JsonObjectConst>(), id));
+  GameSnapshot game = landingToSnapshot(doc.as<JsonObjectConst>(), id);
+  bool scoreIncreased = id == lastGameId &&
+      (game.homeScore > lastHomeScore || game.awayScore > lastAwayScore);
+  lastGameId = id;
+  lastHomeScore = game.homeScore;
+  lastAwayScore = game.awayScore;
+  if (scoreIncreased && game.latestGoal.valid) {
+    bool needsRoster = game.latestGoal.scorer.number <= 0;
+    for (int i = 0; i < game.latestGoal.assistCount; ++i) {
+      needsRoster = needsRoster || game.latestGoal.assists[i].number <= 0;
+    }
+    if (needsRoster) {
+      nhl_data::publishGame(game);
+      if (fetchNhlGameRoster(doc, id)) {
+        for (JsonObjectConst player : doc["rosterSpots"].as<JsonArrayConst>()) {
+          int playerId = player["playerId"] | 0;
+          int number = player["sweaterNumber"] | 0;
+          if (playerId == game.latestGoal.scorer.playerId) {
+            game.latestGoal.scorer.number = number;
+          }
+          for (int i = 0; i < game.latestGoal.assistCount; ++i) {
+            if (playerId == game.latestGoal.assists[i].playerId) {
+              game.latestGoal.assists[i].number = number;
+            }
+          }
+        }
+        nhl_data::publishGame(game);
+      }
+      return;
+    }
+  }
+  nhl_data::publishGame(game);
 }
 
 void nhlDataTaskLoop(void*) {
