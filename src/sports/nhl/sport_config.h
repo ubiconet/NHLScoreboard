@@ -101,6 +101,7 @@ static const uint32_t NHL_POSTGAME_GRACE_MS = 120000;    // Keep final followed 
 static const uint32_t NHL_AT_BAT_RESULT_DISPLAY_MS = 5000; // Full-screen result card duration
 static const uint32_t NHL_GOAL_ANNOUNCEMENT_MS = 5000; // Full-screen GOAL! duration
 static const uint32_t NHL_GOAL_DETAILS_MS = 5000; // Scorer details before returning live
+static const uint32_t NHL_BOTTOM_VIEW_FLIP_MS = 8000; // Penalty-free bottom strip: linescore <-> league scores
 static const uint32_t NHL_CAROUSEL_ROTATE_MS = 5000;      // Rotate live-game stat ticker every 5s
 static const uint32_t NHL_UPCOMING_GAMES_ROTATE_MS = 8000;  // Show each upcoming-game card for 8s
 // Goal blink: a score increase flashes that team's NEW score on its

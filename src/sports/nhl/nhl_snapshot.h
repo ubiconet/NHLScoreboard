@@ -34,6 +34,15 @@ struct NhlGoal {
   uint8_t assistCount;
 };
 
+// Three stars of the game (landing summary; usually populated only at or
+// near game end).
+struct NhlThreeStar {
+  char name[24];
+  char teamAbbrev[4];
+  int  number;       // sweater number (0 = unknown)
+  int  goals, assists;
+};
+
 // Live-game state from /v1/gamecenter/{id}/landing (5 s poll).
 struct GameSnapshot {
   bool  valid;
@@ -52,6 +61,13 @@ struct GameSnapshot {
   NhlPenalty penalties[4];   // active ones, newest first (TFT detail strip)
   int   penaltyCount;
   NhlGoal latestGoal;
+  // Per-period scoring derived from summary.scoring: index 0..2 = P1..P3,
+  // 3 = OT (multi-OT collapses into one column), 4 = SO. otColumn/soColumn
+  // say which extra columns the linescore strip should show.
+  uint8_t homePeriodGoals[5], awayPeriodGoals[5];
+  bool  otColumn, soColumn;
+  NhlThreeStar threeStars[3];
+  uint8_t threeStarCount;
 };
 
 // One game from the day slate (/v1/score/{date}).

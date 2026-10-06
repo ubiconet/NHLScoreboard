@@ -80,11 +80,27 @@ GameSnapshot landingToSnapshot(JsonObjectConst d, long gameId) {
   s.awaySog = d["awayTeam"]["sog"] | 0;
   s.homeSog = d["homeTeam"]["sog"] | 0;
 
+  // Scoring summary feeds two consumers in one pass: the latest-goal
+  // record (goal announcement screen) and the per-period linescore
+  // (goals counted per team per period group; multi-OT collapses into
+  // the OT column, the shootout gets its own).
   NhlGoal latestGoal{};
   for (JsonObjectConst scoringPeriod :
        d["summary"]["scoring"].as<JsonArrayConst>()) {
+    int pNum = scoringPeriod["periodDescriptor"]["number"] | 0;
+    const char* pType =
+        scoringPeriod["periodDescriptor"]["periodType"] | "";
+    int col = -1;
+    if (strcmp(pType, "SO") == 0) col = 4;
+    else if (strcmp(pType, "OT") == 0 || pNum >= 4) col = 3;
+    else if (pNum >= 1 && pNum <= 3) col = pNum - 1;
     for (JsonObjectConst goal :
          scoringPeriod["goals"].as<JsonArrayConst>()) {
+      const char* team = goal["teamAbbrev"]["default"] | "";
+      if (col >= 0 && team[0] != '\0') {
+        if (strcmp(team, s.homeAbbrev) == 0) ++s.homePeriodGoals[col];
+        else if (strcmp(team, s.awayAbbrev) == 0) ++s.awayPeriodGoals[col];
+      }
       if ((goal["homeScore"] | -1) != s.homeScore ||
           (goal["awayScore"] | -1) != s.awayScore) {
         continue;
@@ -97,8 +113,7 @@ GameSnapshot landingToSnapshot(JsonObjectConst d, long gameId) {
       parsed.scorer.number = goal["sweaterNumber"] | 0;
       strlcpy(parsed.scorer.name, goal["name"]["default"] | "",
               sizeof(parsed.scorer.name));
-      strlcpy(parsed.teamAbbrev, goal["teamAbbrev"]["default"] | "",
-              sizeof(parsed.teamAbbrev));
+      strlcpy(parsed.teamAbbrev, team, sizeof(parsed.teamAbbrev));
       for (JsonObjectConst assist :
            goal["assists"].as<JsonArrayConst>()) {
         if (parsed.assistCount >= 2) break;
@@ -114,6 +129,26 @@ GameSnapshot landingToSnapshot(JsonObjectConst d, long gameId) {
     }
   }
   s.latestGoal = latestGoal;
+  s.otColumn = s.homePeriodGoals[3] > 0 || s.awayPeriodGoals[3] > 0 ||
+               (s.period >= 4 && strcmp(s.periodType, "SO") != 0);
+  s.soColumn = s.homePeriodGoals[4] > 0 || s.awayPeriodGoals[4] > 0 ||
+               strcmp(s.periodType, "SO") == 0;
+
+  // Three stars — the landing summary only populates these at or near
+  // game end; until then the array is absent and the count stays 0.
+  uint8_t stars = 0;
+  for (JsonObjectConst star :
+       d["summary"]["threeStars"].as<JsonArrayConst>()) {
+    if (stars >= 3) break;
+    NhlThreeStar& t = s.threeStars[stars++];
+    strlcpy(t.name, star["name"]["default"] | "", sizeof(t.name));
+    strlcpy(t.teamAbbrev, star["teamAbbrev"]["default"] | "",
+            sizeof(t.teamAbbrev));
+    t.number = star["sweaterNo"] | 0;
+    t.goals = star["goals"] | 0;
+    t.assists = star["assists"] | 0;
+  }
+  s.threeStarCount = stars;
 
   // Active penalties: the summary lists every penalty with its start
   // (period + elapsed stamp) and duration; a penalty is active while

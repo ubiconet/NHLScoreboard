@@ -80,6 +80,8 @@ void buildLandingFilter(JsonDocument& filter) {
 
   JsonArray scoring = filter["summary"]["scoring"].to<JsonArray>();
   JsonObject period = scoring.add<JsonObject>();
+  period["periodDescriptor"]["number"] = true;    // linescore column
+  period["periodDescriptor"]["periodType"] = true;
   JsonArray goals = period["goals"].to<JsonArray>();
   JsonObject goal = goals.add<JsonObject>();
   goal["eventId"] = true;
@@ -94,6 +96,14 @@ void buildLandingFilter(JsonDocument& filter) {
   assist["playerId"] = true;
   assist["name"]["default"] = true;
   assist["sweaterNumber"] = true;
+
+  JsonArray stars = filter["summary"]["threeStars"].to<JsonArray>();
+  JsonObject star = stars.add<JsonObject>();
+  star["sweaterNo"] = true;
+  star["name"]["default"] = true;
+  star["teamAbbrev"]["default"] = true;
+  star["goals"] = true;
+  star["assists"] = true;
 }
 
 }  // namespace

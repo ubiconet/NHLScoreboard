@@ -39,18 +39,19 @@ GFXcanvas16& canvas() { return tftPanel.canvas(); }
 // Layout (320x240) — no header band; the clock lives on the TM1637 and
 // the period on the middle matrix module:
 //   y   8..92  team logos: HOME left, GUEST right
-//   y  98..150 SHOTS row: label + big count under each logo
-//   y 154..238 penalties (active: player + remaining) or, when even
-//                strength, scores from the league's live games
+//   y 100..144 SHOTS row: big count under each logo, "SHOTS" caption
+//                centered between the two boxes
+//   y 158..238 penalties (active: player + remaining) or, penalty-free,
+//                the alternating linescore / league-scores strip
 const int LOGO_Y = 6, LOGO_SIZE = 67;  // ~20% down from 84
 // Column centers stay put (68 / 252); logos re-centered on them.
 const int HOME_LOGO_X = 35, GUEST_LOGO_X = 219;  // home left, guest right
-// Scoreboard-style shots box under each logo (white border, white
-// label, big gold count) — PAD widens the
-// box past the smaller logo and Y leaves a clear gap below the crest.
+// Scoreboard-style shots box under each logo (white border, big gold
+// count; the "SHOTS" caption sits between the boxes) — PAD widens the
+// box past the smaller logo and Y leaves a clear gap below the abbrev.
 const int ABBREV_Y = 76;  // white 3-letter abbrev between logo and box
-const int SHOTS_BOX_Y = 94, SHOTS_BOX_H = 58, SHOTS_BOX_PAD = 12;
-const int SHOTS_LBL_Y = 98, SHOTS_NUM_Y = 116;
+const int SHOTS_BOX_Y = 100, SHOTS_BOX_H = 44, SHOTS_BOX_PAD = 8;
+const int SHOTS_NUM_Y = 106;
 const int BOTTOM_Y = 158;
 
 // Last-drawn cache — anything that differs triggers that region's repaint.
@@ -62,7 +63,7 @@ struct Drawn {
   int period = -1;  // last shown on the period matrix
   int clockSec = -1;  // tickLiveClock's per-second tracker (TM1637)
   int sogH = -1, sogA = -1;
-  char penaltySig[128] = "";
+  char penaltySig[256] = "";
 } d;
 
 // ---- Local game-clock ticker ----
@@ -221,8 +222,9 @@ int liveClockSec() {
   return v > 0 ? v : 0;
 }
 
-// One team column: logo at the top, then the scoreboard-style SHOTS box
-// — white rounded border, white label, big gold count. Deliberately
+// One team column: logo at the top, then the scoreboard-style shots box
+// — white rounded border, big gold count. The "SHOTS" caption lives
+// between the two boxes (drawShotsCaption), not inside them. Deliberately
 // static in every state: goal feedback blinks the score MATRIX instead.
 void drawTeamColumn(int logoX, const char* abbrev, int teamId, int shots) {
   ensureLogoCached(teamId, abbrev);
@@ -236,9 +238,6 @@ void drawTeamColumn(int logoX, const char* abbrev, int teamId, int shots) {
   canvas().drawRoundRect(bx, SHOTS_BOX_Y, bw, SHOTS_BOX_H, 8, ST77XX_WHITE);
   canvas().drawRoundRect(bx + 1, SHOTS_BOX_Y + 1, bw - 2, SHOTS_BOX_H - 2, 8,
                          ST77XX_WHITE);
-  canvas().setTextColor(ST77XX_WHITE);
-  canvas().setTextSize(2);
-  drawCenteredText(canvas(), "SHOTS", cx, SHOTS_LBL_Y);
   // Count: wipe the number region first, then draw each digit in its own
   // fixed cell. Text renders transparently on this canvas, so without the
   // wipe every value change (9 -> 10, 12 -> 13) smears the old glyph
@@ -264,6 +263,17 @@ void drawTeamColumn(int logoX, const char* abbrev, int teamId, int shots) {
                     SHOTS_BOX_Y + SHOTS_BOX_H + 2 - (LOGO_Y - 2));
 }
 
+// "SHOTS" centered between the two boxes, vertically aligned with them.
+// Static text, so it is only repainted on full paints (new game, or the
+// restore after the goal announcement owned the screen) — the column
+// redraws above never touch this region.
+void drawShotsCaption() {
+  canvas().setTextColor(ST77XX_WHITE);
+  canvas().setTextSize(2);
+  drawCenteredText(canvas(), "SHOTS", 160,
+                   SHOTS_BOX_Y + (SHOTS_BOX_H - 16) / 2);
+}
+
 bool liveish(const char* state) {
   return strcmp(state, "LIVE") == 0 || strcmp(state, "CRIT") == 0;
 }
@@ -273,13 +283,40 @@ bool gameOverState(const char* state) {
          strcmp(state, "OVER") == 0;
 }
 
-// Bottom half once the game ends: GAME OVER centered in white, below
-// the shot counters, for the postgame grace window.
-void drawGameOverHalf() {
+// Bottom half once the game ends: GAME OVER centered in white plus, once
+// the feed publishes them, the three stars of the game — for the
+// postgame grace window.
+void drawGameOverHalf(const GameSnapshot& g) {
   canvas().fillRect(0, BOTTOM_Y, 320, 240 - BOTTOM_Y, COLOR_BG);
+  if (g.threeStarCount == 0) {
+    canvas().setTextColor(ST77XX_WHITE);
+    canvas().setTextSize(3);
+    drawCenteredText(canvas(), "GAME OVER", 160, BOTTOM_Y + 26);
+    tftPanel.pushRows(0, BOTTOM_Y, 320, 240 - BOTTOM_Y);
+    return;
+  }
   canvas().setTextColor(ST77XX_WHITE);
-  canvas().setTextSize(3);
-  drawCenteredText(canvas(), "GAME OVER", 160, BOTTOM_Y + 26);
+  canvas().setTextSize(2);
+  drawCenteredText(canvas(), "GAME OVER", 160, BOTTOM_Y + 2);
+  canvas().setTextColor(COLOR_GOLD);
+  canvas().setTextSize(1);
+  drawCenteredText(canvas(), "THREE STARS", 160, BOTTOM_Y + 20);
+  canvas().setTextColor(ST77XX_WHITE);
+  canvas().setTextSize(2);
+  int y = BOTTOM_Y + 32;
+  for (int i = 0; i < g.threeStarCount && i < 3; ++i) {
+    const NhlThreeStar& st = g.threeStars[i];
+    char line[36];
+    char who[24];
+    if (st.number > 0) snprintf(who, sizeof(who), "#%d %s", st.number, st.name);
+    else strlcpy(who, st.name, sizeof(who));
+    snprintf(line, sizeof(line), "%d. %s %s %dG-%dA", i + 1, who,
+             st.teamAbbrev, st.goals, st.assists);
+    int chars = strlen(line) > 26 ? 26 : strlen(line);
+    canvas().setCursor(160 - chars * 6, y);
+    printClipped(canvas(), line, 26);
+    y += 18;
+  }
   tftPanel.pushRows(0, BOTTOM_Y, 320, 240 - BOTTOM_Y);
 }
 
@@ -384,8 +421,16 @@ void drawPenaltiesHalf(const GameSnapshot& g) {
 size_t sLeagueStart = 0;        // first live game on the current page
 size_t sLeagueLiveCount = 0;    // live games this draw
 uint32_t sLeagueRotateAt = 0;   // millis deadline for the next rotation
-bool sBottomIsLeague = false;   // current bottom-half mode
-bool sBottomIsPenalties = false;  // penalty rows visible (per-sec refresh)
+
+// Bottom-half mode. Priority: GAME OVER > penalties > linescore/league.
+// During penalty-free play the linescore and the league view alternate
+// (sRotatePair, once other games are live); intermission locks the
+// linescore in — penalties are hidden between periods, and without this
+// the strip used to sit on a bare PENALTIES header all intermission.
+enum class BottomMode : uint8_t { OVER, PENS, LINESCORE, LEAGUE };
+BottomMode sBottomMode = BottomMode::LINESCORE;
+bool sRotatePair = false;       // penalty-free play: alternate the pair
+uint32_t sViewFlipAt = 0;       // millis deadline for the next flip
 
 void drawLeagueHalf() {
   canvas().fillRect(0, BOTTOM_Y, 320, 240 - BOTTOM_Y, COLOR_BG);
@@ -422,6 +467,87 @@ void drawLeagueHalf() {
   tftPanel.pushRows(0, BOTTOM_Y, 320, 240 - BOTTOM_Y);
 }
 
+// Bottom half, linescore view: per-period goals for both teams plus the
+// game total (the authoritative scores — shootout-decided games show a
+// total the period columns don't sum to). Columns 1/2/3 always, OT/SO
+// only once they exist. Away row on top, home below (broadcast order).
+void drawLinescoreHalf(const GameSnapshot& g, bool intermission) {
+  canvas().fillRect(0, BOTTOM_Y, 320, 240 - BOTTOM_Y, COLOR_BG);
+  if (intermission) {
+    canvas().setTextColor(COLOR_MUTED);
+    canvas().setTextSize(1);
+    drawCenteredText(canvas(), "INTERMISSION", 160, BOTTOM_Y + 2);
+  }
+  const char* labels[5] = {"1", "2", "3", "OT", "SO"};
+  const uint8_t* rowGoals[2] = {g.awayPeriodGoals, g.homePeriodGoals};
+  const char* abbrevs[2] = {g.awayAbbrev, g.homeAbbrev};
+  int totals[2] = {g.awayScore, g.homeScore};
+  int cols = 3 + (g.otColumn ? 1 : 0) + (g.soColumn ? 1 : 0);
+  int colX[5];
+  for (int i = 0; i < cols; ++i)
+    colX[i] = 76 + i * (252 - 76) / (cols - 1);
+  int y0 = BOTTOM_Y + (intermission ? 18 : 6);
+  canvas().setTextColor(COLOR_MUTED);
+  canvas().setTextSize(1);
+  for (int i = 0; i < cols; ++i)
+    drawCenteredText(canvas(), labels[i], colX[i], y0);
+  drawCenteredText(canvas(), "T", 284, y0);
+  for (int r = 0; r < 2; ++r) {
+    int y = y0 + 16 + r * 22;
+    canvas().setTextColor(ST77XX_WHITE);
+    canvas().setTextSize(2);
+    canvas().setCursor(12, y);
+    canvas().print(abbrevs[r]);
+    for (int i = 0; i < cols; ++i) {
+      char v[4];
+      snprintf(v, sizeof(v), "%d", (int)rowGoals[r][i]);
+      drawCenteredText(canvas(), v, colX[i], y);
+    }
+    char t[4];
+    snprintf(t, sizeof(t), "%d", totals[r]);
+    canvas().setTextColor(COLOR_GOLD);
+    canvas().setCursor(296 - (int)strlen(t) * 12, y);
+    canvas().print(t);
+  }
+  tftPanel.pushRows(0, BOTTOM_Y, 320, 240 - BOTTOM_Y);
+}
+
+// Picks and draws the current bottom-half mode. Called from the
+// signature-driven redraw in renderLiveGame (and the initial full paint),
+// so every state and content change funnels through here.
+void drawBottomHalf(const GameSnapshot& g) {
+  if (gameOverState(g.gameState)) {
+    sBottomMode = BottomMode::OVER;
+    sRotatePair = false;
+    drawGameOverHalf(g);
+    return;
+  }
+  if (!g.inIntermission && g.penaltyCount > 0) {
+    sBottomMode = BottomMode::PENS;
+    sRotatePair = false;
+    drawPenaltiesHalf(g);
+    return;
+  }
+  size_t live = 0;
+  for (size_t i = 0; i < otherGameCount; ++i)
+    if (liveish(otherGames[i].gameState)) ++live;
+  sRotatePair = !g.inIntermission && live > 0;
+  if (sRotatePair) {
+    // Stay on whichever view of the pair is up across content refreshes;
+    // arm the flip timer only when entering the pair from another mode.
+    if (sBottomMode != BottomMode::LINESCORE &&
+        sBottomMode != BottomMode::LEAGUE) {
+      sViewFlipAt = millis() + NHL_BOTTOM_VIEW_FLIP_MS;
+    }
+    if (sBottomMode == BottomMode::LEAGUE) {
+      drawLeagueHalf();
+      return;
+    }
+  }
+  sBottomMode = BottomMode::LINESCORE;
+  drawLinescoreHalf(g, g.inIntermission);
+}
+
 }  // namespace
 
 void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
@@ -445,7 +571,8 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
       canvas().fillScreen(COLOR_BG);
       drawTeamColumn(HOME_LOGO_X, g.homeAbbrev, g.homeTeamId, g.homeSog);
       drawTeamColumn(GUEST_LOGO_X, g.awayAbbrev, g.awayTeamId, g.awaySog);
-      drawPenaltiesHalf(g);
+      drawShotsCaption();
+      drawBottomHalf(g);
       tftPanel.pushFull();
     }
   }
@@ -497,45 +624,48 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
       drawTeamColumn(GUEST_LOGO_X, g.awayAbbrev, g.awayTeamId, g.awaySog);
   }
 
-  // bottom half: penalties while any are active, otherwise the league's
-  // live scores. Signature covers both modes' contents so the view
-  // flips and refreshes only on real changes.
-  char sig[128] = "";
+  // bottom half: penalties while any are active, the linescore during
+  // intermission, and during penalty-free play the alternating
+  // linescore / league-scores pair. Signature covers every mode's
+  // contents so the view flips and refreshes only on real changes.
+  char sig[256] = "";
   if (gameOverState(g.gameState)) {
-    strlcpy(sig, "G", sizeof(sig));  // postgame: GAME OVER, nothing else
-  } else {
-  int penCount = g.inIntermission ? 0 : g.penaltyCount;  // hidden between periods
-  if (penCount > 0) {
-    strlcpy(sig, "P", sizeof(sig));
-    for (int i = 0; i < g.penaltyCount && i < 4; ++i) {
-      const NhlPenalty& p = g.penalties[i];
-      snprintf(sig + strlen(sig), sizeof(sig) - strlen(sig), "|%s%d%s%d",
-               p.teamAbbrev, p.number, p.lastName, p.remainSec);
+    strlcpy(sig, "G", sizeof(sig));  // postgame: GAME OVER + three stars
+    for (int i = 0; i < g.threeStarCount; ++i) {
+      const NhlThreeStar& st = g.threeStars[i];
+      snprintf(sig + strlen(sig), sizeof(sig) - strlen(sig), "|%s%d%d%d",
+               st.name, st.number, st.goals, st.assists);
     }
   } else {
-    strlcpy(sig, "L", sizeof(sig));
-    for (size_t i = 0; i < otherGameCount; ++i) {
-      const OtherGameInfo& o = otherGames[i];
-      if (!liveish(o.gameState)) continue;
-      snprintf(sig + strlen(sig), sizeof(sig) - strlen(sig), "|%s%d%d%s",
-               o.awayAbbrev, o.awayScore, o.homeScore, o.homeAbbrev);
+    int penCount = g.inIntermission ? 0 : g.penaltyCount;  // hidden between periods
+    if (penCount > 0) {
+      strlcpy(sig, "P", sizeof(sig));
+      for (int i = 0; i < g.penaltyCount && i < 4; ++i) {
+        const NhlPenalty& p = g.penalties[i];
+        snprintf(sig + strlen(sig), sizeof(sig) - strlen(sig), "|%s%d%s%d",
+                 p.teamAbbrev, p.number, p.lastName, p.remainSec);
+      }
+    } else {
+      snprintf(sig, sizeof(sig), "X%s%d%d",
+               g.inIntermission ? "I" : "R", g.homeScore, g.awayScore);
+      for (int i = 0; i < 5; ++i)
+        snprintf(sig + strlen(sig), sizeof(sig) - strlen(sig), "%d%d",
+                 (int)g.homePeriodGoals[i], (int)g.awayPeriodGoals[i]);
+      snprintf(sig + strlen(sig), sizeof(sig) - strlen(sig), "%d%d",
+               g.otColumn ? 1 : 0, g.soColumn ? 1 : 0);
+      if (!g.inIntermission) {
+        for (size_t i = 0; i < otherGameCount; ++i) {
+          const OtherGameInfo& o = otherGames[i];
+          if (!liveish(o.gameState)) continue;
+          snprintf(sig + strlen(sig), sizeof(sig) - strlen(sig), "|%s%d%d%s",
+                   o.awayAbbrev, o.awayScore, o.homeScore, o.homeAbbrev);
+        }
+      }
     }
-  }
   }
   if (strcmp(sig, d.penaltySig) != 0) {
     strlcpy(d.penaltySig, sig, sizeof(d.penaltySig));
-    if (gameOverState(g.gameState)) {
-      sBottomIsLeague = false;
-      sBottomIsPenalties = false;
-      if (!goalDisplayActive()) drawGameOverHalf();
-    } else {
-      sBottomIsLeague = g.penaltyCount == 0 && !g.inIntermission;
-      sBottomIsPenalties = !sBottomIsLeague;
-      if (!goalDisplayActive()) {
-        if (!sBottomIsLeague) drawPenaltiesHalf(g);
-        else drawLeagueHalf();
-      }
-    }
+    if (!goalDisplayActive()) drawBottomHalf(g);
   }
 
   // Display-binding trace (DBG-gated): one line per fresh snapshot showing
@@ -612,8 +742,21 @@ void tickLiveClock() {
     sClockRunning = true;
     sClockSyncedAt = now;
   }
-  if (!goalDisplayActive() && sBottomIsLeague && sLeagueLiveCount > 3 &&
-      (int32_t)(now - sLeagueRotateAt) >= 0) {
+  // Penalty-free play alternates the linescore and league views on the
+  // bottom half. The flip timer is only armed when the pair is entered
+  // (drawBottomHalf), so league-score refreshes never postpone a flip.
+  if (!goalDisplayActive() && sRotatePair &&
+      (int32_t)(now - sViewFlipAt) >= 0) {
+    sBottomMode = (sBottomMode == BottomMode::LEAGUE) ? BottomMode::LINESCORE
+                                                      : BottomMode::LEAGUE;
+    sViewFlipAt = now + NHL_BOTTOM_VIEW_FLIP_MS;
+    if (sBottomMode == BottomMode::LEAGUE) drawLeagueHalf();
+    else drawLinescoreHalf(nhl_render::currentGame, false);
+  }
+  // League page rotation (>3 live games): only while the league view is
+  // actually on screen — the timer re-arms inside drawLeagueHalf.
+  if (!goalDisplayActive() && sBottomMode == BottomMode::LEAGUE &&
+      sLeagueLiveCount > 3 && (int32_t)(now - sLeagueRotateAt) >= 0) {
     sLeagueStart = (sLeagueStart + 1) % sLeagueLiveCount;
     drawLeagueHalf();
   }
@@ -623,7 +766,8 @@ void tickLiveClock() {
   tm1637ShowPair(clk / 60, clk % 60, true);
   if (sClockRunning) {
     ++sPenElapsedTick;  // penalties run with the period clock
-    if (!goalDisplayActive() && sBottomIsPenalties) refreshPenaltyTimes();
+    if (!goalDisplayActive() && sBottomMode == BottomMode::PENS)
+      refreshPenaltyTimes();
   }
 }
 

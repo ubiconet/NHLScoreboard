@@ -127,6 +127,11 @@ names, IDs, and sweater numbers from this summary. If the scorer's sweater
 number is absent, it makes a one-time, roster-only filtered
 `/v1/gamecenter/{id}/play-by-play` request when the score first increases;
 the large play/event list is not retained or fetched on routine polls.
+The same pass counts goals per `teamAbbrev` per period group (the group's
+`periodDescriptor` is part of the filter) to build the per-period
+linescore strip, and `summary.threeStars[]` (name, sweater number, team,
+G/A) feeds the postgame three-stars screen — that array is only populated
+at or near game end.
 
 `situationCode` encodes strength as four digits —
 `[awayGoalies][awaySkaters][homeSkaters][homeGoalies]`, e.g. `"1551"` = 5v5
