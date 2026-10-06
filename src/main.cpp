@@ -19,16 +19,13 @@
 
 void setup() {
   Serial.begin(SERIAL_BAUD_RATE);
-  // Native USB CDC enumeration grace period
-  uint32_t start = millis();
-  while (!Serial && (millis() - start < 3000)) {
-    delay(10);
-  }
 
-  // Sport bring-up: hardware init with the sport's pins, boot tests, and
-  // the boot splash (its logo artwork belongs to the sport). In bare-metal
-  // mode (bench test) this is also the LAST shell step — no network, no
-  // boot UI; the sport's tick owns the display from the first loop pass.
+  // Sport bring-up FIRST: hardware init with the sport's pins, boot
+  // tests, and the boot splash (its logo artwork belongs to the sport).
+  // The splash paints within moments of power-on — nothing in front of
+  // it, not even the USB CDC grace period below. In bare-metal mode
+  // (bench test) this is also the LAST shell step — no network, no boot
+  // UI; the sport's tick owns the display from the first loop pass.
   sport::setup();
 
   if (!sport::skipBootUi()) {
@@ -41,6 +38,15 @@ void setup() {
                          teamOptionCount, sport::defaultPreferredTeams());
     startNetworkTask();
     sport::startDataTask();  // core-0 feed fetches
+  }
+
+  // Native USB CDC enumeration grace period — placed AFTER the splash and
+  // network start (it used to sit first and delayed both by up to 3 s);
+  // now it only guards the boot banner below. UART builds skip it
+  // instantly (Serial is ready immediately there).
+  uint32_t start = millis();
+  while (!Serial && (millis() - start < 3000)) {
+    delay(10);
   }
 
   // Boot banner — visible over Serial whenever SB_DEBUG=1 so a freshly
@@ -60,15 +66,18 @@ void loop() {
     return;
   }
 
-  // Boot sequence: (1) logo splash for BOOT_SPLASH_HOLD_MS while the
-  // network task connects Wi-Fi behind it; (2) an in-progress firmware
-  // update owns the screen whenever it runs; (3) the status/setup page
-  // for BOOT_SETUP_PAGE_MS — or until the sport publishes its first data
-  // (capped by BOOT_MAX_WAIT_FOR_DATA_MS) — unless there is no usable
-  // saved Wi-Fi, in which case the AP provisioning page ("connect to the
-  // scoreboard") shows right after the splash instead. The sport UI owns
-  // every frame after that; network/update/game-data work runs on core 0
-  // throughout.
+  // Boot sequence: (1) the logo splash holds BOOT_SPLASH_HOLD_MS while
+  // the network task connects Wi-Fi behind it — a handshake still in
+  // flight at the end of the window EXTENDS the splash (capped by
+  // BOOT_SPLASH_CONNECT_MAX_MS, which matches the network service's own
+  // connect budget) so the next screen shows the outcome, never a
+  // half-state; (2) an in-progress firmware update owns the screen
+  // whenever it runs; (3) once the connection is made, the status/setup
+  // page shows for BOOT_SETUP_PAGE_MS; (4) if the connection cannot be
+  // made, the AP provisioning page ("connect to the scoreboard") shows
+  // instead and holds until the portal establishes the connection — then
+  // the status page runs its window. The sport UI owns every frame after
+  // that; network/update/game-data work runs on core 0 throughout.
   uint32_t bootNow = millis();
   if (bootNow < BOOT_SPLASH_HOLD_MS) {
     return;
@@ -76,12 +85,21 @@ void loop() {
   if (handleOtaUpdateScreen()) {
     return;
   }
-  if (!isProvisioning() &&
-      bootNow < BOOT_SPLASH_HOLD_MS + BOOT_MAX_WAIT_FOR_DATA_MS &&
-      (bootNow < BOOT_SPLASH_HOLD_MS + BOOT_SETUP_PAGE_MS ||
-       !sport::hasInitialData())) {
-    renderBootStatusPage(sport::name());
-    return;
+  // Anchor the setup page to the moment the network actually came up, so
+  // a slow handshake eats into the splash instead of the page.
+  static uint32_t onlineSinceMs = 0;
+  if (onlineSinceMs == 0 && isOnline()) {
+    onlineSinceMs = bootNow;
+  }
+  if (!isProvisioning()) {
+    if (onlineSinceMs == 0 && bootNow < BOOT_SPLASH_CONNECT_MAX_MS) {
+      return;  // still connecting: the splash keeps covering the boot
+    }
+    if (onlineSinceMs != 0 &&
+        bootNow - onlineSinceMs < BOOT_SETUP_PAGE_MS) {
+      renderBootStatusPage(sport::name());
+      return;
+    }
   }
 
   handleNetworkDisplay();

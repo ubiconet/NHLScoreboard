@@ -14,6 +14,13 @@ void TftPanel::begin(int csPin, int dcPin, int mosiPin, int sclkPin,
   // Logical (post-rotation) frame size the canvas and push calls use.
   w_ = (rotation % 2 == 1) ? nativeHeight : nativeWidth;
   h_ = (rotation % 2 == 1) ? nativeWidth : nativeHeight;
+  // init() ends by switching the display on with RAM still undefined —
+  // the classic boot "snow". Blank the panel behind a display-off so the
+  // fill itself is never visible either; the panel comes up clean black
+  // and the first real frame (the boot splash) lands on it.
+  tft_->enableDisplay(false);
+  tft_->fillScreen(ST77XX_BLACK);
+  tft_->enableDisplay(true);
 }
 
 GFXcanvas16& TftPanel::canvas() {

@@ -25,16 +25,17 @@ static const uint32_t SERIAL_BAUD_RATE = 115200;
 #endif
 
 // Boot sequence: the scoreboard logo splash holds the screen for at least
-// this long, then a status/setup page shows for BOOT_SETUP_PAGE_MS (Wi-Fi +
-// firmware check + game data all load behind both). With no usable saved
-// Wi-Fi the splash is followed by the AP provisioning page ("connect to the
-// scoreboard") instead of the status page.
-static const uint32_t BOOT_SPLASH_HOLD_MS = 11000;
-static const uint32_t BOOT_SETUP_PAGE_MS = 4000;
-// Past its minimum window the status page keeps showing until the first
-// schedule data lands — or this cap, so a dead network can't trap boot in
-// the setup page forever.
-static const uint32_t BOOT_MAX_WAIT_FOR_DATA_MS = 60000;
+// BOOT_SPLASH_HOLD_MS while Wi-Fi connects behind it. A handshake still in
+// flight at the end of that window EXTENDS the splash up to
+// BOOT_SPLASH_CONNECT_MAX_MS (sized to the network service's own connect
+// budget), so the screen that follows shows the outcome: once the
+// connection is made, the status/setup page shows for BOOT_SETUP_PAGE_MS;
+// if it cannot be made, the AP provisioning page ("connect to the
+// scoreboard") shows instead and holds until the portal establishes the
+// connection. The sport UI takes over after that.
+static const uint32_t BOOT_SPLASH_HOLD_MS = 5000;
+static const uint32_t BOOT_SPLASH_CONNECT_MAX_MS = 30000;
+static const uint32_t BOOT_SETUP_PAGE_MS = 6000;
 
 // Network portal login + dev-flashing password (device-level, not sport).
 static const char* NETWORK_AP_PASSWORD = "score1234";

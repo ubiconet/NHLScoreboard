@@ -168,11 +168,17 @@ const NetworkTeamOption* teamOptions(size_t& count) {
 const int* defaultPreferredTeams() { return NHL_DEFAULT_PREFERRED_TEAMS; }
 
 void setup() {
+  // The TFT panel comes up FIRST: begin() raises it clean black (no boot
+  // snow — see TftPanel::begin) and the boot splash paints within moments
+  // of power-on. Everything else initializes behind the logo. The panel
+  // itself is software SPI (bit-bangs SCK/MOSI on exactly the pins passed
+  // in — see common/hal/tft_panel.h for why the hardware-SPI variant must
+  // not be used on this board).
+  tftPanel.begin(TFT_CS_PIN, TFT_DC_PIN, TFT_MOSI_PIN, TFT_SCLK_PIN,
+                 TFT_RESET_PIN, TFT_NATIVE_WIDTH, TFT_NATIVE_HEIGHT, 1);
+
   // Initialize hardware: penalty LEDs, MAX7219 matrices, and the TM1637
-  // clock (game clock when live, wall clock between games), then the TFT
-  // panel over software SPI (bit-bangs SCK/MOSI on exactly the pins
-  // passed in — see common/hal/tft_panel.h for why the hardware-SPI
-  // variant must not be used on this board).
+  // clock (game clock when live, wall clock between games).
   const int countLedPins[7] = {PENALTY_HOME1_PIN, PENALTY_HOME2_PIN,
                                PENALTY_FILL_A,    PENALTY_AWAY1_PIN,
                                PENALTY_AWAY2_PIN, PENALTY_FILL_B1,
@@ -181,9 +187,6 @@ void setup() {
   initLedMatrix(MAX7219_DIN_PIN, MAX7219_CLK_PIN, MAX7219_CS_PIN);
   initTm1637(TM1637_CLK_PIN, TM1637_DIO_PIN, TM1637_BRIGHTNESS);
   initAudio(I2S_BCLK_PIN, I2S_LRC_PIN, I2S_DIN_PIN);
-
-  tftPanel.begin(TFT_CS_PIN, TFT_DC_PIN, TFT_MOSI_PIN, TFT_SCLK_PIN,
-                 TFT_RESET_PIN, TFT_NATIVE_WIDTH, TFT_NATIVE_HEIGHT, 1);
 
   if (HARDWARE_TEST_MODE) {
     // Bare-metal bench mode: first frame right here — no splash, no LED
@@ -196,11 +199,12 @@ void setup() {
     return;
   }
 
+  renderBootSplash(BOOT_LOGO_WIDTH, BOOT_LOGO_HEIGHT, BOOT_LOGO_NHL);
+
   // TEST ONLY: cycles the count LEDs one at a time at boot; leave enabled
-  // during hardware validation.
+  // during hardware validation. Runs behind the already-painted splash.
   runCountLedTestLoop();
 
-  renderBootSplash(BOOT_LOGO_WIDTH, BOOT_LOGO_HEIGHT, BOOT_LOGO_NHL);
   // No blocking hold here: network services start immediately and connect
   // behind the logo. The shell's loop() enforces the minimum splash time.
   Serial.printf("[MAIN] NHL Scoreboard ready (ESPN news TTL %lu min)\n",
@@ -213,11 +217,6 @@ void startDataTask() {
 
 bool skipBootUi() {
   return HARDWARE_TEST_MODE;
-}
-
-bool hasInitialData() {
-  if (HARDWARE_TEST_MODE) return true;  // skip the boot status page
-  return getUpcomingSchedulePublishedAt() != 0;
 }
 
 void tick(const SportTickContext& ctx) {

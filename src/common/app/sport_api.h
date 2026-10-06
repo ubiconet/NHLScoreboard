@@ -63,10 +63,6 @@ bool skipBootUi();
 // Create the core-0 feed task. Called after network services start.
 void startDataTask();
 
-// True once the sport has published its first data (the boot status page
-// holds until then, capped by BOOT_MAX_WAIT_FOR_DATA_MS).
-bool hasInitialData();
-
 // Steady-state body, called every loop() pass after the boot/update/network
 // screens have had their chance. Owns game state, rendering, and hardware
 // updates for sport content.
