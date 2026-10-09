@@ -63,7 +63,7 @@ struct Drawn {
   int period = -1;  // last shown on the period matrix
   int clockSec = -1;  // tickLiveClock's per-second tracker (TM1637)
   int sogH = -1, sogA = -1;
-  char penaltySig[256] = "";
+  char penaltySig[384] = "";
 } d;
 
 // ---- Local game-clock ticker ----
@@ -414,12 +414,14 @@ void drawPenaltiesHalf(const GameSnapshot& g) {
   tftPanel.pushRows(0, BOTTOM_Y, 320, 240 - BOTTOM_Y);
 }
 
-// Bottom half, even-strength view: scores of the league's in-progress
-// games (the followed game excluded by updateOtherGames). Three rows per
-// page; when more than three games are on, the window rotates through
-// them one game per ~5 s (driven by tickLiveClock).
-size_t sLeagueStart = 0;        // first live game on the current page
-size_t sLeagueLiveCount = 0;    // live games this draw
+// Bottom half, even-strength view: every other game of the day (the
+// followed game excluded by updateOtherGames) — live ones highlighted,
+// previews and finals included so all teams playing today appear. Each
+// game is one line; three rows per page, and when more than three games
+// are on the window rotates through them one game per ~5 s (driven by
+// tickLiveClock).
+size_t sLeagueStart = 0;        // first game on the current page
+size_t sLeagueGameCount = 0;    // games in the rotation set this draw
 uint32_t sLeagueRotateAt = 0;   // millis deadline for the next rotation
 
 // Bottom-half mode. Priority: GAME OVER > penalties > linescore/league.
@@ -438,30 +440,36 @@ void drawLeagueHalf() {
   canvas().setTextSize(1);
   canvas().setCursor(12, BOTTOM_Y + 4);
   canvas().print("AROUND THE LEAGUE");
-  // Collect the live games once so the start index can wrap cleanly.
-  const OtherGameInfo* live[MAX_OTHER_GAMES];
-  size_t n = 0;
-  for (size_t i = 0; i < otherGameCount; ++i) {
-    if (liveish(otherGames[i].gameState)) live[n++] = &otherGames[i];
-  }
-  sLeagueLiveCount = n;
+  size_t n = otherGameCount;  // whole slate minus the followed game
+  sLeagueGameCount = n;
   sLeagueRotateAt = millis() + NHL_CAROUSEL_ROTATE_MS;
   if (sLeagueStart >= n) sLeagueStart = 0;
   int y = BOTTOM_Y + 24;
-  for (size_t r = 0; r < 3 && n > 0; ++r) {
-    const OtherGameInfo& o = *live[(sLeagueStart + r) % n];
+  for (size_t r = 0; r < 3 && r < n; ++r) {
+    const OtherGameInfo& o = otherGames[(sLeagueStart + r) % n];
     char line[20];
     snprintf(line, sizeof(line), "%s %2d - %2d %s", o.awayAbbrev, o.awayScore,
              o.homeScore, o.homeAbbrev);
-    canvas().setTextColor(ST77XX_WHITE);
+    bool live = liveish(o.gameState);
+    canvas().setTextColor(live ? ST77XX_WHITE : COLOR_MUTED);
     canvas().setTextSize(2);
     drawCenteredText(canvas(), line, 160, y);
+    canvas().setTextSize(1);
+    if (live) {
+      canvas().setTextColor(COLOR_LED_RED);
+      canvas().setCursor(288, y + 4);
+      canvas().print("LIVE");
+    } else if (gameOverState(o.gameState)) {
+      canvas().setTextColor(COLOR_MUTED);
+      canvas().setCursor(280, y + 4);
+      canvas().print("FINAL");
+    }
     y += 20;
   }
   if (n == 0) {
     canvas().setTextColor(COLOR_MUTED);
     canvas().setTextSize(1);
-    drawCenteredText(canvas(), "No other games in progress", 160,
+    drawCenteredText(canvas(), "No other games today", 160,
                      BOTTOM_Y + 44);
   }
   tftPanel.pushRows(0, BOTTOM_Y, 320, 240 - BOTTOM_Y);
@@ -528,10 +536,10 @@ void drawBottomHalf(const GameSnapshot& g) {
     drawPenaltiesHalf(g);
     return;
   }
-  size_t live = 0;
-  for (size_t i = 0; i < otherGameCount; ++i)
-    if (liveish(otherGames[i].gameState)) ++live;
-  sRotatePair = !g.inIntermission && live > 0;
+  // Any other game on the slate gives the league view content to flip
+  // with — previews and finals count too now (they show with scores and
+  // state tags).
+  sRotatePair = !g.inIntermission && otherGameCount > 0;
   if (sRotatePair) {
     // Stay on whichever view of the pair is up across content refreshes;
     // arm the flip timer only when entering the pair from another mode.
@@ -628,7 +636,7 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
   // intermission, and during penalty-free play the alternating
   // linescore / league-scores pair. Signature covers every mode's
   // contents so the view flips and refreshes only on real changes.
-  char sig[256] = "";
+  char sig[384] = "";
   if (gameOverState(g.gameState)) {
     strlcpy(sig, "G", sizeof(sig));  // postgame: GAME OVER + three stars
     for (int i = 0; i < g.threeStarCount; ++i) {
@@ -656,9 +664,9 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
       if (!g.inIntermission) {
         for (size_t i = 0; i < otherGameCount; ++i) {
           const OtherGameInfo& o = otherGames[i];
-          if (!liveish(o.gameState)) continue;
-          snprintf(sig + strlen(sig), sizeof(sig) - strlen(sig), "|%s%d%d%s",
-                   o.awayAbbrev, o.awayScore, o.homeScore, o.homeAbbrev);
+          snprintf(sig + strlen(sig), sizeof(sig) - strlen(sig), "|%s%d%d%s%c",
+                   o.awayAbbrev, o.awayScore, o.homeScore, o.homeAbbrev,
+                   o.gameState[0]);
         }
       }
     }
@@ -753,11 +761,11 @@ void tickLiveClock() {
     if (sBottomMode == BottomMode::LEAGUE) drawLeagueHalf();
     else drawLinescoreHalf(nhl_render::currentGame, false);
   }
-  // League page rotation (>3 live games): only while the league view is
+  // League page rotation (>3 games): only while the league view is
   // actually on screen — the timer re-arms inside drawLeagueHalf.
   if (!goalDisplayActive() && sBottomMode == BottomMode::LEAGUE &&
-      sLeagueLiveCount > 3 && (int32_t)(now - sLeagueRotateAt) >= 0) {
-    sLeagueStart = (sLeagueStart + 1) % sLeagueLiveCount;
+      sLeagueGameCount > 3 && (int32_t)(now - sLeagueRotateAt) >= 0) {
+    sLeagueStart = (sLeagueStart + 1) % sLeagueGameCount;
     drawLeagueHalf();
   }
   int clk = liveClockSec();

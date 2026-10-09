@@ -30,7 +30,10 @@ struct OtherGameInfo {
   int  homeScore;
   char gameState[8];
 };
-const size_t MAX_OTHER_GAMES = 9;
+// Full-slate capacity: the day snapshot carries up to 26 games, but a
+// max NHL day is 16 — copying more than that would silently drop the
+// rest from every league view.
+const size_t MAX_OTHER_GAMES = 16;
 extern OtherGameInfo otherGames[MAX_OTHER_GAMES];
 extern size_t otherGameCount;
 
