@@ -98,7 +98,11 @@ struct StandingsRow {
   int16_t wins, losses, otLosses, points;
 };
 struct StandingsSnapshot {
-  char divisionName[4][12];   // "Atlantic", "Metropolitan", ...
+  // "Metropolitan" (12 chars) must fit whole: the data task matches
+  // later rows against this stored name, and a truncated copy never
+  // matches the full API string (which scattered one division's rows
+  // across slots and dropped the rest).
+  char divisionName[4][16];   // "Atlantic", "Metropolitan", ...
   StandingsRow rows[4][8];
   uint8_t count[4];
   bool valid;
