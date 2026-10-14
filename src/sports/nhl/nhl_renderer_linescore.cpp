@@ -226,6 +226,28 @@ int liveClockSec() {
 // — white rounded border, big gold count. The "SHOTS" caption lives
 // between the two boxes (drawShotsCaption), not inside them. Deliberately
 // static in every state: goal feedback blinks the score MATRIX instead.
+void drawShotCount(GFXcanvas16& c, int centerX, int y, int shots) {
+  char n[4];
+  snprintf(n, sizeof(n), "%d", shots < 0 ? 0 : shots);
+  c.setTextColor(COLOR_GOLD);
+  c.setTextSize(4);
+  const int kDigitCell = 30;
+  int digits = (int)strlen(n);
+  int x0 = centerX - (digits * kDigitCell) / 2;
+  for (int i = 0; i < digits; ++i) {
+    c.setCursor(x0 + i * kDigitCell + (kDigitCell - 20) / 2, y);
+    c.print(n[i]);
+  }
+}
+
+void drawShotsBox(GFXcanvas16& c, int centerX) {
+  const int boxWidth = LOGO_SIZE + 2 * SHOTS_BOX_PAD;
+  const int boxX = centerX - boxWidth / 2;
+  c.drawRoundRect(boxX, SHOTS_BOX_Y, boxWidth, SHOTS_BOX_H, 8, ST77XX_WHITE);
+  c.drawRoundRect(boxX + 1, SHOTS_BOX_Y + 1, boxWidth - 2,
+                  SHOTS_BOX_H - 2, 8, ST77XX_WHITE);
+}
+
 void drawTeamColumn(int logoX, const char* abbrev, int teamId, int shots) {
   ensureLogoCached(teamId, abbrev);
   drawTeamLogoScaled(canvas(), logoX, LOGO_Y, teamId, abbrev, LOGO_SIZE);
@@ -234,30 +256,16 @@ void drawTeamColumn(int logoX, const char* abbrev, int teamId, int shots) {
   canvas().setTextColor(ST77XX_WHITE);
   canvas().setTextSize(2);
   drawCenteredText(canvas(), abbrev, cx, ABBREV_Y);
-  // 2-px white border (arena-stat-panel look)
-  canvas().drawRoundRect(bx, SHOTS_BOX_Y, bw, SHOTS_BOX_H, 8, ST77XX_WHITE);
-  canvas().drawRoundRect(bx + 1, SHOTS_BOX_Y + 1, bw - 2, SHOTS_BOX_H - 2, 8,
-                         ST77XX_WHITE);
+  drawShotsBox(canvas(), cx);
   // Count: wipe the number region first, then draw each digit in its own
   // fixed cell. Text renders transparently on this canvas, so without the
   // wipe every value change (9 -> 10, 12 -> 13) smears the old glyph
   // remnants into the new number; fixed cells keep multi-digit counts
   // evenly spaced.
-  char n[4];
-  snprintf(n, sizeof(n), "%d", shots < 0 ? 0 : shots);
   canvas().fillRect(bx + 3, SHOTS_NUM_Y - 2, bw - 6,
                     SHOTS_BOX_Y + SHOTS_BOX_H - 3 - (SHOTS_NUM_Y - 2),
                     COLOR_BG);
-  canvas().setTextColor(COLOR_GOLD);
-  canvas().setTextSize(4);
-  const int kDigitCell = 30;  // 20-px size-4 glyph + breathing room
-  int digits = (int)strlen(n);
-  int x0 = cx - (digits * kDigitCell) / 2;
-  for (int i = 0; i < digits; ++i) {
-    canvas().setCursor(x0 + i * kDigitCell + (kDigitCell - 20) / 2,
-                       SHOTS_NUM_Y);
-    canvas().print(n[i]);
-  }
+  drawShotCount(canvas(), cx, SHOTS_NUM_Y, shots);
   tftPanel.pushRows(logoX - SHOTS_BOX_PAD - 2, LOGO_Y - 2,
                     LOGO_SIZE + 2 * SHOTS_BOX_PAD + 4,
                     SHOTS_BOX_Y + SHOTS_BOX_H + 2 - (LOGO_Y - 2));
@@ -805,26 +813,24 @@ void renderManual() {
       c.setTextColor(ST77XX_WHITE);
       c.setTextSize(3);
       drawCenteredText(c, t ? "GUEST" : "HOME", x + 73, 26);
-      c.setTextColor(COLOR_MUTED);
-      c.setTextSize(2);
-      drawCenteredText(c, "SHOTS", x + 73, 62);
+      drawShotsBox(c, x + 73);
     }
+    drawShotsCaption();
     tftPanel.pushFull();
   }
 
-  // big per-team shot counts (the manual screen's whole content)
+  // Match the live screen's outlined shot box and size-4 digit font.
   auto drawShots = [&](int cardX, int shots, int& cache) {
     if (shots == cache) return;
     cache = shots;
-    char s[4];
-    snprintf(s, sizeof(s), "%d", shots);
-    c.fillRect(cardX + 8, 92, 130, 90, COLOR_CARD);
-    c.setTextColor(COLOR_GOLD);
-    c.setTextSize(7);
-    int w = strlen(s) * 42;
-    c.setCursor(cardX + (146 - w) / 2, 108);
-    c.print(s);
-    tftPanel.pushRows(cardX + 4, 88, 138, 98);
+    const int centerX = cardX + 73;
+    const int boxWidth = LOGO_SIZE + 2 * SHOTS_BOX_PAD;
+    const int boxX = centerX - boxWidth / 2;
+    c.fillRect(boxX + 3, SHOTS_NUM_Y - 2, boxWidth - 6,
+               SHOTS_BOX_Y + SHOTS_BOX_H - 3 - (SHOTS_NUM_Y - 2), COLOR_BG);
+    drawShotCount(c, centerX, SHOTS_NUM_Y, shots);
+    tftPanel.pushRows(boxX - 2, SHOTS_BOX_Y - 2, boxWidth + 4,
+                      SHOTS_BOX_H + 4);
   };
   drawShots(8, getManualHomeShots(), md.homeShots);
   drawShots(166, getManualGuestShots(), md.guestShots);

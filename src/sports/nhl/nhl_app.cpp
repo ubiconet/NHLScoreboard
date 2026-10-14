@@ -43,6 +43,126 @@ uint32_t sLastScheduleRenderAt = 0;
 
 // Most recent valid live snapshot — the display test restores from it.
 GameSnapshot sLastGame{};
+GameSnapshot sDemoGame{};
+uint32_t sDemoStartedAtMs = 0;
+uint32_t sDemoLastSecond = UINT32_MAX;
+
+void startGameDemo(uint32_t nowMs) {
+  sDemoGame = GameSnapshot{};
+  sDemoGame.valid = true;
+  sDemoGame.gameId = -1;
+  strlcpy(sDemoGame.gameState, "LIVE", sizeof(sDemoGame.gameState));
+  sDemoGame.homeTeamId = 10;
+  sDemoGame.awayTeamId = 22;
+  strlcpy(sDemoGame.homeAbbrev, "TOR", sizeof(sDemoGame.homeAbbrev));
+  strlcpy(sDemoGame.awayAbbrev, "EDM", sizeof(sDemoGame.awayAbbrev));
+  sDemoGame.homeScore = 2;
+  sDemoGame.awayScore = 3;
+  sDemoGame.homeSog = 20;
+  sDemoGame.awaySog = 23;
+  sDemoGame.period = 2;
+  strlcpy(sDemoGame.periodType, "REG", sizeof(sDemoGame.periodType));
+  sDemoGame.clockSec = 12 * 60 + 34;
+  sDemoGame.clockRunning = true;
+  sDemoGame.homePenaltyCount = 1;
+  sDemoGame.penaltyCount = 1;
+  strlcpy(sDemoGame.penalties[0].teamAbbrev, "TOR",
+          sizeof(sDemoGame.penalties[0].teamAbbrev));
+  strlcpy(sDemoGame.penalties[0].lastName, "RIELLY",
+          sizeof(sDemoGame.penalties[0].lastName));
+  sDemoGame.penalties[0].number = 44;
+  strlcpy(sDemoGame.penalties[0].desc, "tripping",
+          sizeof(sDemoGame.penalties[0].desc));
+  sDemoGame.penalties[0].remainSec = 86;
+  sDemoGame.penalties[0].durMin = 2;
+  sDemoGame.homePeriodGoals[0] = 1;
+  sDemoGame.homePeriodGoals[1] = 1;
+  sDemoGame.awayPeriodGoals[0] = 2;
+  sDemoGame.awayPeriodGoals[1] = 1;
+  sDemoStartedAtMs = nowMs;
+  sDemoLastSecond = 0;
+  forceLiveRepaint(sDemoGame);
+}
+
+bool advanceGameDemo(uint32_t nowMs) {
+  uint32_t elapsedSec = (nowMs - sDemoStartedAtMs) / 1000;
+  if (elapsedSec == sDemoLastSecond) return false;
+  sDemoLastSecond = elapsedSec;
+
+  if (elapsedSec < 12 * 60 + 34) {
+    sDemoGame.period = 2;
+    sDemoGame.clockSec = 12 * 60 + 34 - elapsedSec;
+  } else {
+    uint32_t afterPeriod = elapsedSec - (12 * 60 + 34);
+    uint32_t completedPeriods = afterPeriod / 1200;
+    if (completedPeriods == 0) {
+      sDemoGame.period = 3;
+      sDemoGame.clockSec = 1200 - afterPeriod;
+    } else {
+      sDemoGame.period = 4;
+      strlcpy(sDemoGame.periodType, "OT", sizeof(sDemoGame.periodType));
+      sDemoGame.clockSec = 300 - (afterPeriod % 300);
+      sDemoGame.otColumn = true;
+    }
+  }
+
+  sDemoGame.homeSog = 20 + (elapsedSec / 8);
+  sDemoGame.awaySog = 23 + (elapsedSec / 7);
+  if (sDemoGame.homeSog > 99) sDemoGame.homeSog = 99;
+  if (sDemoGame.awaySog > 99) sDemoGame.awaySog = 99;
+
+  uint32_t penaltyCycle = elapsedSec / 24;
+  bool penaltyActive = (penaltyCycle % 2) != 0;
+  sDemoGame.penaltyCount = penaltyActive ? 1 : 0;
+  sDemoGame.homePenaltyCount = 0;
+  sDemoGame.awayPenaltyCount = 0;
+  if (penaltyActive) {
+    bool homePenalized = (penaltyCycle % 4) == 1;
+    sDemoGame.homePenaltyCount = homePenalized ? 1 : 0;
+    sDemoGame.awayPenaltyCount = homePenalized ? 0 : 1;
+    NhlPenalty& penalty = sDemoGame.penalties[0];
+    strlcpy(penalty.teamAbbrev, homePenalized ? "TOR" : "EDM",
+            sizeof(penalty.teamAbbrev));
+    strlcpy(penalty.lastName, homePenalized ? "RIELLY" : "NURSE",
+            sizeof(penalty.lastName));
+    penalty.number = homePenalized ? 44 : 25;
+    strlcpy(penalty.desc, "tripping", sizeof(penalty.desc));
+    penalty.remainSec = 90;
+    penalty.durMin = 2;
+  }
+
+  bool goalScored = elapsedSec != 0 && elapsedSec % 20 == 0;
+  if (goalScored) {
+    bool homeScored = ((elapsedSec / 20) % 2) == 0;
+    int column = sDemoGame.period <= 3 ? sDemoGame.period - 1 : 3;
+    if (homeScored) {
+      ++sDemoGame.homeScore;
+      ++sDemoGame.homePeriodGoals[column];
+    } else {
+      ++sDemoGame.awayScore;
+      ++sDemoGame.awayPeriodGoals[column];
+    }
+    NhlGoal& goal = sDemoGame.latestGoal;
+    goal = NhlGoal{};
+    goal.valid = true;
+    goal.eventId = 1000 + elapsedSec;
+    goal.homeScore = sDemoGame.homeScore;
+    goal.awayScore = sDemoGame.awayScore;
+    strlcpy(goal.teamAbbrev, homeScored ? "TOR" : "EDM",
+            sizeof(goal.teamAbbrev));
+    goal.scorer.number = homeScored ? 34 : 97;
+    strlcpy(goal.scorer.name, homeScored ? "AUSTON MATTHEWS"
+                                         : "CONNOR MCDAVID",
+            sizeof(goal.scorer.name));
+  }
+
+  renderLiveGame(sDemoGame);
+  if (goalScored) {
+    startGoalAnnouncement(sDemoGame.latestGoal);
+    if (isAudioEnabled()) startClip(GOAL_PCM, GOAL_SAMPLES, GOAL_RATE);
+  }
+  return true;
+}
 
 // Pick the highest-priority preferred team with a game currently in
 // progress (LIVE/CRIT). Selection deliberately reads only the day-slate
@@ -114,7 +234,9 @@ void runDisplayTestCycle() {
 
   // Restore whatever was showing before the cycle
   setMax7219DisplayTestAll(false);
-  if (scoreboardState == ScoreboardState::LIVE_GAME && sLastGame.valid) {
+  if (isGameDemoMode() && sDemoGame.valid) {
+    forceLiveRepaint(sDemoGame);
+  } else if (scoreboardState == ScoreboardState::LIVE_GAME && sLastGame.valid) {
     forceLiveRepaint(sLastGame);
   } else {
     JsonObjectConst sched = getUpcomingScheduleJson();
@@ -269,8 +391,35 @@ void tick(const SportTickContext& ctx) {
     }
   }
 
-  // ---- Manual mode (portal page owns the values) ----
+  // Settings-page game demo owns the display and hardware until stopped.
   static bool sInManual = false;
+  static bool sInDemo = false;
+  if (isGameDemoMode()) {
+    if (!sInDemo) {
+      sInDemo = true;
+      sInManual = false;
+      startGameDemo(ctx.nowMs);
+    } else {
+      advanceGameDemo(ctx.nowMs);
+    }
+    tickLiveClock();
+    return;
+  }
+  if (sInDemo) {
+    sInDemo = false;
+    int preferred[3];
+    getPreferredTeamIds(preferred);
+    if (scoreboardState == ScoreboardState::LIVE_GAME && sLastGame.valid) {
+      forceLiveRepaint(sLastGame);
+    } else {
+      JsonObjectConst sched = getUpcomingScheduleJson();
+      renderWaiting(sched, preferred);
+      invalidateMax7219Clock();
+      invalidateTm1637WallClock();
+    }
+  }
+
+  // ---- Manual mode (portal page owns the values) ----
   if (isManualMode()) {
     if (!sInManual) {
       sInManual = true;

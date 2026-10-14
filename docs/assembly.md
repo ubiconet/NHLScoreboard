@@ -3,7 +3,7 @@
 Everything needed to wire the scoreboard end to end. The pin plan and its
 rationale live in [`hardware.md`](hardware.md); this document is the
 build-side companion: parts, wiring tables, the rendered diagram, assembly
-order, and the first-boot checklist. Firmware **v3.57** supports both
+order, and the first-boot checklist. Firmware **v3.58** supports both
 board wiring revisions. The diagram below shows the original **board V0.1**;
 board **V1.0** changes the TM1637 CLK and DIO connections as listed below,
 and the firmware corrects its matrix and penalty LED mappings. Select the

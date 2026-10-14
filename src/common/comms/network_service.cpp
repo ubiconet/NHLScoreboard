@@ -79,6 +79,7 @@ volatile int  manualPeriod = 1;
 volatile int  manualPenaltyMask = 0;
 volatile int  manualHomeShots = 0;
 volatile int  manualGuestShots = 0;
+volatile bool gameDemoMode = false;
 // Period length the clock reloads to when a period ends (page "period
 // length" field, default 20:00).
 volatile int manualPeriodLenSec = 1200;
@@ -623,14 +624,19 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
   if (audioEnabled) page += " checked";
   page += R"html(>Enable audio output (game sounds and alerts)</label>
 <button type="submit">Save & Connect Scoreboard</button></form>
+<hr><h3>Manual Mode</h3>
+<p class="hint">Full manual control: clock countdown, scores, period, penalty LEDs, shots — from a dedicated page.</p>
+<button type="button" onclick="location.href='/manual'">Open Manual Mode</button>
+<hr><h3>Game Demo</h3>
+<p class="hint">Show a simulated live game on the scoreboard, including the game clock, scores, shots, penalties, and goal display.</p>
+<button id="demoStart" type="button" style="margin-top:8px" onclick="setDemo(true)">Start Game Demo</button>
+<button id="demoStop" type="button" style="margin-top:8px;background:#2a5daf;color:#fff;display:none" onclick="setDemo(false)">Stop Game Demo</button>
+<p class="hint" id="demoStatus">Demo is stopped.</p>
 <hr><h3>Display Test</h3>
 <p class="hint">Cycles every display once (matrices, clock, penalty LEDs, screen), holds everything on for 2 seconds, then returns to what was showing.</p>
 <button type="button" style="margin-top:8px" onclick="dtest()">Run Display Test</button>
 <button type="button" style="margin-top:8px;background:#2a5daf;color:#fff" onclick="atest()">Play Test Audio</button>
 <p class="hint" id="dtestStatus">&nbsp;</p>
-<hr><h3>Manual Mode</h3>
-<p class="hint">Full manual control: clock countdown, scores, period, penalty LEDs, shots — from a dedicated page.</p>
-<button type="button" onclick="location.href='/manual'">Open Manual Mode</button>
 <hr><h3>Firmware Update</h3>
 <p class="hint">Installed: )html" + String(FIRMWARE_VERSION) + R"html(. Automatic checks run at boot.</p>
 <button type="button" style="margin-top:8px" onclick="otaCheck()">Check for Update Now</button>
@@ -642,6 +648,9 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 var otaWaiting=false;
 function dtest(){document.getElementById('dtestStatus').textContent='Running - watch the scoreboard...';fetch('/display/test',{method:'POST'}).then(function(){setTimeout(function(){document.getElementById('dtestStatus').textContent='Done.'},18000)}).catch(function(){document.getElementById('dtestStatus').textContent='Request failed.'})}
 function atest(){fetch('/audio/test',{method:'POST'})}
+function setDemo(running){fetch(running?'/demo/start':'/demo/stop',{method:'POST'}).then(function(r){if(!r.ok)throw new Error('request failed');paintDemo(running)}).catch(function(){document.getElementById('demoStatus').textContent='Demo request failed.'})}
+function paintDemo(running){document.getElementById('demoStart').style.display=running?'none':'block';document.getElementById('demoStop').style.display=running?'block':'none';document.getElementById('demoStatus').textContent=running?'Game demo is running on the scoreboard.':'Demo is stopped.'}
+fetch('/demo/status').then(function(r){return r.json()}).then(function(s){paintDemo(s.running)}).catch(function(){document.getElementById('demoStatus').textContent='Unable to read demo status.'});
 function otaCheck(){otaWaiting=true;document.getElementById('otaStatus').textContent='Checking...';fetch('/ota/check',{method:'POST'})}
 setInterval(function(){fetch('/ota/status').then(function(r){return r.json()}).then(function(s){var e=document.getElementById('otaStatus');
 if(s.stage==='DOWNLOADING'){otaWaiting=false;e.textContent='Downloading update '+s.progress+'% - watch the scoreboard; do not power off.'}
@@ -651,7 +660,7 @@ else if(otaWaiting&&s.checked&&!s.ok){otaWaiting=false;e.textContent='Check fail
 else if(otaWaiting&&s.checked&&s.ok){otaWaiting=false;e.textContent='No update available - firmware is current.'}
 })},2000);
 </script>
-<hr><p class="hint"><a style="color:#f5c400" href="/update">Upload new firmware (.bin)</a></p></main></body></html>)html";
+</main></body></html>)html";
   page.replace("@@NAME@@", netBranding.deviceName);
   server.send(200, "text/html", page);
 }
@@ -674,8 +683,27 @@ void handleAudioTest() {
   server.send(200, "text/plain", "ok");
 }
 
+void handleDemoStart() {
+  markPortalActivity();
+  manualMode = false;
+  gameDemoMode = true;
+  server.send(200, "text/plain", "ok");
+}
+
+void handleDemoStop() {
+  markPortalActivity();
+  gameDemoMode = false;
+  server.send(200, "text/plain", "ok");
+}
+
+void handleDemoStatus() {
+  server.send(200, "application/json",
+              String("{\"running\":") + (gameDemoMode ? "true}" : "false}"));
+}
+
 void serveManualPage() {
   markPortalActivity();
+  gameDemoMode = false;
   manualMode = true;  // arriving at the page engages manual mode
   server.sendHeader("Cache-Control", "no-store");
   String page = R"html(<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1041,6 +1069,9 @@ void registerPortalRoutes() {
   server.on("/ota/check", HTTP_POST, handleOtaCheckNow);
   server.on("/display/test", HTTP_POST, handleDisplayTest);
   server.on("/audio/test", HTTP_POST, handleAudioTest);
+  server.on("/demo/start", HTTP_POST, handleDemoStart);
+  server.on("/demo/stop", HTTP_POST, handleDemoStop);
+  server.on("/demo/status", HTTP_GET, handleDemoStatus);
   server.on("/manual", HTTP_GET, serveManualPage);
   server.on("/manual/set", HTTP_POST, handleManualSet);
   server.on("/manual/state", HTTP_GET, handleManualState);
@@ -1117,6 +1148,7 @@ bool consumeAudioTestRequest() {
 
 bool isManualMode() { return manualMode; }
 void setManualMode(bool on) { manualMode = on; }
+bool isGameDemoMode() { return gameDemoMode; }
 int  getManualClockSec() { return manualClockSec; }
 bool getManualClockRunning() { return manualClockRunning; }
 int  getManualHomeScore() { return manualHomeScore; }

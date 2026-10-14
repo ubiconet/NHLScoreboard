@@ -63,6 +63,8 @@ bool consumeAudioTestRequest();
 // mode; the page's exit button (POST /manual/exit) leaves it.
 bool isManualMode();
 void setManualMode(bool on);
+// Portal-triggered demo display mode.
+bool isGameDemoMode();
 int  getManualClockSec();
 bool getManualClockRunning();
 int  getManualHomeScore();
