@@ -35,7 +35,7 @@ position 18 and a GPIO can't appear twice).
 | 1 | Home score | MAX7219 8×8 matrix | Home goals | chained SPI | 40/39/38 |
 | 2 | Guest score | MAX7219 8×8 matrix | Guest goals | chained SPI | (same chain) |
 | 3 | Period | MAX7219 8×8 matrix | 1–4, OT, SO | chained SPI | (same chain) |
-| 4 | Period clock | TM1637 4-digit 7-seg | MM:SS game clock | 2-wire bit-bang | 16/17 |
+| 4 | Period clock | TM1637 4-digit 7-seg | MM:SS game clock | 2-wire bit-bang | V0.1 CLK/DIO: 16/17; V1.0 CLK/DIO: 15/16 |
 | 5 | Audio | MAX98357 I2S amp + speaker | goal horn / cues | I2S | 1/2/42 |
 | 6 | Home penalties | 2 discrete LEDs | penalty 1 / penalty 2 | GPIO direct | 4/5 |
 | 7 | Guest penalties | 2 discrete LEDs | penalty 1 / penalty 2 | GPIO direct | 11/12 |
@@ -43,6 +43,10 @@ position 18 and a GPIO can't appear twice).
 
 **Total: 17 GPIOs.** Wiring-friendly split: **left header = indicators +
 displays**, **right header = serial buses** (audio + score matrices).
+
+The portal's board-version selection applies the V1.0 matrix score-order and
+180-degree orientation corrections, plus its crossed penalty LED mapping;
+V0.1 retains the original behavior.
 
 ## Physical header map
 
@@ -57,9 +61,9 @@ displays**, **right header = serial buses** (audio + score matrices).
 | 5 | GPIO5 | Home penalty LED 2 | |
 | 6 | GPIO6 | — spare — | guest LED until the PCB rev (v3.44) |
 | 7 | GPIO7 | — spare — | guest LED until the PCB rev (v3.44) |
-| 8 | GPIO15 | — gap — | spare |
-| 9 | GPIO16 | TM1637 CLK | |
-| 10 | GPIO17 | TM1637 DIO | |
+| 8 | GPIO15 | TM1637 CLK (V1.0) | V0.1 spare |
+| 9 | GPIO16 | TM1637 CLK (V0.1) / DIO (V1.0) | |
+| 10 | GPIO17 | TM1637 DIO (V0.1) | V1.0 spare |
 | 11 | GPIO18 | — gap — | spare |
 | 12 | GPIO8 | TFT SCL (SCK) | PCB rev v3.44 |
 | 13 | GPIO3 | TFT SDA (MOSI) | strapping pin (JTAG source) — output OK after boot |

@@ -34,8 +34,11 @@ void setup() {
     // a fast Wi-Fi handshake can't cut the logo short.
     NetworkBranding branding = sport::branding();
     size_t teamOptionCount = 0;
+    size_t boardOptionCount = 0;
     startNetworkServices(branding, sport::teamOptions(teamOptionCount),
-                         teamOptionCount, sport::defaultPreferredTeams());
+                         teamOptionCount, sport::defaultPreferredTeams(),
+                         sport::boardOptions(boardOptionCount),
+                         boardOptionCount, sport::defaultBoardVersion());
     startNetworkTask();
     sport::startDataTask();  // core-0 feed fetches
   }

@@ -10,7 +10,8 @@
 // Pass this instead of a real score to leave a matrix dark (no game active).
 static const int MAX7219_SCORE_BLANK = -1;
 
-void initLedMatrix(int dinPin, int clkPin, int csPin);
+void initLedMatrix(int dinPin, int clkPin, int csPin,
+                   bool reverseHomeGuest = false, bool flipAllModules = false);
 void setMax7219Scores(int awayScore, int homeScore);
 // Full 3-module chain write: home / guest(away) / period in one 24-bit
 // burst (MAX7219_SCORE_BLANK leaves that module dark).

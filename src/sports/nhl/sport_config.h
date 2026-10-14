@@ -41,9 +41,13 @@ static const int MAX7219_CLK_PIN = 39;
 static const int MAX7219_CS_PIN = 38;
 
 // ---- TM1637 4-digit 7-segment (period/game clock; wall clock when idle) ----
-// Target physical map: left header pos 9-10.
-static const int TM1637_CLK_PIN = 16;
-static const int TM1637_DIO_PIN = 17;
+// V0.1 wiring: CLK/DIO on GPIO16/17. V1.0 swaps to GPIO15/16.
+static const int BOARD_VERSION_V0_1 = 1;
+static const int BOARD_VERSION_V1_0 = 10;
+static const int TM1637_CLK_V0_1_PIN = 16;
+static const int TM1637_DIO_V0_1_PIN = 17;
+static const int TM1637_CLK_V1_0_PIN = 15;
+static const int TM1637_DIO_V1_0_PIN = 16;
 static const int TM1637_BRIGHTNESS = 3;   // 0..7
 
 // ---- Penalty LEDs (home P1/P2, guest P1/P2) --------------------------------
@@ -57,8 +61,25 @@ static const int PENALTY_HOME2_PIN = 5;
 static const int PENALTY_AWAY1_PIN = 11;
 static const int PENALTY_AWAY2_PIN = 12;
 static const int PENALTY_FILL_A  = 13;    // group A 3rd slot (never lit)
-static const int PENALTY_FILL_B1 = 15;   // group C slots (never lit)
+static const int PENALTY_FILL_B1 = 6;    // group C slot (never lit)
 static const int PENALTY_FILL_B2 = 18;
+
+static inline int homePenalty1Pin(int boardVersion) {
+  return boardVersion == BOARD_VERSION_V1_0 ? PENALTY_AWAY2_PIN
+                                             : PENALTY_HOME1_PIN;
+}
+static inline int homePenalty2Pin(int boardVersion) {
+  return boardVersion == BOARD_VERSION_V1_0 ? PENALTY_AWAY1_PIN
+                                             : PENALTY_HOME2_PIN;
+}
+static inline int awayPenalty1Pin(int boardVersion) {
+  return boardVersion == BOARD_VERSION_V1_0 ? PENALTY_HOME2_PIN
+                                             : PENALTY_AWAY1_PIN;
+}
+static inline int awayPenalty2Pin(int boardVersion) {
+  return boardVersion == BOARD_VERSION_V1_0 ? PENALTY_HOME1_PIN
+                                             : PENALTY_AWAY2_PIN;
+}
 
 // ---- MAX98357 I2S audio amp (goal horn) ------------------------------------
 // Target physical map: right header pos 4-6.

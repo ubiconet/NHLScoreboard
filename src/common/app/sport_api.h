@@ -47,6 +47,11 @@ const NetworkTeamOption* teamOptions(size_t& count);
 // Preferred-team ids preloaded when NVS has none saved yet.
 const int* defaultPreferredTeams();
 
+// Physical board revisions selectable in the setup portal. The default is
+// used on first boot and when NVS contains an unsupported version.
+const NetworkBoardOption* boardOptions(size_t& count);
+int defaultBoardVersion();
+
 // ---- Lifecycle ----
 
 // One-time init: hardware bring-up with this sport's pins (TFT panel, LED

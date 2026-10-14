@@ -168,7 +168,8 @@ J5 DOUT→J6 DIN with dupont jumpers; CLK/CS/5V/GND tap from J4's spare pins.
 3. TFT VCC: J2 VCC pin → DevKit 3V3 pin
 4. TFT GND: J2 GND pin → (22.5,−42)
 5. TM1637 GND: (22.5,−42) → J3 GND pin
-6. TM1637 CLK/DIO: J3 pins → DevKit 16/17 pins (2 wires)
+6. TM1637 CLK/DIO (board V0.1): J3 pins → DevKit GPIO16/17 (2 wires).
+   Board V1.0 instead uses CLK/DIO GPIO15/16; select V1.0 in the portal.
 7. Away LEDs ×2, Home LEDs ×2: resistor pads (56/70, ±24) → (−28,−19/−21)
 8. J4 CS wire: (−92,−15) → J4 CS pin (continue to J5/J6 CS)
 9. J4 CLK wire: (−87,−12) → J4 CLK pin

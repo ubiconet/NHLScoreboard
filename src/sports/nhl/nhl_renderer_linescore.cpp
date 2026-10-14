@@ -843,9 +843,10 @@ void renderManual() {
   int mask = getManualPenaltyMask();
   if (mask != md.penMask) {
     md.penMask = mask;
-    digitalWrite(PENALTY_HOME1_PIN, mask & 0x1 ? HIGH : LOW);
-    digitalWrite(PENALTY_HOME2_PIN, mask & 0x2 ? HIGH : LOW);
-    digitalWrite(PENALTY_AWAY1_PIN, mask & 0x4 ? HIGH : LOW);
-    digitalWrite(PENALTY_AWAY2_PIN, mask & 0x8 ? HIGH : LOW);
+    const int boardVersion = getBoardVersion();
+    digitalWrite(homePenalty1Pin(boardVersion), mask & 0x1 ? HIGH : LOW);
+    digitalWrite(homePenalty2Pin(boardVersion), mask & 0x2 ? HIGH : LOW);
+    digitalWrite(awayPenalty1Pin(boardVersion), mask & 0x4 ? HIGH : LOW);
+    digitalWrite(awayPenalty2Pin(boardVersion), mask & 0x8 ? HIGH : LOW);
   }
 }

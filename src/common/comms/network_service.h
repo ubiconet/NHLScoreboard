@@ -21,10 +21,18 @@ struct NetworkTeamOption {
   const char* label;
 };
 
+struct NetworkBoardOption {
+  int id;
+  const char* label;
+};
+
 void startNetworkServices(const NetworkBranding& branding,
                           const NetworkTeamOption* teamOptions,
                           size_t teamOptionCount,
-                          const int defaultPreferredTeams[3]);
+                          const int defaultPreferredTeams[3],
+                          const NetworkBoardOption* boardOptions,
+                          size_t boardOptionCount,
+                          int defaultBoardVersion);
 void startNetworkTask();
 // Runs on the main loop; performs any pending display work owned by that core.
 void handleNetworkDisplay();
@@ -81,3 +89,6 @@ bool isAudioEnabled();
 // Effective display timezone as a POSIX TZ string, selected in the setup
 // portal (NVS "tz"); used for game times, countdowns, and the idle clock.
 const char* getTzString();
+// Selected physical board version (NVS "board_version"). Readable before
+// network services start so sport hardware can use it during initialization.
+int getBoardVersion();

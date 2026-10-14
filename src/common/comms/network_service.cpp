@@ -42,6 +42,11 @@ NetworkBranding netBranding = {"Scoreboard", "SCOREBOARD", "scoreboard"};
 const NetworkTeamOption* netTeamOptions = nullptr;
 size_t netTeamOptionCount = 0;
 int netDefaultTeams[3] = {0, 0, 0};
+const NetworkBoardOption* netBoardOptions = nullptr;
+size_t netBoardOptionCount = 0;
+int netDefaultBoardVersion = 0;
+int selectedBoardVersion = 0;
+bool boardVersionLoaded = false;
 String deviceHostname;
 // Per-device setup AP SSID (set once MAC is known) so several
 // unprovisioned boards can be powered at once without SSID collisions.
@@ -120,6 +125,27 @@ void tickManualClock() {
       manualPeriodEndBuzzer = true;
     }
   }
+}
+
+bool isValidBoardVersion(int id) {
+  for (size_t i = 0; i < netBoardOptionCount; ++i) {
+    if (netBoardOptions[i].id == id) return true;
+  }
+  return false;
+}
+
+String buildBoardOptionsHtml(int selectedId) {
+  String html = "";
+  for (size_t i = 0; i < netBoardOptionCount; ++i) {
+    html += "<option value=\"";
+    html += String(netBoardOptions[i].id);
+    html += "\"";
+    if (netBoardOptions[i].id == selectedId) html += " selected";
+    html += ">";
+    html += netBoardOptions[i].label;
+    html += "</option>";
+  }
+  return html;
 }
 
 int clampScore(int v) { return v < 0 ? 0 : (v > 99 ? 99 : v); }
@@ -388,11 +414,24 @@ void loadSavedNetwork() {
   clockDisplayEnabled = preferences.getBool("show_clock", true);
   audioEnabled = preferences.getBool("audio_en", true);
   tzString = preferences.getString("tz", FACTORY_DEFAULT_TIMEZONE);
+  selectedBoardVersion =
+      preferences.getInt("board_version", netDefaultBoardVersion);
+  boardVersionLoaded = true;
   if (!isValidTzString(tzString.c_str())) {
     tzString = FACTORY_DEFAULT_TIMEZONE;  // unknown/legacy value: fall back
   }
   applyTimezone();
   preferences.end();
+  bool supportedBoardVersion = false;
+  for (size_t i = 0; i < netBoardOptionCount; ++i) {
+    if (netBoardOptions[i].id == selectedBoardVersion) {
+      supportedBoardVersion = true;
+      break;
+    }
+  }
+  if (!supportedBoardVersion) {
+    selectedBoardVersion = netDefaultBoardVersion;
+  }
 }
 
 String buildTeamOptionsHtml(int selectedId) {
@@ -535,7 +574,7 @@ void redirectToPortal() {
 
 void servePortal() {
   markPortalActivity();
-  server.sendHeader("Cache-Control", "max-age=300");
+  server.sendHeader("Cache-Control", "no-store");
   String page = R"html(<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>@@NAME@@ Setup</title><style>
 body{margin:0;background:#061b46;color:#fff;font:16px system-ui,sans-serif}
@@ -566,6 +605,12 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <label for="team3">Priority 3 Team</label><select id="team3" name="team3">)html";
   page += buildTeamOptionsHtml(prefTeam3);
   page += R"html(</select>
+<hr><h3>Board Version</h3>
+<label for="board-version">Select the wiring used by this scoreboard</label>
+<select id="board-version" name="board_version">)html";
+  page += buildBoardOptionsHtml(selectedBoardVersion);
+  page += R"html(</select>
+<p class="hint">A board-version change takes effect after reboot.</p>
 <hr><h3>Display Time Zone</h3>
 <label for="tz">Used for game times, countdowns, and the idle clock</label>
 <select id="tz" name="tz">)html";
@@ -786,6 +831,14 @@ void handleManualExit() {
 
 void saveNetwork() {
   markPortalActivity();
+  int requestedBoardVersion = selectedBoardVersion;
+  if (server.hasArg("board_version")) {
+    requestedBoardVersion = server.arg("board_version").toInt();
+    if (!isValidBoardVersion(requestedBoardVersion)) {
+      server.send(400, "text/plain", "Invalid board version");
+      return;
+    }
+  }
   pendingSsid = server.arg("ssid");
   pendingPassword = server.arg("password");
   if (server.hasArg("team1")) prefTeam1 = server.arg("team1").toInt();
@@ -823,26 +876,32 @@ void saveNetwork() {
   preferences.putBool("show_clock", clockDisplayEnabled);
   preferences.putBool("audio_en", audioEnabled);
   preferences.putString("tz", tzString);
+  preferences.putInt("board_version", requestedBoardVersion);
   if (networkChanging) {
     preferences.putString("ssid", pendingSsid);
     preferences.putString("password", pendingPassword);
   }
   preferences.end();
+  selectedBoardVersion = requestedBoardVersion;
+  boardVersionLoaded = true;
 
   if (tzChanged) {
     applyTimezone();  // game times + idle clock follow on the next render
   }
 
   if (!networkChanging) {
-    Serial.printf("[NET] Preferences-only save: teams=[%d, %d, %d] tz=%s (network untouched)\n",
-                  prefTeam1, prefTeam2, prefTeam3, tzString.c_str());
-    server.send(200, "text/html", R"html(<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+    Serial.printf("[NET] Preferences-only save: teams=[%d, %d, %d] tz=%s board=%d (network untouched)\n",
+                  prefTeam1, prefTeam2, prefTeam3, tzString.c_str(),
+                  selectedBoardVersion);
+    String response = R"html(<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Saved</title><style>body{margin:0;background:#061b46;color:#fff;font:16px system-ui,sans-serif}
 main{max-width:420px;margin:8vh auto;padding:28px;background:#0b2b62;border:2px solid #dfe9ff;border-radius:8px;text-align:center}
 </style></head><body><main><h1>Settings Saved</h1>
 <p>Team priorities and time zone updated — the scoreboard picks them up within a minute.</p>
+<p>Board wiring selection saved; reboot the scoreboard to apply it.</p>
 <p>Wi-Fi settings were not changed.</p>
-<p><a style="color:#f5c400" href="/">Back to configuration</a></p></main></body></html>)html");
+<p><a style="color:#f5c400" href="/">Back to configuration</a></p></main></body></html>)html";
+    server.send(200, "text/html", response);
     return;
   }
 
@@ -1091,6 +1150,16 @@ bool isAudioEnabled() {
   return audioEnabled;
 }
 
+int getBoardVersion() {
+  if (!boardVersionLoaded) {
+    preferences.begin("network", true);
+    selectedBoardVersion = preferences.getInt("board_version", 0);
+    preferences.end();
+    boardVersionLoaded = true;
+  }
+  return selectedBoardVersion;
+}
+
 // Effective display timezone as a POSIX TZ string ("EST5EDT,M3.2.0,M11.1.0").
 // Selected in the setup portal, persisted in NVS ("tz"); the factory default
 // only applies before the first selection is saved.
@@ -1108,13 +1177,19 @@ void getPreferredTeamIds(int outTeamIds[3]) {
 void startNetworkServices(const NetworkBranding& branding,
                           const NetworkTeamOption* teamOptions,
                           size_t teamOptionCount,
-                          const int defaultPreferredTeams[3]) {
+                          const int defaultPreferredTeams[3],
+                          const NetworkBoardOption* boardOptions,
+                          size_t boardOptionCount,
+                          int defaultBoardVersion) {
   netBranding = branding;
   netTeamOptions = teamOptions;
   netTeamOptionCount = teamOptionCount;
   netDefaultTeams[0] = defaultPreferredTeams[0];
   netDefaultTeams[1] = defaultPreferredTeams[1];
   netDefaultTeams[2] = defaultPreferredTeams[2];
+  netBoardOptions = boardOptions;
+  netBoardOptionCount = boardOptionCount;
+  netDefaultBoardVersion = defaultBoardVersion;
   deviceHostname = branding.hostname;
   apSsid = branding.apSsid;
   networkTaskStartedAt = millis();

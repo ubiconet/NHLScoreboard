@@ -10,6 +10,8 @@ namespace {
 int DIN_PIN = -1;
 int CLK_PIN = -1;
 int CS_PIN = -1;
+bool REVERSE_HOME_GUEST = false;
+bool FLIP_ALL_MODULES = false;
 
 // MAX7219 Register Addresses
 const uint8_t MAX7219_REG_NOOP = 0x00;
@@ -137,6 +139,18 @@ void rotateMatrix90Ccw(uint8_t rows[8]) {
   memcpy(rows, result, 8);
 }
 
+void rotateMatrix180(uint8_t rows[8]) {
+  uint8_t result[8] = {0};
+  for (int r = 0; r < 8; r++) {
+    uint8_t reversed = 0;
+    for (int c = 0; c < 8; c++) {
+      reversed |= ((rows[r] >> c) & 0x01) << (7 - c);
+    }
+    result[7 - r] = reversed;
+  }
+  memcpy(rows, result, 8);
+}
+
 // Convert integer score (0-99) into 8 row bytes for an 8x8 matrix. A negative
 // score (MAX7219_SCORE_BLANK) leaves the matrix dark for "no active game".
 void scoreToMatrixRows(int score, uint8_t rows[8], bool compactSingleDigit = false,
@@ -173,9 +187,19 @@ void scoreToMatrixRows(int score, uint8_t rows[8], bool compactSingleDigit = fal
 void writeMatrixRows(uint8_t awayRows[8], uint8_t homeRows[8],
                      uint8_t periodRows[8]) {
   rotateMatrix90Ccw(periodRows);
+  if (FLIP_ALL_MODULES) {
+    rotateMatrix180(awayRows);
+    rotateMatrix180(homeRows);
+    rotateMatrix180(periodRows);
+  }
+  const uint8_t* homeDisplayRows =
+      REVERSE_HOME_GUEST ? awayRows : homeRows;
+  const uint8_t* awayDisplayRows =
+      REVERSE_HOME_GUEST ? homeRows : awayRows;
   for (uint8_t row = 0; row < 8; row++) {
     uint8_t reg = MAX7219_REG_DIGIT0 + row;
-    max7219Send3(reg, homeRows[row], reg, periodRows[row], reg, awayRows[row]);
+    max7219Send3(reg, homeDisplayRows[row], reg, periodRows[row], reg,
+                 awayDisplayRows[row]);
   }
 }
 
@@ -184,10 +208,13 @@ void blankRows(uint8_t rows[8]) {
 }
 } // namespace
 
-void initLedMatrix(int dinPin, int clkPin, int csPin) {
+void initLedMatrix(int dinPin, int clkPin, int csPin, bool reverseHomeGuest,
+                   bool flipAllModules) {
   DIN_PIN = dinPin;
   CLK_PIN = clkPin;
   CS_PIN = csPin;
+  REVERSE_HOME_GUEST = reverseHomeGuest;
+  FLIP_ALL_MODULES = flipAllModules;
 
   pinMode(DIN_PIN, OUTPUT);
   pinMode(CLK_PIN, OUTPUT);
@@ -343,6 +370,9 @@ void runMax7219ChainDiagnostic() {
       if (m == pos - 1) scoreToMatrixRows(pos, rows[m]);
     }
     rotateMatrix90Ccw(rows[1]);  // period module mounting correction
+    if (FLIP_ALL_MODULES) {
+      for (int m = 0; m < 3; ++m) rotateMatrix180(rows[m]);
+    }
     for (uint8_t r = 0; r < 8; ++r) {
       max7219Send3(MAX7219_REG_DIGIT0 + r, rows[2][r],
                    MAX7219_REG_DIGIT0 + r, rows[1][r],
@@ -372,10 +402,7 @@ void runMax7219BootTest() {
     awayRows[row] = (LETTER_A_5X7[row] & 0x1F) << 1;
   }
 
-  for (uint8_t row = 0; row < 8; row++) {
-    uint8_t reg = MAX7219_REG_DIGIT0 + row;
-    max7219Send3(reg, homeRows[row], reg, periodRows[row], reg, awayRows[row]);
-  }
+  writeMatrixRows(awayRows, homeRows, periodRows);
 
   Serial.println("[HW TEST] MAX7219 boot test: H=home, A=away");
   delay(2000);

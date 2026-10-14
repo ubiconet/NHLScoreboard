@@ -97,8 +97,11 @@ void runDisplayTestCycle() {
   delay(1200);
 
   // Penalty LEDs: chase then all on
-  static const int ledOrder[4] = {PENALTY_AWAY2_PIN, PENALTY_AWAY1_PIN,
-                                  PENALTY_HOME2_PIN, PENALTY_HOME1_PIN};
+  const int boardVersion = getBoardVersion();
+  const int ledOrder[4] = {awayPenalty2Pin(boardVersion),
+                           awayPenalty1Pin(boardVersion),
+                           homePenalty2Pin(boardVersion),
+                           homePenalty1Pin(boardVersion)};
   for (int i = 0; i < 4; ++i) {
     for (int k = 0; k < 4; ++k) digitalWrite(ledOrder[k], k == i ? HIGH : LOW);
     delay(250);
@@ -145,8 +148,11 @@ void runHardwareTestMode(uint32_t nowMs) {
     setMax7219Display(1, 3, 2);  // home, guest, period
     Serial.println("[TEST] hardware test mode active");
   }
-  static const int ledOrder[4] = {PENALTY_AWAY2_PIN, PENALTY_AWAY1_PIN,
-                                  PENALTY_HOME2_PIN, PENALTY_HOME1_PIN};
+  const int boardVersion = getBoardVersion();
+  const int ledOrder[4] = {awayPenalty2Pin(boardVersion),
+                           awayPenalty1Pin(boardVersion),
+                           homePenalty2Pin(boardVersion),
+                           homePenalty1Pin(boardVersion)};
   int step = (nowMs / 500) % 4;
   for (int i = 0; i < 4; ++i) {
     digitalWrite(ledOrder[i], i == step ? HIGH : LOW);
@@ -167,6 +173,17 @@ const NetworkTeamOption* teamOptions(size_t& count) {
 
 const int* defaultPreferredTeams() { return NHL_DEFAULT_PREFERRED_TEAMS; }
 
+const NetworkBoardOption* boardOptions(size_t& count) {
+  static const NetworkBoardOption options[] = {
+    {BOARD_VERSION_V0_1, "Board V0.1"},
+    {BOARD_VERSION_V1_0, "Board V1.0"},
+  };
+  count = sizeof(options) / sizeof(options[0]);
+  return options;
+}
+
+int defaultBoardVersion() { return BOARD_VERSION_V0_1; }
+
 void setup() {
   // The TFT panel comes up FIRST: begin() raises it clean black (no boot
   // snow — see TftPanel::begin) and the boot splash paints within moments
@@ -179,13 +196,26 @@ void setup() {
 
   // Initialize hardware: penalty LEDs, MAX7219 matrices, and the TM1637
   // clock (game clock when live, wall clock between games).
-  const int countLedPins[7] = {PENALTY_HOME1_PIN, PENALTY_HOME2_PIN,
-                               PENALTY_FILL_A,    PENALTY_AWAY1_PIN,
-                               PENALTY_AWAY2_PIN, PENALTY_FILL_B1,
+  const int boardVersion = getBoardVersion();
+  const int countLedPins[7] = {homePenalty1Pin(boardVersion),
+                               homePenalty2Pin(boardVersion), PENALTY_FILL_A,
+                               awayPenalty1Pin(boardVersion),
+                               awayPenalty2Pin(boardVersion), PENALTY_FILL_B1,
                                PENALTY_FILL_B2};
   initCountLeds(countLedPins);
-  initLedMatrix(MAX7219_DIN_PIN, MAX7219_CLK_PIN, MAX7219_CS_PIN);
-  initTm1637(TM1637_CLK_PIN, TM1637_DIO_PIN, TM1637_BRIGHTNESS);
+  const bool boardV1 = boardVersion == BOARD_VERSION_V1_0;
+  initLedMatrix(MAX7219_DIN_PIN, MAX7219_CLK_PIN, MAX7219_CS_PIN, boardV1,
+                boardV1);
+  const int tm1637ClkPin = boardVersion == BOARD_VERSION_V1_0
+                               ? TM1637_CLK_V1_0_PIN
+                               : TM1637_CLK_V0_1_PIN;
+  const int tm1637DioPin = boardVersion == BOARD_VERSION_V1_0
+                               ? TM1637_DIO_V1_0_PIN
+                               : TM1637_DIO_V0_1_PIN;
+  initTm1637(tm1637ClkPin, tm1637DioPin, TM1637_BRIGHTNESS);
+  DBG_PRINTF("[BOARD] V%d.%d TM1637 CLK=%d DIO=%d\n",
+             boardVersion / 10, boardVersion % 10,
+             tm1637ClkPin, tm1637DioPin);
   initAudio(I2S_BCLK_PIN, I2S_LRC_PIN, I2S_DIN_PIN);
 
   if (HARDWARE_TEST_MODE) {
