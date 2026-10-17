@@ -468,6 +468,10 @@ void tick(const SportTickContext& ctx) {
   // ---- Trivia mode (engine on core 0, screen drawn here) ----
   if (trivia::isModeActive()) {
     sInTrivia = true;
+    if (trivia::consumeWrongAnswerCue() && isAudioEnabled()) {
+      Serial.println("[AUDIO] trivia wrong-answer buzzer");
+      startClip(BUZZER_PCM, BUZZER_SAMPLES, BUZZER_RATE);
+    }
     trivia::renderScreen(ctx.nowMs);
     return;
   }

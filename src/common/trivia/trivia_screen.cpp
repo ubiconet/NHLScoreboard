@@ -57,9 +57,59 @@ struct Drawn {
   char highName[16] = {0};
   int barTenth = -1;
   int tmSec = -1;
-  int mHome = -2, mAway = -2, mPer = -2;
+  bool matricesBlanked = false;
   int leds = -1;
 } d;
+
+// ---- Fireworks (lightning answers) ----
+// ~1 s particle burst across the three matrices for a correct answer
+// locked inside the first second: expanding shells with random spark
+// pixels that scatter and fade, cascading module to module. Runs one
+// frame per render pass — never blocks the loop.
+constexpr int FW_FRAMES = 13;
+constexpr uint32_t FW_FRAME_MS = 80;
+struct Fireworks {
+  bool active = false;
+  uint32_t startMs = 0;     // 0 until the first frame actually draws (the
+                            // reveal's full repaint eats ~1 s of bus time)
+  uint32_t lastFrameMs = 0;
+  int frame = -1;
+} fw;
+
+void drawFireworksFrame(int t) {
+  uint8_t rows[3][8] = {};  // 0 = away, 1 = period, 2 = home
+  for (int m = 0; m < 3; ++m) {
+    float radius = t * 0.55f - m * 0.45f;  // cascade across the chain
+    if (radius <= 0) continue;
+    for (int y = 0; y < 8; ++y) {
+      for (int x = 0; x < 8; ++x) {
+        float dx = x * 2 - 7, dy = y * 2 - 7;        // centered coords
+        float dist = sqrtf(dx * dx + dy * dy) / 2;   // 0..~4.9
+        bool lit = fabsf(dist - radius) < 0.8f;      // the expanding shell
+        if (!lit && dist < radius && dist > radius - 2.0f) {
+          lit = random(100) < 28;                    // scattering sparks
+        }
+        if (lit) rows[m][y] |= (uint8_t)(1 << (7 - x));
+      }
+    }
+  }
+  setMax7219Frames(rows[0], rows[2], rows[1]);
+}
+
+void tickFireworks(uint32_t nowMs) {
+  if (!fw.active) return;
+  if (fw.startMs == 0) fw.startMs = nowMs;  // clock starts at first draw
+  if (nowMs - fw.startMs >= FW_FRAMES * FW_FRAME_MS) {
+    fw.active = false;
+    uint8_t blank[8] = {0};
+    setMax7219Frames(blank, blank, blank);
+    d.matricesBlanked = true;
+    return;
+  }
+  if (fw.lastFrameMs != 0 && nowMs - fw.lastFrameMs < FW_FRAME_MS) return;
+  fw.lastFrameMs = nowMs;
+  if (++fw.frame < FW_FRAMES) drawFireworksFrame(fw.frame);
+}
 
 uint16_t cardFill(const TriviaView& v, int i) {
   if (v.phase == TRIVIA_REVEAL) {
@@ -144,7 +194,8 @@ void drawFooter(const TriviaView& v) {
       c.drawCircle(cx, cy, 6, COLOR_MUTED);
     }
   }
-  // Center: the reveal verdict (+points or the miss).
+  // Center: the reveal verdict, then the running score — the TFT owns the
+  // score display after every question (the matrices stay dark in trivia).
   if (v.phase == TRIVIA_REVEAL) {
     char line[16];
     if (v.lastCorrect) {
@@ -155,7 +206,12 @@ void drawFooter(const TriviaView& v) {
     }
     c.setTextSize(2);
     c.setTextColor(v.lastCorrect ? kGreen : kRed);
-    drawCenteredText(c, line, 160, kFooterY + 10);
+    drawCenteredText(c, line, 160, kFooterY);
+    char score[20];
+    snprintf(score, sizeof(score), "SCORE %u", v.score);
+    c.setTextSize(1);
+    c.setTextColor(COLOR_GOLD);
+    drawCenteredText(c, score, 160, kFooterY + 19);
   }
   // Right: the record to beat.
   if (v.highScore > 0) {
@@ -266,23 +322,14 @@ void applyPenaltyLeds(const TriviaView& v) {
 }
 
 void applyMatrices(const TriviaView& v) {
-  int home, away, per;
-  if (v.phase == TRIVIA_QUESTION || v.phase == TRIVIA_REVEAL) {
-    home = v.score > 99 ? 99 : (int)v.score;
-    away = v.questionIndex + 1;
-    per = v.question != nullptr ? v.question->difficulty : -1;
-  } else if (v.phase == TRIVIA_GAME_OVER) {
-    home = v.score > 99 ? 99 : (int)v.score;
-    away = MAX7219_SCORE_BLANK;
-    per = MAX7219_SCORE_BLANK;
-  } else {
-    home = away = per = MAX7219_SCORE_BLANK;
-  }
-  if (home != d.mHome || away != d.mAway || per != d.mPer) {
-    d.mHome = home;
-    d.mAway = away;
-    d.mPer = per;
-    setMax7219Display(home, away, per);
+  (void)v;
+  // Trivia keeps the score matrices dark — the score lives on the TFT
+  // (header + reveal footer) and only the fireworks may light them.
+  if (fw.active) return;
+  if (!d.matricesBlanked) {
+    d.matricesBlanked = true;
+    setMax7219Display(MAX7219_SCORE_BLANK, MAX7219_SCORE_BLANK,
+                      MAX7219_SCORE_BLANK);
   }
 }
 
@@ -312,6 +359,7 @@ void renderScreen(uint32_t nowMs) {
   // Full repaints only on phase changes (a full push costs ~1 s on the
   // bit-banged bus); same-phase publishes animate incrementally below.
   if (v.phase != d.phase) {
+    fw.active = false;  // a phase change ends any running burst
     d = Drawn{};  // every cached value back to "never drawn"
     d.phase = v.phase;
     if (v.phase == TRIVIA_LOBBY) {
@@ -334,6 +382,8 @@ void renderScreen(uint32_t nowMs) {
       d.strikes = v.strikes;
       d.high = v.highScore;
       strlcpy(d.highName, v.highName, sizeof(d.highName));
+      // Lightning answer: arm the matrix fireworks for the reveal.
+      if (v.phase == TRIVIA_REVEAL && v.fireworks) fw.active = true;
     }
   }
 
@@ -373,6 +423,7 @@ void renderScreen(uint32_t nowMs) {
     drawGameOver(v);
   }
 
+  if (v.phase == TRIVIA_REVEAL) tickFireworks(nowMs);
   applyClock(v, nowMs);
   applyMatrices(v);
   applyPenaltyLeds(v);

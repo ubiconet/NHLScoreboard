@@ -35,6 +35,11 @@ bool sLastCorrect = false;
 uint16_t sLastPoints = 0;
 bool sRoundComplete = false;
 bool sNewHigh = false;
+bool sFireworks = false;
+// Cross-core one-shot: set on the network task at every wrong reveal,
+// consumed on the render core for the buzzer (volatile — benign race, the
+// worst case is one extra or missed poll window edge).
+volatile bool sWrongAnswerCue = false;
 
 // ---- persisted record (NVS "trivia") ----
 uint16_t sHighScore = 0;
@@ -94,6 +99,7 @@ void publishView() {
   v.question = (sPhase == TRIVIA_QUESTION || sPhase == TRIVIA_REVEAL)
                    ? sQuestion
                    : nullptr;
+  v.fireworks = (sPhase == TRIVIA_REVEAL) && sFireworks;
   v.roundComplete = sRoundComplete;
   v.newHigh = sNewHigh;
   strlcpy(v.highName, sHighName, sizeof(v.highName));
@@ -135,13 +141,19 @@ void enterReveal(uint32_t nowMs) {
     sLastPoints = (uint16_t)((rem * TRIVIA_MAX_POINTS_PER_Q +
                               TRIVIA_QUESTION_MS / 2) / TRIVIA_QUESTION_MS);
     sScore += sLastPoints;
+    // Fireworks celebrate only lightning answers: locked within the first
+    // second of the question window.
+    sFireworks = (TRIVIA_QUESTION_MS - rem) <= TRIVIA_FAST_ANSWER_MS;
   } else {
     if (sStrikes < 255) ++sStrikes;
+    sFireworks = false;
+    sWrongAnswerCue = true;  // render core answers with the buzzer
   }
   sPhase = TRIVIA_REVEAL;
   sRevealEndMs = nowMs + TRIVIA_REVEAL_MS;
-  DBG_PRINTF("[TRIVIA] reveal: %s +%u (score %u strikes %u)\n",
-             sLastCorrect ? "correct" : "wrong", sLastPoints, sScore, sStrikes);
+  DBG_PRINTF("[TRIVIA] reveal: %s +%u (score %u strikes %u%s)\n",
+             sLastCorrect ? "correct" : "wrong", sLastPoints, sScore, sStrikes,
+             sFireworks ? " FIREWORKS" : "");
   publishView();
 }
 
@@ -218,6 +230,12 @@ bool isModeActive() { return sModeActive; }
 
 bool takeView(TriviaView& out, uint32_t& lastGen) {
   return sViewChannel.take(out, lastGen);
+}
+
+bool consumeWrongAnswerCue() {
+  if (!sWrongAnswerCue) return false;
+  sWrongAnswerCue = false;
+  return true;
 }
 
 void tick() {

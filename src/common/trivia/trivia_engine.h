@@ -63,6 +63,7 @@ struct TriviaView {
   uint8_t strikes;          // wrong answers so far (3 = game over)
   uint32_t questionEndMs;   // QUESTION phase: millis() deadline
   const TriviaQuestion* question;  // null in lobby/game over
+  bool fireworks;           // reveal: fast correct — celebrate on matrices
   bool roundComplete;       // game over: survived all 15 questions
   bool newHigh;             // game over: beat the stored record
   char highName[16];        // stored record holder ("" until named)
@@ -87,6 +88,7 @@ static const uint32_t TRIVIA_REVEAL_MS = 4000;        // answer/result display
 static const uint8_t TRIVIA_MAX_STRIKES = 3;          // 3rd wrong answer ends the run
 static const uint16_t TRIVIA_MAX_POINTS_PER_Q = 100;  // top score per question
 static const size_t TRIVIA_NAME_MAX = 12;             // stored name length cap
+static const uint32_t TRIVIA_FAST_ANSWER_MS = 1000;   // lock within this = fireworks
 
 namespace trivia {
 
@@ -98,6 +100,11 @@ void begin(const TriviaBank& bank, const char* deviceName);
 bool isModeActive();                     // trivia owns the display
 void renderScreen(uint32_t nowMs);       // trivia_screen.cpp
 bool takeView(TriviaView& out, uint32_t& lastGen);
+// One-shot wrong-answer cue, raised at every reveal the player missed
+// (timeout included). The sport layer consumes it on the render core and
+// answers with its end-of-period buzzer clip (mirrors manual mode's
+// consumeManualPeriodEndBuzzer — the engine can't name sport audio).
+bool consumeWrongAnswerCue();
 
 // ---- network task ----
 void tick();                             // countdown + phase transitions

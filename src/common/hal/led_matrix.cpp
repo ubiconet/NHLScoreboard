@@ -269,6 +269,20 @@ void setMax7219Shootout(int homeScore, int awayScore) {
                MAX7219_REG_INTENSITY, kModuleIntensity[1]);
 }
 
+void setMax7219Frames(const uint8_t awayRows[8], const uint8_t homeRows[8],
+                      const uint8_t periodRows[8]) {
+  // writeMatrixRows applies the mounting corrections in place, so work on
+  // copies — callers may pass literals/shared buffers.
+  uint8_t away[8], home[8], period[8];
+  memcpy(away, awayRows, 8);
+  memcpy(home, homeRows, 8);
+  memcpy(period, periodRows, 8);
+  writeMatrixRows(away, home, period);
+  max7219Send3(MAX7219_REG_INTENSITY, kModuleIntensity[0],
+               MAX7219_REG_INTENSITY, kModuleIntensity[2],
+               MAX7219_REG_INTENSITY, kModuleIntensity[1]);
+}
+
 void setMax7219PositionTest(int position, bool on) {
   uint16_t cmd = (uint16_t(MAX7219_REG_DISPLAYTEST) << 8) | (on ? 0x01 : 0x00);
   sendPosCmd(position, cmd);

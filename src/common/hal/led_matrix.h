@@ -18,6 +18,11 @@ void setMax7219Scores(int awayScore, int homeScore);
 void setMax7219Display(int homeScore, int awayScore, int periodValue);
 // Scores on the outer modules with "SO" on the period module (shootout).
 void setMax7219Shootout(int homeScore, int awayScore);
+// Raw 8x8 frames for all three modules at once (one byte per row, bit 7 =
+// leftmost column), with the usual chain-order + mounting corrections
+// applied, at game intensity. Used by non-score effects (trivia fireworks).
+void setMax7219Frames(const uint8_t awayRows[8], const uint8_t homeRows[8],
+                      const uint8_t periodRows[8]);
 // Display-test register helpers: all LEDs on one chain position (1 = home,
 // 2 = guest, 3 = period) or on all three at once, bypassing digit data.
 void setMax7219PositionTest(int position, bool on);

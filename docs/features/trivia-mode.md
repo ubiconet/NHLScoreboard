@@ -15,10 +15,15 @@ straight to `http://<device-ip>/trivia`).
   locks in immediately and lights up gold on both screens.
 - When the clock runs out, the correct answer is revealed (green; a wrong
   lock shows red) and the question is scored: **up to 100 points, the
-  faster the lock the higher the score** (timeout = 0 points).
-- Each wrong answer (or timeout) lights one **penalty LED** — the same
-  home/guest penalty lights the live game uses. The third wrong answer is
-  **game over**. Survive all 15 and the round is completed.
+  faster the lock the higher the score** (timeout = 0). The running score
+  shows on the TFT after every question — the score matrices stay dark
+  during trivia.
+- A wrong answer (or timeout) sounds the **end-of-period buzzer** and
+  lights one **penalty LED** — the same home/guest penalty lights the live
+  game uses. The third wrong answer is **game over**. Survive all 15 and
+  the round is completed. Lock a correct answer **within the first
+  second** and the three matrices play a short **fireworks** burst during
+  the reveal.
 - Beat the stored record and the screens show **NEW HIGH SCORE!**; the web
   page asks for a name (kept in NVS: score + 12-char name) and the settings
   menu shows the current record.
@@ -48,9 +53,14 @@ deadline, so ticking the clock costs no publishes.
 
 Like manual mode and the game demo, trivia is exclusive with them:
 arriving at `/manual` or starting the demo exits trivia, and vice versa.
-The penalty LEDs double as the three-strike display (group A lamps 1-2 +
-group B lamp 1); the score matrices show `score / question # / difficulty`,
-and the TM1637 mirrors the countdown.
+During trivia the score matrices stay blank except for the fireworks
+effect; the penalty LEDs double as the three-strike display (group A
+lamps 1-2 + group B lamp 1) and the TM1637 mirrors the countdown. Wrong
+answers raise a one-shot cue (`trivia::consumeWrongAnswerCue()`) that the
+sport layer answers with its buzzer clip — the same cross-core handoff as
+the manual-mode period buzzer, keeping sport audio out of the engine.
+Fireworks go through a raw 8×8 frame API on the matrix driver
+(`setMax7219Frames`).
 
 Adding trivia content for a new sport: keep the engine as-is and replace
 the three `trivia_questions_*.h` files (see `TriviaQuestion` in
