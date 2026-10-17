@@ -209,9 +209,9 @@ void drawFooter(const TriviaView& v) {
     drawCenteredText(c, line, 160, kFooterY);
     char score[20];
     snprintf(score, sizeof(score), "SCORE %u", v.score);
-    c.setTextSize(1);
+    c.setTextSize(2);
     c.setTextColor(COLOR_GOLD);
-    drawCenteredText(c, score, 160, kFooterY + 19);
+    drawCenteredText(c, score, 160, kFooterY + 16);
   }
   // Right: the record to beat.
   if (v.highScore > 0) {

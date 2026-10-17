@@ -22,18 +22,20 @@ const uint8_t MAX7219_REG_SCANLIMIT = 0x0B;
 const uint8_t MAX7219_REG_SHUTDOWN = 0x0C;
 const uint8_t MAX7219_REG_DISPLAYTEST = 0x0F;
 
-// 3x5 font digits for 2-digit scores (0-9)
-const uint8_t FONT_3X5[10][5] = {
-  {0b111, 0b101, 0b101, 0b101, 0b111}, // 0
-  {0b010, 0b110, 0b010, 0b010, 0b111}, // 1
-  {0b111, 0b001, 0b111, 0b100, 0b111}, // 2
-  {0b111, 0b001, 0b111, 0b001, 0b111}, // 3
-  {0b101, 0b101, 0b111, 0b001, 0b001}, // 4
-  {0b111, 0b100, 0b111, 0b001, 0b111}, // 5
-  {0b111, 0b100, 0b111, 0b101, 0b111}, // 6
-  {0b111, 0b001, 0b010, 0b010, 0b010}, // 7
-  {0b111, 0b101, 0b111, 0b101, 0b111}, // 8
-  {0b111, 0b101, 0b111, 0b001, 0b111}  // 9
+// 3x8 font digits for 2-digit scores (0-9): full matrix height, the
+// largest two-digit form that fits an 8x8 (the small 3x5 pair it replaced
+// left three rows dark).
+const uint8_t FONT_3X8[10][8] = {
+  {0b111, 0b101, 0b101, 0b101, 0b101, 0b101, 0b101, 0b111}, // 0
+  {0b010, 0b110, 0b010, 0b010, 0b010, 0b010, 0b010, 0b111}, // 1
+  {0b111, 0b001, 0b001, 0b111, 0b100, 0b100, 0b100, 0b111}, // 2
+  {0b111, 0b001, 0b001, 0b111, 0b001, 0b001, 0b001, 0b111}, // 3
+  {0b101, 0b101, 0b101, 0b111, 0b001, 0b001, 0b001, 0b001}, // 4
+  {0b111, 0b100, 0b100, 0b111, 0b001, 0b001, 0b001, 0b111}, // 5
+  {0b111, 0b100, 0b100, 0b111, 0b101, 0b101, 0b101, 0b111}, // 6
+  {0b111, 0b001, 0b001, 0b001, 0b001, 0b001, 0b001, 0b001}, // 7
+  {0b111, 0b101, 0b101, 0b111, 0b101, 0b101, 0b101, 0b111}, // 8
+  {0b111, 0b101, 0b101, 0b111, 0b001, 0b001, 0b001, 0b111}  // 9
 };
 
 // 5x7 font digits for 1-digit centered scores (0-9)
@@ -50,11 +52,11 @@ const uint8_t FONT_5X7[10][7] = {
   {0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100}  // 9
 };
 
-// 3x5 letters for the shootout indicator on the period module ("SO")
-const uint8_t FONT3X5_S[5] = {
-    0b111, 0b100, 0b111, 0b001, 0b111};  // S
-const uint8_t FONT3X5_O[5] = {
-    0b111, 0b101, 0b101, 0b101, 0b111};  // O
+// 3x8 letters for the shootout indicator on the period module ("SO")
+const uint8_t FONT3X8_S[8] = {
+    0b111, 0b100, 0b100, 0b111, 0b001, 0b001, 0b001, 0b111};  // S
+const uint8_t FONT3X8_O[8] = {
+    0b111, 0b101, 0b101, 0b101, 0b101, 0b101, 0b101, 0b111};  // O
 
 // 5x7 font letters used only for the boot-time matrix test (H = home, A = away)
 const uint8_t LETTER_H_5X7[7] = {
@@ -169,13 +171,13 @@ void scoreToMatrixRows(int score, uint8_t rows[8], bool compactSingleDigit = fal
       rows[r] = (FONT_5X7[score][r] & 0x1F) << 1; // Center 5 bits in 8 cols
     }
   } else {
-    // Two 3x5 digits side by side: tens at cols 7..5, ones at cols 3..1.
+    // Two 3x8 digits side by side: tens at cols 7..5, ones at cols 3..1,
+    // spanning all 8 rows.
     int tens = score / 10;
     int ones = score % 10;
-    for (int r = 0; r < 5; r++) {
-      uint8_t tensBits = FONT_3X5[tens][r] & 0x07;
-      uint8_t onesBits = FONT_3X5[ones][r] & 0x07;
-      rows[r + 1] = (tensBits << 4) | onesBits;
+    for (int r = 0; r < 8; ++r) {
+      rows[r] = static_cast<uint8_t>(((FONT_3X8[tens][r] & 0x07) << 4) |
+                                     (FONT_3X8[ones][r] & 0x07));
     }
   }
 }
@@ -260,8 +262,8 @@ void setMax7219Shootout(int homeScore, int awayScore) {
   uint8_t awayRows[8], homeRows[8], soRows[8] = {0};
   scoreToMatrixRows(awayScore, awayRows);
   scoreToMatrixRows(homeScore, homeRows);
-  for (int r = 0; r < 5; ++r) {
-    soRows[r + 1] = ((FONT3X5_S[r] & 0x07) << 4) | (FONT3X5_O[r] & 0x07);
+  for (int r = 0; r < 8; ++r) {
+    soRows[r] = ((FONT3X8_S[r] & 0x07) << 4) | (FONT3X8_O[r] & 0x07);
   }
   writeMatrixRows(awayRows, homeRows, soRows);
   max7219Send3(MAX7219_REG_INTENSITY, kModuleIntensity[0],
