@@ -18,6 +18,7 @@
 #include "ota_update.h"
 
 #include "common/hal/tft_panel.h"
+#include "common/trivia/trivia_engine.h"
 #include "network_service.h"
 
 namespace {
@@ -624,6 +625,17 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
   if (audioEnabled) page += " checked";
   page += R"html(>Enable audio output (game sounds and alerts)</label>
 <button type="submit">Save & Connect Scoreboard</button></form>
+<hr><h3>Trivia Mode</h3>
+<p class="hint">Hockey trivia night on the scoreboard — 750 questions, 15 per round, answer A/B/C/D from this phone. Three wrong answers and you're out.</p>
+<p class="hint" id="triviaHigh">)html";
+  if (trivia::getHighScore() > 0) {
+    page += String("High score: ") + trivia::getHighScore() + " \u2014 " +
+            htmlEscape(trivia::getHighScoreName());
+  } else {
+    page += "No high score yet.";
+  }
+  page += R"html(</p>
+<button type="button" onclick="location.href='/trivia'">Open Trivia Mode</button>
 <hr><h3>Manual Mode</h3>
 <p class="hint">Full manual control: clock countdown, scores, period, penalty LEDs, shots — from a dedicated page.</p>
 <button type="button" onclick="location.href='/manual'">Open Manual Mode</button>
@@ -686,6 +698,7 @@ void handleAudioTest() {
 void handleDemoStart() {
   markPortalActivity();
   manualMode = false;
+  trivia::exitMode();
   gameDemoMode = true;
   server.send(200, "text/plain", "ok");
 }
@@ -704,6 +717,7 @@ void handleDemoStatus() {
 void serveManualPage() {
   markPortalActivity();
   gameDemoMode = false;
+  trivia::exitMode();
   manualMode = true;  // arriving at the page engages manual mode
   server.sendHeader("Cache-Control", "no-store");
   String page = R"html(<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -853,6 +867,64 @@ void handleManualExit() {
   manualMode = false;
   manualClockRunning = false;
   manualPeriodEndAtMs = 0;
+  server.sendHeader("Location", "/", true);
+  server.send(302, "text/plain", "");
+}
+
+// ---- Trivia mode (engine + state machine in common/trivia) ----
+// These wrappers own the HTTP transport + mode exclusivity: arriving at
+// the trivia page takes the display away from manual/demo mode and vice
+// versa, exactly one portal mode owns the scoreboard at a time.
+
+void handleTriviaPage() {
+  markPortalActivity();
+  manualMode = false;
+  gameDemoMode = false;
+  trivia::enterMode();
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "text/html", trivia::buildPageHtml());
+}
+
+// Polled twice a second by the trivia page. Deliberately no
+// markPortalActivity(): a read must not pause the feeds (same policy as
+// /manual/state).
+void handleTriviaState() {
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", trivia::buildStateJson());
+}
+
+void handleTriviaStart() {
+  markPortalActivity();
+  if (!trivia::actionStart()) {
+    server.send(500, "text/plain", "No trivia content");
+    return;
+  }
+  server.send(200, "application/json", trivia::buildStateJson());
+}
+
+void handleTriviaAnswer() {
+  markPortalActivity();
+  int choice = server.arg("a").toInt();
+  if (choice < 0 || choice > 3) {
+    server.send(400, "text/plain", "Bad choice");
+    return;
+  }
+  trivia::actionAnswer((uint8_t)choice);  // rejected silently when locked
+  server.send(200, "application/json", trivia::buildStateJson());
+}
+
+void handleTriviaName() {
+  markPortalActivity();
+  if (!trivia::actionName(server.arg("name").c_str())) {
+    server.send(400, "text/plain", "Bad name");
+    return;
+  }
+  server.send(200, "application/json", trivia::buildStateJson());
+}
+
+void handleTriviaExit() {
+  markPortalActivity();
+  trivia::exitMode();
   server.sendHeader("Location", "/", true);
   server.send(302, "text/plain", "");
 }
@@ -1076,6 +1148,12 @@ void registerPortalRoutes() {
   server.on("/manual/set", HTTP_POST, handleManualSet);
   server.on("/manual/state", HTTP_GET, handleManualState);
   server.on("/manual/exit", HTTP_GET, handleManualExit);
+  server.on("/trivia", HTTP_GET, handleTriviaPage);
+  server.on("/trivia/state", HTTP_GET, handleTriviaState);
+  server.on("/trivia/start", HTTP_POST, handleTriviaStart);
+  server.on("/trivia/answer", HTTP_POST, handleTriviaAnswer);
+  server.on("/trivia/name", HTTP_POST, handleTriviaName);
+  server.on("/trivia/exit", HTTP_POST, handleTriviaExit);
   server.on("/ota/status", HTTP_GET, serveOtaStatus);
   server.on("/update", HTTP_POST, handleUpdateResult, handleUpdateUpload);
   server.onNotFound(redirectToPortal);
@@ -1310,6 +1388,7 @@ void startNetworkTask() {
       while (true) {
         handleNetworkServices();
         tickManualClock();
+        trivia::tick();
         vTaskDelay(pdMS_TO_TICKS(2));
       }
     },

@@ -15,7 +15,10 @@ score, guest score, period), a TM1637 4-digit period clock, a MAX98357 I2S
 audio amp for the goal horn, and 4 penalty LEDs (2 home, 2 guest). Live
 linescore for your preferred teams, upcoming-game countdowns, a league news
 ticker, an over-the-air captive-portal setup page, and GitHub-hosted
-firmware self-update. A low-battery guard protects the LiPo supply: at
+firmware self-update. A **trivia mode** (`docs/features/trivia-mode.md`)
+turns the board into a game show: 750 hockey questions, played solo from
+the phone, with the penalty LEDs as strikes and a persistent high score.
+A low-battery guard protects the LiPo supply: at
 power-on the pack is checked (voltage divider on battery-version V1.1
 boards, plus brownout boot-storm detection on all boards), and when low
 the board flashes a warning screen and deep-sleeps instead of brown-out

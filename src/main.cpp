@@ -15,6 +15,7 @@
 #include "common/app/power_monitor.h"
 #include "common/app/sport_api.h"
 #include "common/comms/network_service.h"
+#include "common/trivia/trivia_engine.h"
 #include "common/ui/boot_status.h"
 #include "common/ui/ota_screen.h"
 
@@ -48,6 +49,7 @@ void setup() {
     // No blocking hold here: network services start immediately and connect
     // behind the logo. loop() enforces the minimum splash time instead, so
     // a fast Wi-Fi handshake can't cut the logo short.
+    trivia::begin(sport::triviaBank(), sport::name());
     NetworkBranding branding = sport::branding();
     size_t teamOptionCount = 0;
     size_t boardOptionCount = 0;

@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include "common/comms/network_service.h"
+#include "common/trivia/trivia_engine.h"
 
 // ============================================================================
 // The sport contract — the ONE seam between the generic framework
@@ -51,6 +52,13 @@ const int* defaultPreferredTeams();
 // used on first boot and when NVS contains an unsupported version.
 const NetworkBoardOption* boardOptions(size_t& count);
 int defaultBoardVersion();
+
+// ---- Trivia mode ----
+
+// The sport's trivia question bank (three difficulty pools). The trivia
+// engine + web page + on-device screen are generic (common/trivia); this
+// supplies the sport's content.
+TriviaBank triviaBank();
 
 // ---- Lifecycle ----
 

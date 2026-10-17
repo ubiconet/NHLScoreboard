@@ -13,10 +13,12 @@
 #include "common/hal/tm1637.h"
 #include "common/ui/boot_splash.h"
 #include "common/ui/gfx.h"
+#include "common/trivia/trivia_engine.h"
 #include "nhl_renderer.h"
 #include "nhl_snapshot.h"
 #include "nhl_state.h"
 #include "nhl_teams.h"
+#include "trivia_questions.h"
 
 #include "audio_clips.h"
 
@@ -307,6 +309,18 @@ const NetworkBoardOption* boardOptions(size_t& count) {
 
 int defaultBoardVersion() { return BOARD_VERSION_V0_1; }
 
+TriviaBank triviaBank() {
+  static const TriviaBank bank = {
+      TRIVIA_QUESTIONS_EASY,
+      sizeof(TRIVIA_QUESTIONS_EASY) / sizeof(TriviaQuestion),
+      TRIVIA_QUESTIONS_MEDIUM,
+      sizeof(TRIVIA_QUESTIONS_MEDIUM) / sizeof(TriviaQuestion),
+      TRIVIA_QUESTIONS_HARD,
+      sizeof(TRIVIA_QUESTIONS_HARD) / sizeof(TriviaQuestion),
+  };
+  return bank;
+}
+
 void setup() {
   // The TFT panel comes up FIRST: begin() raises it clean black (no boot
   // snow — see TftPanel::begin) and the boot splash paints within moments
@@ -397,6 +411,7 @@ void tick(const SportTickContext& ctx) {
   // Settings-page game demo owns the display and hardware until stopped.
   static bool sInManual = false;
   static bool sInDemo = false;
+  static bool sInTrivia = false;
   if (isGameDemoMode()) {
     if (!sInDemo) {
       sInDemo = true;
@@ -438,6 +453,27 @@ void tick(const SportTickContext& ctx) {
   if (sInManual) {
     sInManual = false;
     // Manual mode handed the display back — repaint whatever was showing.
+    int preferred[3];
+    getPreferredTeamIds(preferred);
+    if (scoreboardState == ScoreboardState::LIVE_GAME && sLastGame.valid) {
+      forceLiveRepaint(sLastGame);
+    } else {
+      JsonObjectConst sched = getUpcomingScheduleJson();
+      renderWaiting(sched, preferred);
+      invalidateMax7219Clock();
+      invalidateTm1637WallClock();
+    }
+  }
+
+  // ---- Trivia mode (engine on core 0, screen drawn here) ----
+  if (trivia::isModeActive()) {
+    sInTrivia = true;
+    trivia::renderScreen(ctx.nowMs);
+    return;
+  }
+  if (sInTrivia) {
+    sInTrivia = false;
+    // Trivia mode handed the display back — repaint whatever was showing.
     int preferred[3];
     getPreferredTeamIds(preferred);
     if (scoreboardState == ScoreboardState::LIVE_GAME && sLastGame.valid) {
