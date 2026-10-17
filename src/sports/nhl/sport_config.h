@@ -41,9 +41,12 @@ static const int MAX7219_CLK_PIN = 39;
 static const int MAX7219_CS_PIN = 38;
 
 // ---- TM1637 4-digit 7-segment (period/game clock; wall clock when idle) ----
-// V0.1 wiring: CLK/DIO on GPIO16/17. V1.0 swaps to GPIO15/16.
+// V0.1 wiring: CLK/DIO on GPIO16/17. V1.0 swaps to GPIO15/16. V1.1 keeps
+// the V1.0 pin map and adds the battery-sense divider (battery section
+// below); the portal's board-version picker selects the board.
 static const int BOARD_VERSION_V0_1 = 1;
 static const int BOARD_VERSION_V1_0 = 10;
+static const int BOARD_VERSION_V1_1 = 11;
 static const int TM1637_CLK_V0_1_PIN = 16;
 static const int TM1637_DIO_V0_1_PIN = 17;
 static const int TM1637_CLK_V1_0_PIN = 15;
@@ -65,20 +68,20 @@ static const int PENALTY_FILL_B1 = 6;    // group C slot (never lit)
 static const int PENALTY_FILL_B2 = 18;
 
 static inline int homePenalty1Pin(int boardVersion) {
-  return boardVersion == BOARD_VERSION_V1_0 ? PENALTY_AWAY2_PIN
-                                             : PENALTY_HOME1_PIN;
+  return boardVersion >= BOARD_VERSION_V1_0 ? PENALTY_AWAY2_PIN
+                                            : PENALTY_HOME1_PIN;
 }
 static inline int homePenalty2Pin(int boardVersion) {
-  return boardVersion == BOARD_VERSION_V1_0 ? PENALTY_AWAY1_PIN
-                                             : PENALTY_HOME2_PIN;
+  return boardVersion >= BOARD_VERSION_V1_0 ? PENALTY_AWAY1_PIN
+                                            : PENALTY_HOME2_PIN;
 }
 static inline int awayPenalty1Pin(int boardVersion) {
-  return boardVersion == BOARD_VERSION_V1_0 ? PENALTY_HOME2_PIN
-                                             : PENALTY_AWAY1_PIN;
+  return boardVersion >= BOARD_VERSION_V1_0 ? PENALTY_HOME2_PIN
+                                            : PENALTY_AWAY1_PIN;
 }
 static inline int awayPenalty2Pin(int boardVersion) {
-  return boardVersion == BOARD_VERSION_V1_0 ? PENALTY_HOME1_PIN
-                                             : PENALTY_AWAY2_PIN;
+  return boardVersion >= BOARD_VERSION_V1_0 ? PENALTY_HOME1_PIN
+                                            : PENALTY_AWAY2_PIN;
 }
 
 // ---- MAX98357 I2S audio amp (goal horn) ------------------------------------
@@ -90,6 +93,52 @@ static const int I2S_DIN_PIN = 42;
 // ---- Branding (AP network name, hostname, portal title) ---------------------
 static const char* NETWORK_AP_SSID = "NHL_SCOREBOARD";
 static const char* NETWORK_HOSTNAME = "nhl-scoreboard";
+
+// ---- Battery power (LiPo + boost converter supply) --------------------------
+// The board runs off a 3.7 V LiPo through a 5 V boost converter. When the
+// pack runs low the boost rail collapses under load and the board brown-out
+// cycles on/off with no indication. The power gate (common/app/power_monitor,
+// driven from main.cpp's boot sequence) handles it two ways:
+//   * V0.1/V1.0 boards (no divider — existing hardware): a backstop counts
+//     rapid bad boots (brownout resets / boots that died before
+//     BATTERY_HEALTHY_BOOT_MS of uptime); BATTERY_BAD_BOOT_STREAK trips in
+//     a row trigger the low-battery screen + deep sleep. Recovery needs a
+//     power cycle after charging. These boards boot and run completely
+//     normally — the sense pin is never read.
+//   * V1.1 boards (divider wired): the pack voltage is read at boot and
+//     at/below BATTERY_LOW_VOLTS the board shows the low-battery screen
+//     and deep-sleeps immediately (no cycling first). While asleep it
+//     silently re-checks every BATTERY_RECHECK_MS and resumes on its own
+//     once the charger lifts the pack past BATTERY_RESUME_VOLTS.
+// The divider is a V1.1 hardware feature: batterySenseEnabled() keys off
+// the portal's board-version setting (NVS), so ONE firmware serves every
+// board and only boards actually set to V1.1 read the pin. Don't select
+// V1.1 on a board without the divider — a floating ADC pin can read like
+// a dead pack (the gate's >0.5 V plausibility guard only rejects a dead
+// short, not noise).
+// Sense pin: GPIO 14 = ADC2_CH3, left header pos 20 — the ADC-capable
+// spare closest to the power positions (5V on pos 21, GND on pos 22), so
+// the divider wiring stays short. Note GPIO 21 (also near power) has no
+// ADC channel on ESP32-S3 and can't serve as the sense pin. ADC2 is
+// claimed by Wi-Fi once it starts, so the gate reads the divider only at
+// power-on and on sleep rechecks — both before Wi-Fi comes up. Divider
+// wiring: BAT+ (after the switch / boost input +) --[470k]--
+// BATTERY_SENSE_PIN --[470k]-- GND (left header pos 22 is beside it),
+// with 100 nF across the lower resistor.
+static const int BATTERY_SENSE_PIN = 14;           // ADC2_CH3, left header pos 20
+static const float BATTERY_SENSE_DIVIDER = 2.0f;   // (R1 + R2) / R2
+static const float BATTERY_LOW_VOLTS = 3.40f;      // boot reading that trips shutdown
+static const float BATTERY_RESUME_VOLTS = 3.90f;   // re-check resume (charger present)
+static const uint32_t BATTERY_RECHECK_MS = 900000; // silent re-check while asleep (15 min)
+static const uint8_t BATTERY_BAD_BOOT_STREAK = 3;  // bad boots before the backstop trips
+static const uint32_t BATTERY_HEALTHY_BOOT_MS = 90000; // uptime that marks a boot healthy
+
+// True on boards whose hardware carries the battery-sense divider (V1.1+).
+// boardVersion comes from the portal's board-version setting (NVS); the
+// power gate uses this to decide whether the pack voltage can be trusted.
+static inline bool batterySenseEnabled(int boardVersion) {
+  return boardVersion >= BOARD_VERSION_V1_1;
+}
 
 // ---- UI theme (RGB565) -------------------------------------------------------
 // Shared by the sport renderer AND the generic boot/OTA screens (they include

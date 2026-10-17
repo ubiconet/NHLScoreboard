@@ -12,6 +12,7 @@
 #include <time.h>
 
 #include "config.h"
+#include "common/app/power_monitor.h"
 #include "common/app/sport_api.h"
 #include "common/comms/network_service.h"
 #include "common/ui/boot_status.h"
@@ -20,6 +21,15 @@
 void setup() {
   Serial.begin(SERIAL_BAUD_RATE);
 
+  // Power gate first, before anything heavy (see power_monitor.h): the
+  // battery reading and the bad-boot journal must happen even on cycles
+  // that die seconds later. A timer-wake recheck that still finds the pack
+  // low goes back to sleep without any display work.
+  power::BootDecision powerDecision = power::earlyBootCheck();
+  if (powerDecision == power::BootDecision::RESLEEP) {
+    power::sleepNow();  // silent recheck found the pack still low; no return
+  }
+
   // Sport bring-up FIRST: hardware init with the sport's pins, boot
   // tests, and the boot splash (its logo artwork belongs to the sport).
   // The splash paints within moments of power-on — nothing in front of
@@ -27,6 +37,12 @@ void setup() {
   // (bench test) this is also the LAST shell step — no network, no boot
   // UI; the sport's tick owns the display from the first loop pass.
   sport::setup();
+
+  if (powerDecision == power::BootDecision::SHUTDOWN) {
+    // Flash LOW BATTERY, blank the matrices/TM1637/penalty LEDs,
+    // deep-sleep; no return.
+    power::showLowBatteryAndSleep();
+  }
 
   if (!sport::skipBootUi()) {
     // No blocking hold here: network services start immediately and connect
@@ -63,6 +79,10 @@ void setup() {
 }
 
 void loop() {
+  // Marks this session healthy once it has run long enough that a later
+  // power-off must not count toward the power gate's bad-boot streak.
+  power::noteHealthyUptime();
+
   if (sport::skipBootUi()) {
     SportTickContext ctx = {millis(), false, false};
     sport::tick(ctx);

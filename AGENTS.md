@@ -35,6 +35,20 @@ without surprises.
     (right header pos 4–6).
   - 4 penalty LEDs (home P1/P2, guest P1/P2) — target GPIO `4, 5, 11, 12`
     (guest pair moved off 6/7 for the PCB rev, v3.44).
+  - Power: 3.7 V LiPo → switch → 5 V boost converter. The power gate
+    (`common/app/power_monitor`, battery constants in `sport_config.h`)
+    checks the pack at power-on via an optional divider on GPIO 14
+    (470k/470k + 100 nF; ADC2_CH3, left header pos 20 beside 5V/GND —
+    read only before Wi-Fi claims ADC2) and/or detects brownout boot
+    storms via an NVS boot journal. Low battery flashes the warning
+    screen (`common/ui/low_battery_screen`) and deep-sleeps the board.
+    The divider is a **board-version V1.1 feature**: `batterySenseEnabled()`
+    keys off the portal's board-version setting (NVS), so one firmware
+    serves every board — V0.1/V1.0 boards run completely normally (the
+    sense pin is never read, only the boot-storm backstop applies), and
+    V1.1 boards additionally get the voltage check with silent 15-min
+    rechecks while asleep, resuming on their own once the charger lifts
+    the pack past the resume threshold.
 - **Firmware:** Arduino-ESP32 framework, PlatformIO build system.
 - **Build envs:**
   - `esp32-s3-devkitc-1` → USB CDC upload.

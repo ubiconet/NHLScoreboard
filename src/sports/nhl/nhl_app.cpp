@@ -299,6 +299,7 @@ const NetworkBoardOption* boardOptions(size_t& count) {
   static const NetworkBoardOption options[] = {
     {BOARD_VERSION_V0_1, "Board V0.1"},
     {BOARD_VERSION_V1_0, "Board V1.0"},
+    {BOARD_VERSION_V1_1, "Board V1.1 (battery sense)"},
   };
   count = sizeof(options) / sizeof(options[0]);
   return options;
@@ -325,13 +326,15 @@ void setup() {
                                awayPenalty2Pin(boardVersion), PENALTY_FILL_B1,
                                PENALTY_FILL_B2};
   initCountLeds(countLedPins);
-  const bool boardV1 = boardVersion == BOARD_VERSION_V1_0;
+  // V1.1 inherits the V1.0 pin map (matrix order/orientation, TM1637 on
+  // 15/16) and adds the battery-sense divider — hence the >= comparisons.
+  const bool boardV1 = boardVersion >= BOARD_VERSION_V1_0;
   initLedMatrix(MAX7219_DIN_PIN, MAX7219_CLK_PIN, MAX7219_CS_PIN, boardV1,
                 boardV1);
-  const int tm1637ClkPin = boardVersion == BOARD_VERSION_V1_0
+  const int tm1637ClkPin = boardVersion >= BOARD_VERSION_V1_0
                                ? TM1637_CLK_V1_0_PIN
                                : TM1637_CLK_V0_1_PIN;
-  const int tm1637DioPin = boardVersion == BOARD_VERSION_V1_0
+  const int tm1637DioPin = boardVersion >= BOARD_VERSION_V1_0
                                ? TM1637_DIO_V1_0_PIN
                                : TM1637_DIO_V0_1_PIN;
   initTm1637(tm1637ClkPin, tm1637DioPin, TM1637_BRIGHTNESS);

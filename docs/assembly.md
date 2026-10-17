@@ -25,6 +25,8 @@ PNG.)*
 | 1 | TM1637 4-digit 7-segment module | period clock / wall clock | 4 pins: VCC GND CLK DIO |
 | 1 | MAX98357A I2S amp breakout | goal-horn audio | plus a 4 Ω/3 W (or 8 Ω) speaker |
 | 4 | LED + 330–470 Ω resistor | penalty indicators | 2 home, 2 guest; 3 mm or 5 mm, any color |
+| 2 | 470 kΩ resistor | battery-sense divider (V1.1 only) | 1/4 W any type; with the 100 nF below |
+| 1 | 100 nF ceramic capacitor | divider filter (V1.1 only) | across the lower 470 kΩ; any voltage rating |
 | — | hookup wire, headers, perfboard | assembly | 22–24 AWG for power runs |
 
 Power: a **5 V ≥ 2 A** supply feeding the board's 5V pin (or a strong USB
@@ -98,6 +100,58 @@ score** (the shared-load shift order is handled in the driver). Add
 | SD, GAIN | *(leave unconnected — active, 9 dB gain)* | — | — |
 
 Speaker lands on the amp's screw terminals (4 Ω/3 W or 8 Ω).
+
+### Battery sense divider — V1.1 boards (optional, left header)
+
+Halves the LiPo voltage into the ADC range of GPIO 14 so the power gate
+(`common/app/power_monitor`) can detect a low pack at boot and shut the
+board down cleanly instead of brown-out cycling. Existing V0.1/V1.0 boards
+skip this entirely.
+
+```
+   BAT+ (after switch) ───────┬──────────────────► to boost converter IN+
+                               │                    (existing 5 V power path)
+                            ┌──┴──┐
+                            │ R1  │  470 kΩ
+                            └──┬──┘
+                               │
+     ESP32 GPIO 14 ◄───────────┤      sense node = V(BAT+) / 2
+     (left header pos 20)      │      (1.50–2.10 V over a 3.0–4.2 V pack)
+                               │
+                            ┌──┴──┐   ┌──────┐
+                            │ R2  │   │  C1  │   C1 sits across R2
+                            │470kΩ│   │100nF │
+                            └──┬──┘   └──┬───┘
+                               │         │
+                               └────┬────┘
+                                    │
+     ESP32 GND ◄────────────────────┘
+     (left header pos 22)
+```
+
+| From | Wire to | Phys. pos | Notes |
+|---|---|---|---|
+| GPIO 14 | R1 (470 kΩ), other leg → BAT+ | L20 | tap the **switched** battery side — the boost IN+ terminal is a convenient node |
+| GPIO 14 | R2 (470 kΩ), other leg → GND | L20 | sense node lands on the GPIO leg of both parts |
+| GPIO 14 | C1 (100 nF), other leg → GND | L20 | across R2; smooths boost-converter ripple for the ADC |
+| GND | battery / boost ground | L22 | the divider must share the board's common ground |
+
+Why it's wired this way:
+
+- **Tap after the power switch** — the divider draws only ~4.5 µA
+  (4.2 V / 940 kΩ) while running, and nothing at all when the switch is
+  off, so it never drains a stored pack.
+- **Sense node = half the pack** — 1.5–2.1 V sits comfortably inside the
+  ADC's ~0–3.1 V window at 11 dB attenuation; firmware multiplies by 2
+  (`BATTERY_SENSE_DIVIDER`).
+- **GPIO 14, not 20/21** — the sense pin must be ADC-capable: GPIO 20 is
+  native USB D− and GPIO 21 has no ADC channel on ESP32-S3. GPIO 14
+  (ADC2_CH3, left header pos 20) is the ADC spare right beside 5V/GND
+  (pos 21/22), keeping the divider wiring short.
+- **After wiring**: select **Board V1.1 (battery sense)** in the setup
+  portal and reboot — that's what enables the voltage check. Don't select
+  V1.1 on a board without the divider; a floating ADC pin can read like a
+  dead pack.
 
 ### Power/ground summary
 

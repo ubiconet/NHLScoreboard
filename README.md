@@ -15,7 +15,12 @@ score, guest score, period), a TM1637 4-digit period clock, a MAX98357 I2S
 audio amp for the goal horn, and 4 penalty LEDs (2 home, 2 guest). Live
 linescore for your preferred teams, upcoming-game countdowns, a league news
 ticker, an over-the-air captive-portal setup page, and GitHub-hosted
-firmware self-update.
+firmware self-update. A low-battery guard protects the LiPo supply: at
+power-on the pack is checked (voltage divider on battery-version V1.1
+boards, plus brownout boot-storm detection on all boards), and when low
+the board flashes a warning screen and deep-sleeps instead of brown-out
+cycling — divider-equipped boards resume by themselves once the charger
+is connected.
 
 The repo is also a **sport scoreboard template**: the generic framework
 (`src/common/` + `src/main.cpp`) is sport-agnostic, and everything NHL
