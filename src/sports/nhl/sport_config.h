@@ -98,18 +98,19 @@ static const char* NETWORK_HOSTNAME = "nhl-scoreboard";
 // The board runs off a 3.7 V LiPo through a 5 V boost converter. When the
 // pack runs low the boost rail collapses under load and the board brown-out
 // cycles on/off with no indication. The power gate (common/app/power_monitor,
-// driven from main.cpp's boot sequence) handles it two ways:
-//   * V0.1/V1.0 boards (no divider — existing hardware): a backstop counts
-//     rapid bad boots (brownout resets / boots that died before
-//     BATTERY_HEALTHY_BOOT_MS of uptime); BATTERY_BAD_BOOT_STREAK trips in
-//     a row trigger the low-battery screen + deep sleep. Recovery needs a
-//     power cycle after charging. These boards boot and run completely
-//     normally — the sense pin is never read.
-//   * V1.1 boards (divider wired): the pack voltage is read at boot and
-//     at/below BATTERY_LOW_VOLTS the board shows the low-battery screen
-//     and deep-sleeps immediately (no cycling first). While asleep it
-//     silently re-checks every BATTERY_RECHECK_MS and resumes on its own
-//     once the charger lifts the pack past BATTERY_RESUME_VOLTS.
+// driven from main.cpp's boot sequence) is a V1.1 HARDWARE FEATURE and is
+// DISABLED ENTIRELY on other board versions (v3.63): V0.1/V1.0 boards do no
+// voltage check and keep no boot-storm journal — they boot and run
+// unconditionally. On V1.1 boards (divider wired):
+//   * the pack voltage is read at boot and at/below BATTERY_LOW_VOLTS the
+//     board shows the low-battery screen and deep-sleeps immediately (no
+//     cycling first). While asleep it silently re-checks every
+//     BATTERY_RECHECK_MS and resumes on its own once the charger lifts the
+//     pack past BATTERY_RESUME_VOLTS.
+//   * a backstop counts rapid bad boots (brownout resets / boots that died
+//     before BATTERY_HEALTHY_BOOT_MS of uptime); BATTERY_BAD_BOOT_STREAK
+//     trips in a row trigger the low-battery screen + deep sleep. Recovery
+//     needs a power cycle after charging.
 // The divider is a V1.1 hardware feature: batterySenseEnabled() keys off
 // the portal's board-version setting (NVS), so ONE firmware serves every
 // board and only boards actually set to V1.1 read the pin. Don't select

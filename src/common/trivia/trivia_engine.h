@@ -88,7 +88,7 @@ static const uint32_t TRIVIA_REVEAL_MS = 4000;        // answer/result display
 static const uint8_t TRIVIA_MAX_STRIKES = 3;          // 3rd wrong answer ends the run
 static const uint16_t TRIVIA_MAX_POINTS_PER_Q = 100;  // top score per question
 static const size_t TRIVIA_NAME_MAX = 12;             // stored name length cap
-static const uint32_t TRIVIA_FAST_ANSWER_MS = 1000;   // lock within this = fireworks
+static const uint32_t TRIVIA_FAST_ANSWER_MS = 3000;   // lock within this = fireworks
 
 namespace trivia {
 

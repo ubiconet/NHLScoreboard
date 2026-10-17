@@ -18,12 +18,12 @@ ticker, an over-the-air captive-portal setup page, and GitHub-hosted
 firmware self-update. A **trivia mode** (`docs/features/trivia-mode.md`)
 turns the board into a game show: 750 hockey questions, played solo from
 the phone, with the penalty LEDs as strikes and a persistent high score.
-A low-battery guard protects the LiPo supply: at
-power-on the pack is checked (voltage divider on battery-version V1.1
-boards, plus brownout boot-storm detection on all boards), and when low
+A low-battery guard protects the LiPo supply on battery-version V1.1
+boards only: at power-on the pack is checked (voltage divider, plus a
+brownout boot-storm backstop), and when low
 the board flashes a warning screen and deep-sleeps instead of brown-out
 cycling — divider-equipped boards resume by themselves once the charger
-is connected.
+is connected. Earlier board revisions disable the guard entirely.
 
 The repo is also a **sport scoreboard template**: the generic framework
 (`src/common/` + `src/main.cpp`) is sport-agnostic, and everything NHL

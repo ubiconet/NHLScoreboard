@@ -66,10 +66,16 @@ void journalDied(uint8_t value) {
 }  // namespace
 
 BootDecision earlyBootCheck() {
+  // The power gate is a V1.1 hardware feature (battery-sense divider).
+  // On earlier board revisions low-battery detection is disabled
+  // entirely: no voltage check and no boot-storm journal — those boards
+  // boot and run unconditionally, even through brownout cycles.
+  if (!batterySenseEnabled(getBoardVersion())) {
+    return BootDecision::NORMAL;
+  }
+
   // Timer wake from our own low-battery sleep: re-check the pack and stay
-  // down silently (no display work) until the charger resumes it. With no
-  // divider wired the voltage can't be verified, so the re-check always
-  // keeps sleeping — recovery is a power cycle.
+  // down silently (no display work) until the charger resumes it.
   bool timerWake = sBatterySleep &&
                    esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER;
   if (timerWake) {
@@ -141,6 +147,7 @@ void showLowBatteryAndSleep() {
 }
 
 void noteHealthyUptime() {
+  if (!batterySenseEnabled(getBoardVersion())) return;  // gate disabled
   if (millis() < BATTERY_HEALTHY_BOOT_MS) return;
   static bool marked = false;
   if (marked) return;

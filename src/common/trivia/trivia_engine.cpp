@@ -141,8 +141,8 @@ void enterReveal(uint32_t nowMs) {
     sLastPoints = (uint16_t)((rem * TRIVIA_MAX_POINTS_PER_Q +
                               TRIVIA_QUESTION_MS / 2) / TRIVIA_QUESTION_MS);
     sScore += sLastPoints;
-    // Fireworks celebrate only lightning answers: locked within the first
-    // second of the question window.
+    // Fireworks celebrate quick answers: locked within the first three
+    // seconds of the question window.
     sFireworks = (TRIVIA_QUESTION_MS - rem) <= TRIVIA_FAST_ANSWER_MS;
   } else {
     if (sStrikes < 255) ++sStrikes;

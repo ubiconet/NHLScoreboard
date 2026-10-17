@@ -22,8 +22,8 @@ straight to `http://<device-ip>/trivia`).
   lights one **penalty LED** — the same home/guest penalty lights the live
   game uses. The third wrong answer is **game over**. Survive all 15 and
   the round is completed. Lock a correct answer **within the first
-  second** and the three matrices play a short **fireworks** burst during
-  the reveal.
+  three seconds** and the three matrices play a short **fireworks** burst
+  during the reveal.
 - Beat the stored record and the screens show **NEW HIGH SCORE!**; the web
   page asks for a name (kept in NVS: score + 12-char name) and the settings
   menu shows the current record.
