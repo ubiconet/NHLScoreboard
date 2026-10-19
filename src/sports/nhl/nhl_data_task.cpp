@@ -4,6 +4,7 @@
 #include <time.h>
 
 #include "config.h"
+#include "common/app/power_monitor.h"
 #include "common/comms/network_service.h"
 #include "common/comms/ota_update.h"
 #include "common/data/time_util.h"
@@ -29,10 +30,36 @@ uint32_t gLastScheduleAt = 0;
 bool     gScheduleValid  = false;
 uint32_t gLastLandingAt  = 0;
 
-// ---- Week look-ahead cache (/v1/schedule, Mon-Sun) ----
-JsonDocument gWeekDoc;       // filtered slate: gameWeek[] {date, games[]}
-char     gWeekDate[11] = ""; // Monday the cache covers; "" = no cache
-uint32_t gWeekFetchAt = 0;   // last refresh ATTEMPT (success or failure)
+// ---- Week look-ahead caches (/v1/schedule covers a Mon-Sun week) ----
+// TWO weeks are cached: the one containing today and the next, so the
+// upcoming horizon is always >= 7 days out — a single Mon-Sun cache
+// collapses to nothing late in the week (the "no upcoming games on
+// Sunday" bug). Filtered slate: gameWeek[] {date, games[]}.
+JsonDocument gWeekDoc;        // week containing today
+char     gWeekDate[11] = "";  // Monday this cache covers; "" = no cache
+uint32_t gWeekFetchAt = 0;    // last refresh ATTEMPT (success or failure)
+JsonDocument gWeekNextDoc;    // the following week
+char     gWeekNextDate[11] = "";
+uint32_t gWeekNextFetchAt = 0;
+
+// Refreshes one week cache when its week rolls over or the TTL lapses,
+// honoring the retry spacing after a failure. Fetches straight into the
+// cache doc (no copy) — the filtered week is small but the heap is not.
+void refreshWeekCache(JsonDocument& doc, char monday[11], uint32_t& lastAt,
+                      const char* weekMonday, const char* urlDate) {
+  uint32_t sinceFetch = millis() - lastAt;
+  bool need = strcmp(monday, weekMonday) != 0 ||
+              sinceFetch > NHL_WEEK_SCHEDULE_TTL_MS;
+  bool mayTry = lastAt == 0 || sinceFetch >= NHL_WEEK_SCHEDULE_RETRY_MS;
+  if (!need || !mayTry) return;
+  lastAt = millis();
+  if (fetchNhlWeekSchedule(doc, urlDate)) {
+    strlcpy(monday, doc["gameWeek"][0]["date"] | weekMonday, 11);
+  } else {
+    monday[0] = '\0';
+    doc.clear();
+  }
+}
 
 int periodLength(int period) { return period <= 3 ? 1200 : 300; }
 
@@ -232,25 +259,39 @@ void fetchNewsIfDue(bool online) {
 
 void fetchScheduleIfDue(bool online) {
   if (!online || portalEngaged()) return;
-  if (!timeIsSynced()) return;  // no trustworthy local date yet
   uint32_t now = millis();
   uint32_t interval = gScheduleValid ? NHL_SCHEDULE_POLL_INTERVAL_MS
                                      : NHL_SCHEDULE_RETRY_MS;
   if (gLastScheduleAt != 0 && (now - gLastScheduleAt) < interval) return;
   gLastScheduleAt = now;
 
+  // No trustworthy local date yet? PRIME the clock and wait a cycle: any
+  // 200 response carries a Date header that bootstraps the system clock
+  // (time_util::applyCoarseHttpDate — NTP then refines it). The compile
+  // date stands in for "today" so the URL is well-formed; the fetched
+  // slate is discarded. Without this, an install whose AP blocks or
+  // delays NTP never fetched a schedule at all — "no upcoming games"
+  // forever with sched:0 attempts on the diagnostic page.
   char date[11];
   time_t t = time(nullptr);
   tm lt = {};
+  if (!timeIsSynced()) {
+    tm cd = {};
+    if (parseCompileDate(__DATE__, cd)) {
+      char prime[11];
+      if (strftime(prime, sizeof(prime), "%Y-%m-%d", &cd) > 0) {
+        JsonDocument discard;
+        fetchNhlDayScore(discard, prime);
+      }
+    }
+    return;  // next pass (15 s) runs with the bootstrapped clock
+  }
   localtime_r(&t, &lt);
   if (strftime(date, sizeof(date), "%Y-%m-%d", &lt) == 0) return;
 
   JsonDocument doc;
-  if (!fetchNhlDayScore(doc, date)) {
-    gScheduleValid = false;
-    return;
-  }
-  gScheduleValid = true;
+  bool dayOk = fetchNhlDayScore(doc, date);
+  gScheduleValid = dayOk;  // sets retry pacing; publishing continues below
 
   ScheduleSnapshot snap{};
   size_t n = 0;
@@ -274,56 +315,60 @@ void fetchScheduleIfDue(bool online) {
       strlcpy(o.startUtc, g["startTimeUTC"] | "", sizeof(o.startUtc));
     }
   };
-  appendGames(doc.as<JsonObjectConst>());
 
-  // Upcoming-games look-ahead: one /v1/schedule call covers the Mon-Sun
-  // week containing today. The cache only refreshes on TTL (6 h) or when
-  // the week rolls over — future-day states never change, and today's
-  // half of the upcoming doc below always comes from the fresh day-score
-  // fetch above. Failed refreshes retry on their own spacing.
+  // The upcoming-games cache the waiting screen walks. Today's games come
+  // from the fresh day fetch; every LATER day of the two cached weeks
+  // follows, so the carousel's per-team cards span at least a week ahead.
+  // A failed day fetch no longer aborts the publish: the week cache's
+  // today entry stands in (coarser, but scores/states still land), and a
+  // bad first fetch no longer blanks the upcoming list.
+  JsonDocument upcomingDoc;
+  JsonArray merged = upcomingDoc["games"].to<JsonArray>();
+  if (dayOk) {
+    appendGames(doc.as<JsonObjectConst>());
+    for (JsonObjectConst g : doc["games"].as<JsonArrayConst>()) merged.add(g);
+  }
+
   {
-    time_t monday = t - ((lt.tm_wday + 6) % 7) * 24 * 60 * 60;
     tm md = {};
+    time_t monday = t - ((lt.tm_wday + 6) % 7) * 24 * 60 * 60;
     localtime_r(&monday, &md);
-    char mondayStr[11];
-    if (strftime(mondayStr, sizeof(mondayStr), "%Y-%m-%d", &md) > 0) {
-      uint32_t sinceFetch = millis() - gWeekFetchAt;
-      bool need = strcmp(gWeekDate, mondayStr) != 0 ||
-                  sinceFetch > NHL_WEEK_SCHEDULE_TTL_MS;
-      bool mayTry = gWeekFetchAt == 0 ||
-                    sinceFetch >= NHL_WEEK_SCHEDULE_RETRY_MS;
-      if (need && mayTry) {
-        gWeekFetchAt = millis();
-        if (fetchNhlWeekSchedule(gWeekDoc, date)) {
-          strlcpy(gWeekDate,
-                  gWeekDoc["gameWeek"][0]["date"] | mondayStr,
-                  sizeof(gWeekDate));
-        } else {
-          gWeekDate[0] = '\0';
-          gWeekDoc.clear();
+    time_t nextMonday = monday + 7 * 24 * 60 * 60;
+    tm nmd = {};
+    localtime_r(&nextMonday, &nmd);
+    char mondayStr[11], nextMondayStr[11];
+    if (strftime(mondayStr, sizeof(mondayStr), "%Y-%m-%d", &md) > 0 &&
+        strftime(nextMondayStr, sizeof(nextMondayStr), "%Y-%m-%d", &nmd) > 0) {
+      refreshWeekCache(gWeekDoc, gWeekDate, gWeekFetchAt, mondayStr, date);
+      refreshWeekCache(gWeekNextDoc, gWeekNextDate, gWeekNextFetchAt,
+                       nextMondayStr, nextMondayStr);
+      for (const JsonDocument* wd : {&gWeekDoc, &gWeekNextDoc}) {
+        for (JsonObjectConst day :
+             (*wd)["gameWeek"].as<JsonArrayConst>()) {
+          if (strcmp(day["date"] | "", date) <= 0) continue;  // today merged fresh
+          appendGames(day);  // snapshot/ticker look-ahead (dedup + 26 cap)
+          for (JsonObjectConst g : day["games"].as<JsonArrayConst>()) {
+            merged.add(g);
+          }
+        }
+      }
+      if (!dayOk && gWeekDate[0] != '\0') {
+        // Day fetch failed: today's slate from this week's cache instead.
+        for (JsonObjectConst day :
+             gWeekDoc["gameWeek"].as<JsonArrayConst>()) {
+          if (strcmp(day["date"] | "", date) != 0) continue;
+          appendGames(day);
+          for (JsonObjectConst g : day["games"].as<JsonArrayConst>()) {
+            merged.add(g);
+          }
         }
       }
     }
   }
-  bool weekValid = gWeekDate[0] != '\0';
 
-  // The upcoming-games cache the waiting screen walks: today's fresh
-  // games, then every later day of the cached week — so the carousel's
-  // per-team cards and the upcoming list span a full seven days.
-  JsonDocument upcomingDoc;
-  JsonArray merged = upcomingDoc["games"].to<JsonArray>();
-  for (JsonObjectConst g : doc["games"].as<JsonArrayConst>()) merged.add(g);
-  if (weekValid) {
-    for (JsonObjectConst day : gWeekDoc["gameWeek"].as<JsonArrayConst>()) {
-      if (strcmp(day["date"] | "", date) <= 0) continue;  // today merged fresh
-      appendGames(day);  // snapshot/ticker look-ahead (dedup + 26 cap)
-      for (JsonObjectConst g : day["games"].as<JsonArrayConst>()) {
-        merged.add(g);
-      }
-    }
-  } else {
-    // Week fetch unavailable (fresh boot in a bad TLS window): fall back
-    // to the old one-day look-ahead so tomorrow's card still shows.
+  // Both week caches empty (fresh boot in a bad TLS window): fall back to
+  // the old one-day look-ahead so tomorrow's card still shows.
+  if (gWeekDate[0] == '\0' && gWeekNextDate[0] == '\0') {
     time_t tmrw = t + 24 * 60 * 60;
     tm td = {};
     localtime_r(&tmrw, &td);
@@ -522,6 +567,11 @@ void nhlDataTaskLoop(void*) {
       vTaskDelay(pdMS_TO_TICKS(50));
       continue;
     }
+
+    // Runtime battery gauge for V1.1 boards (self-pacing, no-op without
+    // the divider) — runs on this core so the ~10 ms median-of-5 sample
+    // never touches the render loop.
+    power::serviceBatteryMonitor();
 
     fetchScheduleIfDue(online);
     fetchStandingsIfDue(online);

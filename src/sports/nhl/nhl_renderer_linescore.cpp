@@ -3,11 +3,13 @@
 #include <Adafruit_ST7789.h>
 
 #include "config.h"
+#include "common/app/power_monitor.h"
 #include "common/comms/network_service.h"
 #include "common/hal/count_leds.h"
 #include "common/hal/led_matrix.h"
 #include "common/hal/tft_panel.h"
 #include "common/hal/tm1637.h"
+#include "common/ui/battery_indicator.h"
 #include "common/ui/gfx.h"
 #include "nhl_logos.h"
 #include "nhl_renderer.h"
@@ -63,6 +65,7 @@ struct Drawn {
   int period = -1;  // last shown on the period matrix
   int clockSec = -1;  // tickLiveClock's per-second tracker (TM1637)
   int sogH = -1, sogA = -1;
+  int battQuarters = -1;  // last battery-gauge state (-1 = hidden/unknown)
   char penaltySig[384] = "";
 } d;
 
@@ -589,6 +592,9 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
       drawTeamColumn(GUEST_LOGO_X, g.awayAbbrev, g.awayTeamId, g.awaySog);
       drawShotsCaption();
       drawBottomHalf(g);
+      uint8_t bq = power::batteryQuarters();
+      if (bq <= 4) drawBatteryIndicator(canvas(), 296, 4, bq);
+      d.battQuarters = (bq <= 4) ? (int)bq : -1;
       tftPanel.pushFull();
     }
   }
@@ -682,6 +688,19 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
   if (strcmp(sig, d.penaltySig) != 0) {
     strlcpy(d.penaltySig, sig, sizeof(d.penaltySig));
     if (!goalDisplayActive()) drawBottomHalf(g);
+  }
+
+  // Battery gauge (V1.1 boards only — quarters 255/unknown hides it):
+  // quarter changes are rare, so this tiny region repaints on its own
+  // instead of riding every full redraw.
+  {
+    uint8_t bq = power::batteryQuarters();
+    int bqDrawn = (bq <= 4) ? (int)bq : -1;
+    if (bqDrawn != d.battQuarters && !goalDisplayActive()) {
+      d.battQuarters = bqDrawn;
+      if (bqDrawn >= 0) drawBatteryIndicator(canvas(), 296, 4, bq);
+      tftPanel.pushRows(294, 2, 25, 14);
+    }
   }
 
   // Display-binding trace (DBG-gated): one line per fresh snapshot showing

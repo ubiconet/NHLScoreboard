@@ -38,17 +38,21 @@ without surprises.
   - Power: 3.7 V LiPo → switch → 5 V boost converter. The power gate
     (`common/app/power_monitor`, battery constants in `sport_config.h`) is a
     **board-version V1.1 feature**: on V1.1 boards it checks the pack at
-    power-on via the divider on GPIO 14 (470k/470k + 100 nF; ADC2_CH3, left
-    header pos 20 beside 5V/GND — read only before Wi-Fi claims ADC2), and a
-    brownout boot-storm NVS journal backstops a collapsing pack. Low battery
-    flashes the warning screen (`common/ui/low_battery_screen`) and
-    deep-sleeps the board. `batterySenseEnabled()` keys off the portal's
-    board-version setting (NVS), so one firmware serves every board — on
-    V0.1/V1.0 boards low-battery detection is disabled entirely (v3.63: no
-    voltage check, no boot journal; they boot and run unconditionally), and
-    V1.1 boards get the voltage check with silent 15-min rechecks while
-    asleep, resuming on their own once the charger lifts the pack past the
-    resume threshold.
+    power-on via the divider on GPIO 7 (470k/470k + 100 nF; ADC1_CH6, left
+    header pos 7 — ADC1 is never claimed by Wi-Fi, so the pin also feeds
+    the runtime battery gauge), and a brownout boot-storm NVS journal
+    backstops a collapsing pack. Low battery flashes the warning screen
+    (`common/ui/low_battery_screen`) and deep-sleeps the board.
+    `batterySenseEnabled()` keys off the portal's board-version setting
+    (NVS), so one firmware serves every board — on V0.1/V1.0 boards
+    low-battery detection is disabled entirely (v3.63: no voltage check,
+    no boot journal; they boot and run unconditionally), and V1.1 boards
+    get the voltage check with silent 15-min rechecks while asleep,
+    resuming on their own once the charger lifts the pack past the resume
+    threshold. On V1.1 boards a quarter-step battery icon
+    (`common/ui/battery_indicator`, sampled by `serviceBatteryMonitor()`
+    on core 0 every 30 s) sits top-right on the waiting + live screens;
+    it stays hidden on boards without the divider.
 - **Firmware:** Arduino-ESP32 framework, PlatformIO build system.
 - **Build envs:**
   - `esp32-s3-devkitc-1` → USB CDC upload.

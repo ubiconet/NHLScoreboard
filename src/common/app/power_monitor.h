@@ -45,4 +45,19 @@ void showLowBatteryAndSleep();
 // doesn't count toward the bad-boot streak.
 void noteHealthyUptime();
 
+// ---- Runtime battery gauge (V1.1 boards only) ----
+// The sense pin sits on ADC1 (Wi-Fi never claims it), so the pack voltage
+// stays readable while the board runs. serviceBatteryMonitor() paces
+// itself to BATTERY_MONITOR_INTERVAL_MS — call it from the core-0 data
+// task loop; it reads nothing on boards without the divider.
+void serviceBatteryMonitor();
+
+// Last runtime sample. 0.0 when unknown (no divider / no sample yet).
+float batteryVolts();
+
+// Coarse charge level for the on-screen gauge: 0..4 quarter segments, or
+// 255 when unknown — callers hide the indicator then, so boards without
+// the divider never show a gauge.
+uint8_t batteryQuarters();
+
 }  // namespace power

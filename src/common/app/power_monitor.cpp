@@ -63,6 +63,25 @@ void journalDied(uint8_t value) {
   prefs.end();
 }
 
+// ---- Runtime gauge state (core-0 writer, render-core reader) ----
+// Float/uint8 writes are single aligned stores, so the render core can
+// sample them without a lock — same discipline as the fetch diagnostics.
+float sRuntimeVolts = 0.0f;    // last runtime sample; 0 = unknown
+uint8_t sRuntimeQuarters = 0xFF;
+uint32_t sLastMonitorAt = 0;
+
+// Quarter tiers for a LiPo under boost-converter load (sag depresses the
+// reading ~0.1-0.2 V while running, so the tiers sit below the
+// open-circuit equivalents). Tiers, not a percentage: the flat middle of
+// the LiPo curve can't honestly resolve more than quarters.
+uint8_t voltsToQuarters(float v) {
+  if (v >= 3.95f) return 4;
+  if (v >= 3.78f) return 3;
+  if (v >= 3.60f) return 2;
+  if (v >= 3.44f) return 1;
+  return 0;
+}
+
 }  // namespace
 
 BootDecision earlyBootCheck() {
@@ -156,5 +175,20 @@ void noteHealthyUptime() {
   if (prefs.getUChar(kKeyDied, 0) == 1) prefs.putUChar(kKeyDied, 0);
   prefs.end();
 }
+
+void serviceBatteryMonitor() {
+  if (!batterySenseEnabled(getBoardVersion())) return;  // no divider
+  uint32_t now = millis();
+  if (sLastMonitorAt != 0 && now - sLastMonitorAt < BATTERY_MONITOR_INTERVAL_MS) {
+    return;
+  }
+  sLastMonitorAt = now;
+  sRuntimeVolts = readBatteryVolts();
+  sRuntimeQuarters = (sRuntimeVolts > 0.5f) ? voltsToQuarters(sRuntimeVolts)
+                                            : 0xFF;
+}
+
+float batteryVolts() { return sRuntimeVolts; }
+uint8_t batteryQuarters() { return sRuntimeQuarters; }
 
 }  // namespace power

@@ -60,7 +60,7 @@ V0.1 retains the original behavior.
 | 4 | GPIO4 | Home penalty LED 1 | |
 | 5 | GPIO5 | Home penalty LED 2 | |
 | 6 | GPIO6 | — spare — | guest LED until the PCB rev (v3.44) |
-| 7 | GPIO7 | — spare — | guest LED until the PCB rev (v3.44) |
+| 7 | GPIO7 | — spare — | battery-sense divider target on V1.1 boards (`BATTERY_SENSE_PIN`, ADC1_CH6; optional — power gate + runtime gauge, see the battery section of `src/sports/nhl/sport_config.h`) |
 | 8 | GPIO15 | TM1637 CLK (V1.0) | V0.1 spare |
 | 9 | GPIO16 | TM1637 CLK (V0.1) / DIO (V1.0) | |
 | 10 | GPIO17 | TM1637 DIO (V0.1) | V1.0 spare |
@@ -73,7 +73,7 @@ V0.1 retains the original behavior.
 | 17 | GPIO11 | Guest penalty LED 1 | |
 | 18 | GPIO12 | Guest penalty LED 2 | |
 | 19 | GPIO13 | — spare — | PENALTY_FILL_A dummy (init'd, never lit) |
-| 20 | GPIO14 | — spare — | battery-sense divider target on V1.1 boards (`BATTERY_SENSE_PIN`, ADC2_CH3; optional — power gate, see the battery section of `src/sports/nhl/sport_config.h`) |
+| 20 | GPIO14 | — gap — | spare |
 | 21 | 5V | — | power for MAX7219 chain + MAX98357 |
 | 22 | GND | — | |
 
@@ -124,11 +124,11 @@ V0.1 retains the original behavior.
 4. **Avoided by design:** GPIO 35–37 (octal PSRAM on N8R8), 0/45
    (straps), 48 (onboard RGB), 19/20 (native USB), 43/44 (debug UART).
    46 (strap) is now the TFT reset — tolerated because its reset-time
-   state only gates ROM log output. When adding parts prefer GPIO 7/15/18
-   (left) or 41/47/21 (right); GPIO 14 is earmarked for the optional
-   battery-sense divider (left pos 20, beside 5V/GND — the closest
-   ADC-capable spare to the power positions; GPIO 21 has no ADC channel
-   on ESP32-S3, and GPIO 20 is native USB D−).
+   state only gates ROM log output. When adding parts prefer GPIO 14/15/18
+   (left) or 41/47/21 (right); GPIO 7 is earmarked for the optional
+   battery-sense divider (left pos 7, ADC1_CH6 — ADC1 stays readable with
+   Wi-Fi up, which the runtime battery gauge needs; GPIO 21 has no ADC
+   channel on ESP32-S3, and GPIO 20 is native USB D−).
 
 ## Wiring notes
 

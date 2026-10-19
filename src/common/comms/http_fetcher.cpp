@@ -4,10 +4,16 @@
 #include <WiFiClientSecure.h>
 
 #include "common/config.h"
+#include "common/data/time_util.h"
 #include "http_fetcher.h"
 
 namespace http_fetch {
 namespace {
+
+// The Date response header is collected on every GET: any 200 response
+// gives the device a coarse UTC clock before NTP lands (and as a full
+// fallback when the AP blocks NTP) — see applyCoarseHttpDate.
+const char* kCollectedHeaders[] = {"Date"};
 
 // Shared session: one WiFiClient + one HTTPClient reused across the fetches
 // of a single data-task tick via HTTP/1.1 keep-alive, and kept open between
@@ -25,6 +31,12 @@ void resetSession() {
   if (sClient != nullptr) sClient->stop();
   if (sSecureClient != nullptr) sSecureClient->stop();
   sConnected = false;
+}
+
+void applyDateHeaderIfAny(int code) {
+  if (code <= 0) return;
+  String d = sHttp.header("Date");
+  if (d.length() > 0) applyCoarseHttpDate(d.c_str());
 }
 
 // Reusable response-body buffer. An open TLS session pins ~45 KB of heap
@@ -147,8 +159,10 @@ int get(const String& url, uint32_t timeoutMs) {
   for (int attempt = 0; attempt < 2; attempt++) {
     sHttp.setReuse(true);
     sHttp.setTimeout(timeoutMs);
+    sHttp.collectHeaders(kCollectedHeaders, 1);
     if (!sHttp.begin(*sClient, url)) return -1;
     int code = sHttp.GET();
+    applyDateHeaderIfAny(code);
     if (code >= 0 || attempt == 1) {
       sConnected = (code > 0);
       return code;
@@ -168,8 +182,10 @@ int getSecure(const String& url, uint32_t timeoutMs) {
   for (int attempt = 0; attempt < 2; attempt++) {
     sHttp.setReuse(true);
     sHttp.setTimeout(timeoutMs);
+    sHttp.collectHeaders(kCollectedHeaders, 1);
     if (!sHttp.begin(*sSecureClient, url)) return -1;
     int code = sHttp.GET();
+    applyDateHeaderIfAny(code);
     if (code >= 0 || attempt == 1) {
       sConnected = (code > 0);
       return code;

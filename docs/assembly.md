@@ -103,10 +103,12 @@ Speaker lands on the amp's screw terminals (4 Ω/3 W or 8 Ω).
 
 ### Battery sense divider — V1.1 boards (optional, left header)
 
-Halves the LiPo voltage into the ADC range of GPIO 14 so the power gate
+Halves the LiPo voltage into the ADC range of GPIO 7 so the power gate
 (`common/app/power_monitor`) can detect a low pack at boot and shut the
-board down cleanly instead of brown-out cycling. Existing V0.1/V1.0 boards
-skip this entirely.
+board down cleanly instead of brown-out cycling — and, because the pin
+sits on ADC1 (never claimed by Wi-Fi), the on-screen battery gauge can
+sample it while the board runs. Existing V0.1/V1.0 boards skip this
+entirely.
 
 ```
    BAT+ (after switch) ───────┬──────────────────► to boost converter IN+
@@ -115,8 +117,8 @@ skip this entirely.
                             │ R1  │  470 kΩ
                             └──┬──┘
                                │
-     ESP32 GPIO 14 ◄───────────┤      sense node = V(BAT+) / 2
-     (left header pos 20)      │      (1.50–2.10 V over a 3.0–4.2 V pack)
+     ESP32 GPIO 7 ◄────────────┤      sense node = V(BAT+) / 2
+     (left header pos 7)       │      (1.50–2.10 V over a 3.0–4.2 V pack)
                                │
                             ┌──┴──┐   ┌──────┐
                             │ R2  │   │  C1  │   C1 sits across R2
@@ -126,15 +128,15 @@ skip this entirely.
                                └────┬────┘
                                     │
      ESP32 GND ◄────────────────────┘
-     (left header pos 22)
+     (any board GND — e.g. left pos 22 or right pos 1)
 ```
 
 | From | Wire to | Phys. pos | Notes |
 |---|---|---|---|
-| GPIO 14 | R1 (470 kΩ), other leg → BAT+ | L20 | tap the **switched** battery side — the boost IN+ terminal is a convenient node |
-| GPIO 14 | R2 (470 kΩ), other leg → GND | L20 | sense node lands on the GPIO leg of both parts |
-| GPIO 14 | C1 (100 nF), other leg → GND | L20 | across R2; smooths boost-converter ripple for the ADC |
-| GND | battery / boost ground | L22 | the divider must share the board's common ground |
+| GPIO 7 | R1 (470 kΩ), other leg → BAT+ | L7 | tap the **switched** battery side — the boost IN+ terminal is a convenient node |
+| GPIO 7 | R2 (470 kΩ), other leg → GND | L7 | sense node lands on the GPIO leg of both parts |
+| GPIO 7 | C1 (100 nF), other leg → GND | L7 | across R2; smooths boost-converter ripple for the ADC |
+| GND | battery / boost ground | L22 / R1 | the divider must share the board's common ground |
 
 Why it's wired this way:
 
@@ -144,14 +146,15 @@ Why it's wired this way:
 - **Sense node = half the pack** — 1.5–2.1 V sits comfortably inside the
   ADC's ~0–3.1 V window at 11 dB attenuation; firmware multiplies by 2
   (`BATTERY_SENSE_DIVIDER`).
-- **GPIO 14, not 20/21** — the sense pin must be ADC-capable: GPIO 20 is
-  native USB D− and GPIO 21 has no ADC channel on ESP32-S3. GPIO 14
-  (ADC2_CH3, left header pos 20) is the ADC spare right beside 5V/GND
-  (pos 21/22), keeping the divider wiring short.
+- **GPIO 7, not 20/21 or 14** — the runtime battery gauge needs a pin the
+  Wi-Fi driver never claims: that means ADC1, i.e. GPIO 1–10, and GPIO 7
+  is the free one (left header pos 7, spare since the v3.44 PCB rev).
+  GPIO 21 has no ADC channel on ESP32-S3, GPIO 20 is native USB D−, and
+  the ADC2 pins (including GPIO 14) go blind once Wi-Fi starts.
 - **After wiring**: select **Board V1.1 (battery sense)** in the setup
-  portal and reboot — that's what enables the voltage check. Don't select
-  V1.1 on a board without the divider; a floating ADC pin can read like a
-  dead pack.
+  portal and reboot — that's what enables the boot check, the asleep
+  rechecks, and the on-screen battery gauge. Don't select V1.1 on a board
+  without the divider; a floating ADC pin can read like a dead pack.
 
 ### Power/ground summary
 

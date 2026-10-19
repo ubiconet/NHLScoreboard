@@ -117,22 +117,26 @@ static const char* NETWORK_HOSTNAME = "nhl-scoreboard";
 // V1.1 on a board without the divider — a floating ADC pin can read like
 // a dead pack (the gate's >0.5 V plausibility guard only rejects a dead
 // short, not noise).
-// Sense pin: GPIO 14 = ADC2_CH3, left header pos 20 — the ADC-capable
-// spare closest to the power positions (5V on pos 21, GND on pos 22), so
-// the divider wiring stays short. Note GPIO 21 (also near power) has no
-// ADC channel on ESP32-S3 and can't serve as the sense pin. ADC2 is
-// claimed by Wi-Fi once it starts, so the gate reads the divider only at
-// power-on and on sleep rechecks — both before Wi-Fi comes up. Divider
-// wiring: BAT+ (after the switch / boost input +) --[470k]--
-// BATTERY_SENSE_PIN --[470k]-- GND (left header pos 22 is beside it),
-// with 100 nF across the lower resistor.
-static const int BATTERY_SENSE_PIN = 14;           // ADC2_CH3, left header pos 20
+// Sense pin: GPIO 7 = ADC1_CH6, left header pos 7 — spare since the v3.44
+// PCB rev moved the guest penalty LEDs to 11/12. It sits on ADC1, which
+// Wi-Fi never claims, so the divider stays readable at RUNTIME (the
+// on-screen battery gauge samples it while the board runs), not only at
+// the boot check. Note GPIO 21 (near the power rails) has no ADC channel
+// on ESP32-S3 and GPIO 20 is native USB D−, so neither can sense.
+// Divider wiring: BAT+ (after the switch / boost input +) --[470k]--
+// BATTERY_SENSE_PIN --[470k]-- GND, with 100 nF across the lower
+// resistor (wiring diagram in docs/assembly.md).
+static const int BATTERY_SENSE_PIN = 7;            // ADC1_CH6, left header pos 7
 static const float BATTERY_SENSE_DIVIDER = 2.0f;   // (R1 + R2) / R2
 static const float BATTERY_LOW_VOLTS = 3.40f;      // boot reading that trips shutdown
 static const float BATTERY_RESUME_VOLTS = 3.90f;   // re-check resume (charger present)
 static const uint32_t BATTERY_RECHECK_MS = 900000; // silent re-check while asleep (15 min)
 static const uint8_t BATTERY_BAD_BOOT_STREAK = 3;  // bad boots before the backstop trips
 static const uint32_t BATTERY_HEALTHY_BOOT_MS = 90000; // uptime that marks a boot healthy
+// Runtime gauge sampling (serviceBatteryMonitor paces itself to this).
+// Quarter-step charge changes take minutes; 30 s is far finer than the
+// display ever shows, and each sample is a ~10 ms median-of-5 on core 0.
+static const uint32_t BATTERY_MONITOR_INTERVAL_MS = 30000;
 
 // True on boards whose hardware carries the battery-sense divider (V1.1+).
 // boardVersion comes from the portal's board-version setting (NVS); the
@@ -180,11 +184,13 @@ static const uint32_t NHL_UPCOMING_GAMES_ROTATE_MS = 8000;  // Show each upcomin
 // NHL_SCORE_BLINK_HALF_MS off, before returning to the steady display.
 static const uint8_t NHL_SCORE_BLINK_FLASHES = 3;
 static const uint32_t NHL_SCORE_BLINK_HALF_MS = 250;
-// Week look-ahead (/v1/schedule, Mon-Sun): the upcoming-games carousel
-// spans a full week. The week cache refreshes at most 4x/day — future-day
-// game states never change (today's half of the upcoming doc always comes
-// from the fresh day-score poll) — and failed refreshes back off before
-// retrying into a possibly-flaky TLS window.
+// Week look-ahead (/v1/schedule, Mon-Sun): TWO week caches — the one
+// containing today and the next — keep the upcoming-games horizon at
+// >= 7 days out (a single Mon-Sun cache empties late in the week). Each
+// cache refreshes on its own TTL/rollover — future-day states never
+// change (today's half of the upcoming doc always comes from the fresh
+// day-score poll) — and failed refreshes back off before retrying into
+// a possibly-flaky TLS window.
 static const uint32_t NHL_WEEK_SCHEDULE_TTL_MS = 6UL * 60UL * 60UL * 1000UL;
 static const uint32_t NHL_WEEK_SCHEDULE_RETRY_MS = 15UL * 60UL * 1000UL;
 // Division standings: rows only change after games — a few refreshes a
