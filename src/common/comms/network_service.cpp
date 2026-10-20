@@ -613,14 +613,7 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <select id="board-version" name="board_version">)html";
   page += buildBoardOptionsHtml(selectedBoardVersion);
   page += R"html(</select>
-<p class="hint">A board-version change takes effect after reboot.</p>)html";
-  if (batterySenseEnabled(getBoardVersion())) {
-    page += R"html(
-<hr><h3>Battery</h3>
-<p class="hint" id="battStatus">Reading battery...</p>
-<p class="hint">Live pack voltage from the V1.1 sense divider (updates every 5 s). Expected: ~4.2 V full, sinking to ~3.4 V empty. A steady ~5 V means the divider is tapped on the boost output instead of the raw battery; a jumping or zero reading means the divider is not on GPIO 7.</p>)html";
-  }
-  page += R"html(
+<p class="hint">A board-version change takes effect after reboot.</p>
 <hr><h3>Display Time Zone</h3>
 <label for="tz">Used for game times, countdowns, and the idle clock</label>
 <select id="tz" name="tz">)html";
@@ -652,11 +645,9 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <button id="demoStart" type="button" style="margin-top:8px" onclick="setDemo(true)">Start Game Demo</button>
 <button id="demoStop" type="button" style="margin-top:8px;background:#2a5daf;color:#fff;display:none" onclick="setDemo(false)">Stop Game Demo</button>
 <p class="hint" id="demoStatus">Demo is stopped.</p>
-<hr><h3>Display Test</h3>
-<p class="hint">Cycles every display once (matrices, clock, penalty LEDs, screen), holds everything on for 2 seconds, then returns to what was showing.</p>
-<button type="button" style="margin-top:8px" onclick="dtest()">Run Display Test</button>
-<button type="button" style="margin-top:8px;background:#2a5daf;color:#fff" onclick="atest()">Play Test Audio</button>
-<p class="hint" id="dtestStatus">&nbsp;</p>
+<hr><h3>Diagnostics</h3>
+<p class="hint">Battery voltage and remaining charge, the screen self-test, and the audio test.</p>
+<button type="button" style="margin-top:8px" onclick="location.href='/diag'">Open Diagnostics</button>
 <hr><h3>Firmware Update</h3>
 <p class="hint">Installed: )html" + String(FIRMWARE_VERSION) + R"html(. Automatic checks run at boot.</p>
 <button type="button" style="margin-top:8px" onclick="otaCheck()">Check for Update Now</button>
@@ -666,8 +657,6 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <p><a style="color:#f5c400" href="/update">Upload a firmware file manually</a></p>
 <script>
 var otaWaiting=false;
-function dtest(){document.getElementById('dtestStatus').textContent='Running - watch the scoreboard...';fetch('/display/test',{method:'POST'}).then(function(){setTimeout(function(){document.getElementById('dtestStatus').textContent='Done.'},18000)}).catch(function(){document.getElementById('dtestStatus').textContent='Request failed.'})}
-function atest(){fetch('/audio/test',{method:'POST'})}
 function setDemo(running){fetch(running?'/demo/start':'/demo/stop',{method:'POST'}).then(function(r){if(!r.ok)throw new Error('request failed');paintDemo(running)}).catch(function(){document.getElementById('demoStatus').textContent='Demo request failed.'})}
 function paintDemo(running){document.getElementById('demoStart').style.display=running?'none':'block';document.getElementById('demoStop').style.display=running?'block':'none';document.getElementById('demoStatus').textContent=running?'Game demo is running on the scoreboard.':'Demo is stopped.'}
 fetch('/demo/status').then(function(r){return r.json()}).then(function(s){paintDemo(s.running)}).catch(function(){document.getElementById('demoStatus').textContent='Unable to read demo status.'});
@@ -679,11 +668,6 @@ else if(s.stage==='FAILED'){otaWaiting=false;e.textContent='Update failed (netwo
 else if(otaWaiting&&s.checked&&!s.ok){otaWaiting=false;e.textContent='Check failed - this network may block GitHub. Use the manual upload below.'}
 else if(otaWaiting&&s.checked&&s.ok){otaWaiting=false;e.textContent='No update available - firmware is current.'}
 })},2000);
-var battEl=document.getElementById('battStatus');
-if(battEl){setInterval(function(){fetch('/battery/status').then(function(r){return r.json()}).then(function(s){
-if(!s.present){battEl.textContent='Battery sensing is disabled for this board version.';return}
-battEl.textContent=s.volts>0.5?(s.volts.toFixed(2)+' V \u2014 '+(s.quarters>4?'reading...':(s.quarters+'/4 charge'))):'No reading yet.';
-})},5000)}
 </script>
 </main></body></html>)html";
   page.replace("@@NAME@@", netBranding.deviceName);
@@ -696,19 +680,64 @@ void serveStatus() {
   server.send(200, "application/json", String("{\"state\":\"") + name + "\"}");
 }
 
-// Live pack voltage for the setup page's Battery section (V1.1 boards —
-// the section itself is only rendered when the saved board version has
-// the sense divider). quarters > 4 means "no trustworthy sample yet".
+// Live pack voltage for the diagnostics page (V1.1 boards). percent and
+// quarters arrive as 255 when no trustworthy sample exists yet.
 void serveBatteryStatus() {
   markPortalActivity();
   if (!batterySenseEnabled(getBoardVersion())) {
     server.send(200, "application/json", "{\"present\":false}");
     return;
   }
-  char buf[64];
-  snprintf(buf, sizeof(buf), "{\"present\":true,\"volts\":%.2f,\"quarters\":%d}",
-           power::batteryVolts(), (int)power::batteryQuarters());
+  char buf[72];
+  snprintf(buf, sizeof(buf),
+           "{\"present\":true,\"volts\":%.2f,\"percent\":%d,\"quarters\":%d}",
+           power::batteryVolts(), (int)power::batteryPercent(),
+           (int)power::batteryQuarters());
   server.send(200, "application/json", buf);
+}
+
+// Diagnostics page (/diag): battery status, the screen self-test, and
+// the audio test — the hardware-checking tools pulled off the main setup
+// page so configuration and diagnosis don't crowd each other.
+void serveDiagnosticsPage() {
+  markPortalActivity();
+  server.sendHeader("Cache-Control", "no-store");
+  String page = R"html(<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>@@NAME@@ Diagnostics</title><style>
+body{margin:0;background:#061b46;color:#fff;font:16px system-ui,sans-serif}
+main{max-width:440px;margin:5vh auto;padding:24px;background:#0b2b62;border:2px solid #dfe9ff;border-radius:8px}
+h1{margin-top:0;font-size:24px}h3{margin-bottom:6px}
+button{margin-top:12px;width:100%;padding:12px;background:#f5c400;border:0;border-radius:4px;font-weight:700;font-size:16px;color:#000;cursor:pointer}
+.hint{color:#c5d3ee;font-size:14px;line-height:1.4}
+.readout{font-size:22px;font-weight:700;color:#f5c400;margin:8px 0 4px}
+hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
+</style></head><body><main><h1>@@NAME@@ Diagnostics</h1>
+<h3>Battery</h3>
+<p class="readout" id="battReadout">Reading battery...</p>
+<p class="hint">Live pack voltage and estimated remaining charge for the 3.7 V LiPo (refreshes every 5 s). Voltage-based estimate: honest to roughly &plusmn;15 points through the flat middle of the discharge curve and conservative while the scoreboard is drawing hard. Full is ~4.2 V, empty ~3.4 V; the low-battery shutdown trips at 3.4 V.</p>
+<hr><h3>Screen Self-Test</h3>
+<p class="hint">Cycles every display once (matrices, clock, penalty LEDs, screen), holds everything on for 2 seconds, then returns to what was showing.</p>
+<button type="button" onclick="dtest()">Run Display Test</button>
+<p class="hint" id="dtestStatus">&nbsp;</p>
+<hr><h3>Audio Test</h3>
+<p class="hint">Plays the goal horn over the speaker.</p>
+<button type="button" onclick="atest()">Play Test Audio</button>
+<hr><button type="button" onclick="location.href='/'">Back to Setup</button>
+<script>
+function pollBatt(){fetch('/battery/status').then(function(r){return r.json()}).then(function(s){var e=document.getElementById('battReadout');
+if(!s.present){e.textContent='Battery sensing is disabled for this board version.';return}
+if(s.volts<=0.5){e.textContent='No reading yet.';return}
+var pct=s.percent>100?'reading...':(s.percent+'% remaining');
+var q=s.quarters>4?'--':(s.quarters+'/4 on screen');
+e.textContent=s.volts.toFixed(2)+' V \u2014 '+pct+' ('+q+')';
+}).catch(function(){document.getElementById('battReadout').textContent='Unable to read battery.'})}
+pollBatt();setInterval(pollBatt,5000);
+function dtest(){document.getElementById('dtestStatus').textContent='Running - watch the scoreboard...';fetch('/display/test',{method:'POST'}).then(function(){setTimeout(function(){document.getElementById('dtestStatus').textContent='Done.'},18000)}).catch(function(){document.getElementById('dtestStatus').textContent='Request failed.'})}
+function atest(){fetch('/audio/test',{method:'POST'})}
+</script>
+</main></body></html>)html";
+  page.replace("@@NAME@@", netBranding.deviceName);
+  server.send(200, "text/html", page);
 }
 
 void handleDisplayTest() {
@@ -1184,6 +1213,7 @@ void registerPortalRoutes() {
   server.on("/trivia/exit", HTTP_POST, handleTriviaExit);
   server.on("/ota/status", HTTP_GET, serveOtaStatus);
   server.on("/battery/status", HTTP_GET, serveBatteryStatus);
+  server.on("/diag", HTTP_GET, serveDiagnosticsPage);
   server.on("/update", HTTP_POST, handleUpdateResult, handleUpdateUpload);
   server.onNotFound(redirectToPortal);
 }

@@ -52,7 +52,10 @@ without surprises.
     threshold. On V1.1 boards a quarter-step battery icon
     (`common/ui/battery_indicator`, sampled by `serviceBatteryMonitor()`
     on core 0 every 30 s) sits top-right on the waiting + live screens;
-    it stays hidden on boards without the divider.
+    it stays hidden on boards without the divider. The portal's
+    diagnostics page (`/diag`) shows the live pack voltage, the estimated
+    remaining charge (LiPo discharge-curve lookup, smoothed), and the
+    display/audio self-tests.
 - **Firmware:** Arduino-ESP32 framework, PlatformIO build system.
 - **Build envs:**
   - `esp32-s3-devkitc-1` → USB CDC upload.

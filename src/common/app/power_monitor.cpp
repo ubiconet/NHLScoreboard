@@ -67,19 +67,43 @@ void journalDied(uint8_t value) {
 // Float/uint8 writes are single aligned stores, so the render core can
 // sample them without a lock — same discipline as the fetch diagnostics.
 float sRuntimeVolts = 0.0f;    // last runtime sample; 0 = unknown
+float sSmoothedVolts = 0.0f;   // EMA of samples; 0 = none yet
 uint8_t sRuntimeQuarters = 0xFF;
+uint8_t sRuntimePercent = 0xFF;
 uint32_t sLastMonitorAt = 0;
 
-// Quarter tiers for a LiPo under boost-converter load (sag depresses the
-// reading ~0.1-0.2 V while running, so the tiers sit below the
-// open-circuit equivalents). Tiers, not a percentage: the flat middle of
-// the LiPo curve can't honestly resolve more than quarters.
-uint8_t voltsToQuarters(float v) {
-  if (v >= 3.95f) return 4;
-  if (v >= 3.78f) return 3;
-  if (v >= 3.60f) return 2;
-  if (v >= 3.44f) return 1;
-  return 0;
+// State of charge from a piecewise-linear LiPo discharge curve (3.7 V
+// nominal 1S pack). Voltage-only fuel gauging is inherently coarse — the
+// curve is flat through the middle and the boost converter's load sags
+// the pack ~0.1-0.2 V (under-reading by up to ~20 points while running)
+// — but it is the honest maximum for a divider-only sense circuit; a
+// true gauge needs a fuel-gauge IC.
+uint8_t voltsToPercent(float v) {
+  static const struct { float v; uint8_t pct; } kCurve[] = {
+      {3.50f, 0},  {3.55f, 3},  {3.60f, 5},  {3.65f, 10}, {3.70f, 15},
+      {3.75f, 25}, {3.80f, 35}, {3.85f, 45}, {3.90f, 55}, {3.95f, 65},
+      {4.00f, 73}, {4.05f, 80}, {4.10f, 87}, {4.15f, 93}, {4.20f, 100},
+  };
+  constexpr int kPoints = sizeof(kCurve) / sizeof(kCurve[0]);
+  if (v <= kCurve[0].v) return 0;
+  for (int i = 1; i < kPoints; ++i) {
+    if (v < kCurve[i].v) {
+      float span = kCurve[i].v - kCurve[i - 1].v;
+      float f = (v - kCurve[i - 1].v) / span;
+      float pct = kCurve[i - 1].pct +
+                  f * (kCurve[i].pct - kCurve[i - 1].pct) + 0.5f;
+      return (uint8_t)pct;
+    }
+  }
+  return 100;
+}
+
+// Quarter segments round UP within their bucket (75% still shows 3/4
+// only at exactly the bucket; 76% shows 4/4) — a battery gauge should
+// read optimistically at segment boundaries, not flap between them.
+uint8_t percentToQuarters(uint8_t p) {
+  uint8_t q = (uint8_t)((p + 24) / 25);
+  return q > 4 ? 4 : q;
 }
 
 }  // namespace
@@ -187,17 +211,27 @@ void serviceBatteryMonitor() {
   // Plausibility guard: a 1S LiPo never sits above ~4.3 V. A higher
   // reading means the divider taps the boost output (~5 V rail) or the
   // pin floats — hide the gauge rather than show a lying "full".
-  // batteryVolts() stays raw so the setup portal can display the real
-  // number for diagnosis.
-  sRuntimeQuarters = (sRuntimeVolts > 0.5f && sRuntimeVolts <= 4.30f)
-                         ? voltsToQuarters(sRuntimeVolts)
-                         : 0xFF;
+  // batteryVolts() stays raw so the diagnostics page can display the
+  // real number.
+  if (sRuntimeVolts > 0.5f && sRuntimeVolts <= 4.30f) {
+    // EMA across the 30 s samples steadies the charge estimate; a fast
+    // alpha (0.25) still tracks a real discharge over minutes.
+    sSmoothedVolts = (sSmoothedVolts <= 0.0f)
+                         ? sRuntimeVolts
+                         : sSmoothedVolts + 0.25f * (sRuntimeVolts - sSmoothedVolts);
+    sRuntimePercent = voltsToPercent(sSmoothedVolts);
+    sRuntimeQuarters = percentToQuarters(sRuntimePercent);
+  } else {
+    sSmoothedVolts = 0.0f;  // resync when a trustworthy reading returns
+    sRuntimePercent = 0xFF;
+    sRuntimeQuarters = 0xFF;
+  }
   static uint8_t sLastLoggedQuarters = 0xFE;
   if (sRuntimeQuarters != sLastLoggedQuarters) {
     sLastLoggedQuarters = sRuntimeQuarters;
     if (sRuntimeQuarters <= 4) {
-      DBG_PRINTF("[POWER] battery %.2f V -> %u/4\n", sRuntimeVolts,
-                 (unsigned)sRuntimeQuarters);
+      DBG_PRINTF("[POWER] battery %.2f V -> %u%% (%u/4)\n", sRuntimeVolts,
+                 (unsigned)sRuntimePercent, (unsigned)sRuntimeQuarters);
     } else {
       DBG_PRINTF("[POWER] battery %.2f V -> implausible, gauge hidden\n",
                  sRuntimeVolts);
@@ -207,5 +241,6 @@ void serviceBatteryMonitor() {
 
 float batteryVolts() { return sRuntimeVolts; }
 uint8_t batteryQuarters() { return sRuntimeQuarters; }
+uint8_t batteryPercent() { return sRuntimePercent; }
 
 }  // namespace power

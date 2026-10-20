@@ -60,4 +60,9 @@ float batteryVolts();
 // the divider never show a gauge.
 uint8_t batteryQuarters();
 
+// Estimated remaining charge, 0..100 percent, from a LiPo discharge-curve
+// lookup over a smoothed voltage (255 = unknown). Voltage-only estimate:
+// conservative under load, honest to roughly +/-15 points mid-discharge.
+uint8_t batteryPercent();
+
 }  // namespace power
