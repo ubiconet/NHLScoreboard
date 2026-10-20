@@ -51,11 +51,14 @@ without surprises.
     resuming on their own once the charger lifts the pack past the resume
     threshold. On V1.1 boards a quarter-step battery icon
     (`common/ui/battery_indicator`, sampled by `serviceBatteryMonitor()`
-    on core 0 every 30 s) sits top-right on the waiting + live screens;
-    it stays hidden on boards without the divider. The portal's
-    diagnostics page (`/diag`) shows the live pack voltage, the estimated
-    remaining charge (LiPo discharge-curve lookup, smoothed), and the
-    display/audio self-tests.
+    on core 0 every 30 s) sits top-right on every operational screen —
+    waiting, live, demo, manual, and trivia; it stays hidden on boards
+    without the divider. Charge levels are linear over 3.4-4.2 V:
+    3.4 V empty, +0.2 V per quarter, 4.2 V full. The board-version
+    setting defaults to V1.1 for never-configured hardware (a saved
+    portal choice always wins). The portal's diagnostics page (`/diag`)
+    shows the live pack voltage, the estimated remaining charge (linear
+    over 3.4-4.2 V, smoothed), and the display/audio self-tests.
 - **Firmware:** Arduino-ESP32 framework, PlatformIO build system.
 - **Build envs:**
   - `esp32-s3-devkitc-1` → USB CDC upload.

@@ -814,6 +814,7 @@ struct ManualDrawn {
   bool drawn = false;
   int homeShots = -1, guestShots = -1;
   int homeScore = -1, guestScore = -1, period = -1, penMask = -1;
+  int battQuarters = -2;  // battery gauge on the guest card (-1 = hidden)
 } md;
 }  // namespace
 
@@ -873,5 +874,21 @@ void renderManual() {
     digitalWrite(homePenalty2Pin(boardVersion), mask & 0x2 ? HIGH : LOW);
     digitalWrite(awayPenalty1Pin(boardVersion), mask & 0x4 ? HIGH : LOW);
     digitalWrite(awayPenalty2Pin(boardVersion), mask & 0x8 ? HIGH : LOW);
+  }
+
+  // Battery gauge (V1.1 boards): rides the guest card's top-right corner,
+  // clear of the centered title. One tiny band push on quarter changes.
+  {
+    uint8_t bq = power::batteryQuarters();
+    int bqNow = (bq <= 4) ? (int)bq : -1;
+    if (bqNow != md.battQuarters) {
+      md.battQuarters = bqNow;
+      if (bqNow >= 0) {
+        drawBatteryIndicator(c, 286, 14, bq);
+      } else {
+        c.fillRect(286, 14, 22, 12, COLOR_CARD);  // clear a stale icon
+      }
+      tftPanel.pushRows(284, 12, 26, 16);
+    }
   }
 }

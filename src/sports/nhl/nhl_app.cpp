@@ -307,7 +307,10 @@ const NetworkBoardOption* boardOptions(size_t& count) {
   return options;
 }
 
-int defaultBoardVersion() { return BOARD_VERSION_V0_1; }
+// Boards default to V1.1 (battery sense): never-configured hardware
+// assumes the current PCB rev. Older boards opt out once in the portal —
+// the saved NVS value always wins over this default.
+int defaultBoardVersion() { return BOARD_VERSION_V1_1; }
 
 TriviaBank triviaBank() {
   static const TriviaBank bank = {

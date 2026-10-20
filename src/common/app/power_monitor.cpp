@@ -72,38 +72,32 @@ uint8_t sRuntimeQuarters = 0xFF;
 uint8_t sRuntimePercent = 0xFF;
 uint32_t sLastMonitorAt = 0;
 
-// State of charge from a piecewise-linear LiPo discharge curve (3.7 V
-// nominal 1S pack). Voltage-only fuel gauging is inherently coarse — the
-// curve is flat through the middle and the boost converter's load sags
-// the pack ~0.1-0.2 V (under-reading by up to ~20 points while running)
-// — but it is the honest maximum for a divider-only sense circuit; a
-// true gauge needs a fuel-gauge IC.
+// State of charge is a straight voltage mapping over the pack's usable
+// window (user-specified levels): BATTERY_LOW_VOLTS (3.4 V) = empty,
+// BATTERY_FULL_VOLTS (4.2 V and above) = full. Voltage-only fuel gauging
+// is inherently coarse — the boost converter's load sags the pack
+// ~0.1-0.2 V (under-reading while running) — but the linear scale keeps
+// the gauge predictable and matches the quarter steps exactly; a true
+// gauge needs a fuel-gauge IC.
 uint8_t voltsToPercent(float v) {
-  static const struct { float v; uint8_t pct; } kCurve[] = {
-      {3.50f, 0},  {3.55f, 3},  {3.60f, 5},  {3.65f, 10}, {3.70f, 15},
-      {3.75f, 25}, {3.80f, 35}, {3.85f, 45}, {3.90f, 55}, {3.95f, 65},
-      {4.00f, 73}, {4.05f, 80}, {4.10f, 87}, {4.15f, 93}, {4.20f, 100},
-  };
-  constexpr int kPoints = sizeof(kCurve) / sizeof(kCurve[0]);
-  if (v <= kCurve[0].v) return 0;
-  for (int i = 1; i < kPoints; ++i) {
-    if (v < kCurve[i].v) {
-      float span = kCurve[i].v - kCurve[i - 1].v;
-      float f = (v - kCurve[i - 1].v) / span;
-      float pct = kCurve[i - 1].pct +
-                  f * (kCurve[i].pct - kCurve[i - 1].pct) + 0.5f;
-      return (uint8_t)pct;
-    }
-  }
-  return 100;
+  float span = BATTERY_FULL_VOLTS - BATTERY_LOW_VOLTS;
+  float pct = (v - BATTERY_LOW_VOLTS) / span * 100.0f + 0.5f;
+  if (pct < 0.0f) return 0;
+  if (pct > 100.0f) return 100;
+  return (uint8_t)pct;
 }
 
-// Quarter segments round UP within their bucket (75% still shows 3/4
-// only at exactly the bucket; 76% shows 4/4) — a battery gauge should
-// read optimistically at segment boundaries, not flap between them.
-uint8_t percentToQuarters(uint8_t p) {
-  uint8_t q = (uint8_t)((p + 24) / 25);
-  return q > 4 ? 4 : q;
+// Quarter segments light at even voltage steps across the same window
+// (0.2 V each): 3.4 = empty, then 3.6 / 3.8 / 4.0 light 1/4..3/4, and
+// 4.2 or above is full. An explicit threshold ladder (not a divided
+// float) keeps the exact boundaries on the lit side.
+uint8_t voltsToQuarters(float v) {
+  const float seg = (BATTERY_FULL_VOLTS - BATTERY_LOW_VOLTS) / 4.0f;
+  if (v >= BATTERY_FULL_VOLTS) return 4;
+  if (v >= BATTERY_FULL_VOLTS - seg) return 3;
+  if (v >= BATTERY_FULL_VOLTS - 2.0f * seg) return 2;
+  if (v >= BATTERY_FULL_VOLTS - 3.0f * seg) return 1;
+  return 0;
 }
 
 }  // namespace
@@ -220,7 +214,7 @@ void serviceBatteryMonitor() {
                          ? sRuntimeVolts
                          : sSmoothedVolts + 0.25f * (sRuntimeVolts - sSmoothedVolts);
     sRuntimePercent = voltsToPercent(sSmoothedVolts);
-    sRuntimeQuarters = percentToQuarters(sRuntimePercent);
+    sRuntimeQuarters = voltsToQuarters(sSmoothedVolts);
   } else {
     sSmoothedVolts = 0.0f;  // resync when a trustworthy reading returns
     sRuntimePercent = 0xFF;

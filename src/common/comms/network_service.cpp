@@ -1470,7 +1470,12 @@ bool isAudioEnabled() {
 int getBoardVersion() {
   if (!boardVersionLoaded) {
     preferences.begin("network", true);
-    selectedBoardVersion = preferences.getInt("board_version", 0);
+    // Default matches the sport's defaultBoardVersion() (V1.1): the
+    // saved portal value always wins; only never-configured hardware
+    // sees the default. This early read runs before
+    // startNetworkServices() fills in netDefaultBoardVersion.
+    selectedBoardVersion =
+        preferences.getInt("board_version", BOARD_VERSION_V1_1);
     preferences.end();
     boardVersionLoaded = true;
   }

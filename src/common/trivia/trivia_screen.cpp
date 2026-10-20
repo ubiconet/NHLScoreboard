@@ -3,10 +3,12 @@
 #include <Adafruit_ST7789.h>
 
 #include "config.h"
+#include "common/app/power_monitor.h"
 #include "common/hal/count_leds.h"
 #include "common/hal/led_matrix.h"
 #include "common/hal/tft_panel.h"
 #include "common/hal/tm1637.h"
+#include "common/ui/battery_indicator.h"
 #include "common/ui/gfx.h"
 #include "common/ui/qr.h"
 #include "trivia_engine.h"
@@ -52,6 +54,7 @@ struct Drawn {
   uint8_t correct = 255;
   uint8_t strikes = 255;
   uint8_t players = 255;  // MP lobby: repaint when sign-ups change
+  int batt = -2;          // battery quarters last drawn into the header
   uint16_t score = 9999;
   uint16_t lastPoints = 9999;
   uint16_t high = 9999;
@@ -158,7 +161,7 @@ void drawHeader(const TriviaView& v) {
     snprintf(q, sizeof(q), "Q%u/%u", v.questionIndex + 1,
              (unsigned)v.totalQuestions);
     c.setTextColor(ST77XX_WHITE);
-    drawCenteredText(c, q, 160, 1);
+    drawCenteredText(c, q, 152, 1);
     char sc[14];
     if (v.mp) {
       // Party mode: the number to watch is the leader's score (player
@@ -172,15 +175,19 @@ void drawHeader(const TriviaView& v) {
       snprintf(sc, sizeof(sc), "%u", v.score);
     }
     c.setTextColor(COLOR_GOLD);
-    c.setCursor(312 - (int)strlen(sc) * 12, 1);
+    c.setCursor(284 - (int)strlen(sc) * 12, 1);
     c.print(sc);
   } else if (!v.mp && v.highScore > 0) {
     char best[16];
     snprintf(best, sizeof(best), "BEST %u", v.highScore);
     c.setTextColor(COLOR_MUTED);
-    c.setCursor(312 - (int)strlen(best) * 12, 1);
+    c.setCursor(284 - (int)strlen(best) * 12, 1);
     c.print(best);
   }
+  // Battery gauge (V1.1 boards) owns the far top-right corner of every
+  // trivia screen — the header strip is the one element they all share.
+  uint8_t bq = power::batteryQuarters();
+  if (bq <= 4) drawBatteryIndicator(c, 290, 3, bq);
 }
 
 void drawBar(int pct, bool low) {  // pct: 0..100 of the answer window
@@ -515,6 +522,23 @@ void renderScreen(uint32_t nowMs) {
       strlcpy(d.highName, v.highName, sizeof(d.highName));
       // Lightning answer: arm the matrix fireworks for the reveal.
       if (v.phase == TRIVIA_REVEAL && v.fireworks) fw.active = true;
+    }
+    // Every phase-change draw went through drawHeader, which drew the
+    // battery too — sync the cache so the incremental check below stays
+    // quiet until the quarters actually change.
+    uint8_t bq0 = power::batteryQuarters();
+    d.batt = (bq0 <= 4) ? (int)bq0 : -1;
+  }
+
+  // Battery gauge: quarter changes are rare (30 s samples, smoothed), so
+  // the header band repaints only when the lit count moves.
+  {
+    uint8_t bq = power::batteryQuarters();
+    int bqNow = (bq <= 4) ? (int)bq : -1;
+    if (bqNow != d.batt) {
+      d.batt = bqNow;
+      drawHeader(v);
+      tftPanel.pushRows(0, 0, 320, kHeaderH);
     }
   }
 

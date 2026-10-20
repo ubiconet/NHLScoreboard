@@ -128,7 +128,9 @@ static const char* NETWORK_HOSTNAME = "nhl-scoreboard";
 // resistor (wiring diagram in docs/assembly.md).
 static const int BATTERY_SENSE_PIN = 7;            // ADC1_CH6, left header pos 7
 static const float BATTERY_SENSE_DIVIDER = 2.0f;   // (R1 + R2) / R2
-static const float BATTERY_LOW_VOLTS = 3.40f;      // boot reading that trips shutdown
+static const float BATTERY_LOW_VOLTS = 3.40f;      // boot reading that trips shutdown;
+                                                   //   also the gauge's EMPTY floor
+static const float BATTERY_FULL_VOLTS = 4.20f;     // gauge FULL — at/above = 100% (4/4)
 static const float BATTERY_RESUME_VOLTS = 3.90f;   // re-check resume (charger present)
 static const uint32_t BATTERY_RECHECK_MS = 900000; // silent re-check while asleep (15 min)
 static const uint8_t BATTERY_BAD_BOOT_STREAK = 3;  // bad boots before the backstop trips
