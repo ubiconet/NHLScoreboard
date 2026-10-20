@@ -594,9 +594,9 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
   page += R"html(</select>
 <label for="ssid">Wi-Fi Network Name</label><input id="ssid" name="ssid" value=")html";
   page += htmlEscape(savedSsid);
-  page += R"html(" required maxlength="32" autocomplete="off">
+  page += R"html(" maxlength="32" autocomplete="off">
 <label for="password">Wi-Fi Password</label><input id="password" name="password" type="password" maxlength="63" autocomplete="off">
-<p class="hint">Leave the password blank and the network unchanged to save team preferences without touching the connection.</p>
+<p class="hint">Leave the password blank and the network unchanged to save team preferences without touching the connection. Clear the network name and save to disconnect the scoreboard — its setup access point comes back.</p>
 <hr>
 <h3>Favorite Team Priorities</h3>
 <label for="team1">Priority 1 Team (Primary)</label><select id="team1" name="team1">)html";
@@ -608,12 +608,6 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <label for="team3">Priority 3 Team</label><select id="team3" name="team3">)html";
   page += buildTeamOptionsHtml(prefTeam3);
   page += R"html(</select>
-<hr><h3>Board Version</h3>
-<label for="board-version">Select the wiring used by this scoreboard</label>
-<select id="board-version" name="board_version">)html";
-  page += buildBoardOptionsHtml(selectedBoardVersion);
-  page += R"html(</select>
-<p class="hint">A board-version change takes effect after reboot.</p>
 <hr><h3>Display Time Zone</h3>
 <label for="tz">Used for game times, countdowns, and the idle clock</label>
 <select id="tz" name="tz">)html";
@@ -700,6 +694,8 @@ body{margin:0;background:#061b46;color:#fff;font:16px system-ui,sans-serif}
 main{max-width:440px;margin:5vh auto;padding:24px;background:#0b2b62;border:2px solid #dfe9ff;border-radius:8px}
 h1{margin-top:0;font-size:24px}h3{margin-bottom:6px}
 button{margin-top:12px;width:100%;padding:12px;background:#f5c400;border:0;border-radius:4px;font-weight:700;font-size:16px;color:#000;cursor:pointer}
+label{display:block;margin:14px 0 4px;font-weight:600}
+select{box-sizing:border-box;width:100%;padding:10px;border:0;border-radius:4px;font-size:15px}
 .hint{color:#c5d3ee;font-size:14px;line-height:1.4}
 .readout{font-size:22px;font-weight:700;color:#f5c400;margin:8px 0 4px}
 hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
@@ -719,6 +715,14 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <button id="demoStart" type="button" style="margin-top:8px" onclick="setDemo(true)">Start Game Demo</button>
 <button id="demoStop" type="button" style="margin-top:8px;background:#2a5daf;color:#fff;display:none" onclick="setDemo(false)">Stop Game Demo</button>
 <p class="hint" id="demoStatus">Demo is stopped.</p>
+<hr><h3>Board Version</h3>
+<form method="post" action="/save">
+<label for="board-version">Select the wiring used by this scoreboard</label>
+<select id="board-version" name="board_version">)html";
+  page += buildBoardOptionsHtml(selectedBoardVersion);
+  page += R"html(</select>
+<p class="hint">A board-version change takes effect after reboot.</p>
+<button type="submit">Save Board Version</button></form>
 <hr><button type="button" onclick="location.href='/'">Back to Setup</button>
 <script>
 function pollBatt(){fetch('/battery/status').then(function(r){return r.json()}).then(function(s){var e=document.getElementById('battReadout');
@@ -988,6 +992,9 @@ void handleTriviaExit() {
 
 void saveNetwork() {
   markPortalActivity();
+  // Which form posted: the setup page always carries the team selects;
+  // the diagnostics page posts only the board-version field.
+  bool prefsForm = server.hasArg("team1");
   int requestedBoardVersion = selectedBoardVersion;
   if (server.hasArg("board_version")) {
     requestedBoardVersion = server.arg("board_version").toInt();
@@ -1019,8 +1026,12 @@ void saveNetwork() {
   // and the Wi-Fi connection must be left alone.
   bool networkChanging = !pendingSsid.isEmpty() &&
                          (pendingSsid != savedSsid || !pendingPassword.isEmpty());
+  // A blank network name on the full setup form means "disconnect": the
+  // saved credentials are cleared and the board returns to its setup
+  // access point for reconfiguration.
+  bool forgetting = prefsForm && pendingSsid.isEmpty() && !savedSsid.isEmpty();
 
-  if (savedSsid.isEmpty() && !networkChanging) {
+  if (prefsForm && savedSsid.isEmpty() && !networkChanging) {
     server.send(400, "text/plain", "Wi-Fi network name is required");
     return;
   }
@@ -1037,6 +1048,9 @@ void saveNetwork() {
   if (networkChanging) {
     preferences.putString("ssid", pendingSsid);
     preferences.putString("password", pendingPassword);
+  } else if (forgetting) {
+    preferences.remove("ssid");
+    preferences.remove("password");
   }
   preferences.end();
   selectedBoardVersion = requestedBoardVersion;
@@ -1044,6 +1058,25 @@ void saveNetwork() {
 
   if (tzChanged) {
     applyTimezone();  // game times + idle clock follow on the next render
+  }
+
+  if (forgetting) {
+    // Respond BEFORE tearing the link down so the phone actually sees
+    // the confirmation; the on-screen AP instructions carry the exact
+    // network name and portal address to rejoin on.
+    server.send(200, "text/html", R"html(<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Disconnected</title><style>body{margin:0;background:#061b46;color:#fff;font:16px system-ui,sans-serif}
+main{max-width:420px;margin:8vh auto;padding:28px;background:#0b2b62;border:2px solid #dfe9ff;border-radius:8px;text-align:center}
+</style></head><body><main><h1>Wi-Fi Disconnected</h1>
+<p>The saved network was cleared and the scoreboard left your Wi-Fi.</p>
+<p>Its setup access point is back: check the scoreboard screen for the network name and portal address, join it, and configure a new network.</p>
+</main></body></html>)html");
+    delay(800);  // let the response flush before the station link drops
+    savedSsid = "";
+    savedPassword = "";
+    WiFi.disconnect();
+    enterProvisioning();
+    return;
   }
 
   if (!networkChanging) {
@@ -1057,7 +1090,9 @@ main{max-width:420px;margin:8vh auto;padding:28px;background:#0b2b62;border:2px 
 <p>Team priorities and time zone updated — the scoreboard picks them up within a minute.</p>
 <p>Board wiring selection saved; reboot the scoreboard to apply it.</p>
 <p>Wi-Fi settings were not changed.</p>
-<p><a style="color:#f5c400" href="/">Back to configuration</a></p></main></body></html>)html";
+<p><a style="color:#f5c400" href=")html";
+    response += prefsForm ? "/" : "/diag";
+    response += R"html(">Back</a></p></main></body></html>)html";
     server.send(200, "text/html", response);
     return;
   }
