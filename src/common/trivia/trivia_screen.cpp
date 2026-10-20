@@ -61,11 +61,11 @@ struct Drawn {
   int leds = -1;
 } d;
 
-// ---- Fireworks (quick answers) ----
-// ~1 s particle burst across the three matrices for a correct answer
-// locked inside the first three seconds: expanding shells with random spark
-// pixels that scatter and fade, cascading module to module. Runs one
-// frame per render pass — never blocks the loop.
+// ---- Fireworks (80+ point answers) ----
+// ~1 s particle burst across the three matrices for an answer scoring 80+
+// of the 100 possible points: expanding shells with random spark pixels
+// that scatter and fade, cascading module to module. Runs one frame per
+// render pass — never blocks the loop.
 constexpr int FW_FRAMES = 13;
 constexpr uint32_t FW_FRAME_MS = 80;
 struct Fireworks {

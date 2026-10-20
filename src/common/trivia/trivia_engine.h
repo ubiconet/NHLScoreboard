@@ -48,6 +48,43 @@ struct TriviaBank {
   size_t hardCount;
 };
 
+// ---- Round rules (also described on the web page) ----
+// Defined ahead of the multiplayer block: the MP capacity limits and the
+// board-row struct build on these.
+static const uint8_t TRIVIA_NO_LOCK = 255;
+static const uint8_t TRIVIA_ROUND_QUESTIONS = 15;
+static const uint8_t TRIVIA_QUESTIONS_PER_LEVEL = 5;  // 5 easy, 5 medium, 5 hard
+static const uint32_t TRIVIA_QUESTION_MS = 10000;     // answer window per question
+static const uint32_t TRIVIA_REVEAL_MS = 4000;        // answer/result display
+static const uint8_t TRIVIA_MAX_STRIKES = 3;          // 3rd wrong answer ends the run
+static const uint16_t TRIVIA_MAX_POINTS_PER_Q = 100;  // top score per question
+static const size_t TRIVIA_NAME_MAX = 12;             // stored name length cap
+static const uint16_t TRIVIA_FIREWORKS_MIN_POINTS = 80;  // score this high = fireworks
+
+// ---- Multiplayer party mode ----
+// One host (the /trivia controller page) opens a lobby, players sign up
+// from their own phones at /play, and everyone plays the same questions
+// in lockstep. The device becomes the room display: standings between
+// questions, winner + matrix fireworks at the end. No strikes and no
+// early exit — everyone plays every question, ranking is by score.
+// Player capacity is bounded on purpose: every phone polls once a second
+// through the single-threaded web server (see the capacity notes in
+// AGENTS.md) — 15 keeps request rate and per-connection heap comfortable.
+static const uint8_t TRIVIA_MP_MAX_PLAYERS = 15;
+static const uint8_t TRIVIA_MP_DEFAULT_QUESTIONS = 15;
+static const uint8_t TRIVIA_MP_MIN_QUESTIONS = 3;
+static const uint8_t TRIVIA_MP_MAX_QUESTIONS = TRIVIA_ROUND_QUESTIONS;
+static const uint8_t TRIVIA_MP_DEFAULT_SECONDS = 10;
+static const uint8_t TRIVIA_MP_MIN_SECONDS = 5;
+static const uint8_t TRIVIA_MP_MAX_SECONDS = 60;
+static const uint32_t TRIVIA_MP_RANKINGS_MS = 3000;  // standings between questions
+
+// One leaderboard row shipped in the view (name + score, top 5).
+struct TriviaBoardRow {
+  char name[TRIVIA_NAME_MAX + 1];
+  uint16_t score;
+};
+
 // What the render core draws. POD, published through a SnapshotChannel on
 // every state change; the countdown itself is computed render-side from
 // questionEndMs so it needs no per-second publishes.
@@ -55,6 +92,7 @@ struct TriviaView {
   bool valid;
   uint8_t phase;            // TriviaPhaseValue
   uint8_t questionIndex;    // 0-based, valid while a round runs
+  uint8_t totalQuestions;   // Q-counter denominator (configurable in MP)
   uint8_t lockedChoice;     // 0..3, 255 = none locked yet
   uint8_t correctIndex;     // meaningful at REVEAL / GAME_OVER only
   bool lastCorrect;         // reveal/gameover: outcome of the last question
@@ -63,12 +101,20 @@ struct TriviaView {
   uint8_t strikes;          // wrong answers so far (3 = game over)
   uint32_t questionEndMs;   // QUESTION phase: millis() deadline
   const TriviaQuestion* question;  // null in lobby/game over
-  bool fireworks;           // reveal: fast correct — celebrate on matrices
+  bool fireworks;           // reveal: 80+ point answer — celebrate on matrices
   bool roundComplete;       // game over: survived all 15 questions
   bool newHigh;             // game over: beat the stored record
   char highName[16];        // stored record holder ("" until named)
   uint16_t highScore;       // stored record
-  char portalUrl[40];       // lobby: controller URL for the QR code
+  char portalUrl[40];       // lobby: controller/join URL for the QR code
+  // Multiplayer fields (mp == false: ignore everything below).
+  bool mp;                  // a multiplayer session owns the mode
+  uint8_t playerCount;      // players signed up
+  uint8_t correctCount;     // reveal: how many answered right
+  uint8_t topCount;         // rankings/gameover: rows in top[]
+  TriviaBoardRow top[5];    // standings, best first (ties: earlier joiner)
+  char winnerName[TRIVIA_NAME_MAX + 1];  // game over: rank 1
+  uint16_t winnerScore;
 };
 
 enum TriviaPhaseValue : uint8_t {
@@ -76,19 +122,8 @@ enum TriviaPhaseValue : uint8_t {
   TRIVIA_QUESTION = 1,
   TRIVIA_REVEAL = 2,
   TRIVIA_GAME_OVER = 3,
+  TRIVIA_RANKINGS = 4,      // MP only: standings card between questions
 };
-
-static const uint8_t TRIVIA_NO_LOCK = 255;
-
-// Round rules (also described on the web page).
-static const uint8_t TRIVIA_ROUND_QUESTIONS = 15;
-static const uint8_t TRIVIA_QUESTIONS_PER_LEVEL = 5;  // 5 easy, 5 medium, 5 hard
-static const uint32_t TRIVIA_QUESTION_MS = 10000;     // answer window per question
-static const uint32_t TRIVIA_REVEAL_MS = 4000;        // answer/result display
-static const uint8_t TRIVIA_MAX_STRIKES = 3;          // 3rd wrong answer ends the run
-static const uint16_t TRIVIA_MAX_POINTS_PER_Q = 100;  // top score per question
-static const size_t TRIVIA_NAME_MAX = 12;             // stored name length cap
-static const uint32_t TRIVIA_FAST_ANSWER_MS = 3000;   // lock within this = fireworks
 
 namespace trivia {
 
@@ -121,5 +156,29 @@ String buildStateJson();                 // GET /trivia/state (polled by the pag
 bool actionStart();                      // POST /trivia/start — false: no bank
 bool actionAnswer(uint8_t index);        // POST /trivia/answer (a=0..3)
 bool actionName(const char* name);       // POST /trivia/name (name=...)
+
+// ---- Multiplayer party mode (same engine, shared phases) ----
+// Opens the join lobby (false: no bank). Resets any solo round.
+bool mpHostLobby();
+// True while a multiplayer lobby or game owns the mode.
+bool mpSessionActive();
+// Registers a player by (cleaned, unique) name while the lobby is open.
+// Returns the player's token, or 0 when rejected (lobby closed / full /
+// name taken / empty).
+uint16_t mpJoin(const char* name);
+// Host settings, clamped to the ranges above. Only settable in the lobby.
+bool mpSetConfig(uint8_t questions, uint8_t seconds);
+// Closes joining and starts question 1 (false: no players / not lobby).
+bool mpStart();
+// Locks a player's answer during the question window (first lock is final,
+// like solo). Unknown token / wrong phase: rejected silently.
+bool mpAnswer(uint16_t token, uint8_t index);
+// Host page poll: session state, settings, and the live standings.
+String buildMpHostJson();
+// Player page poll: personal state (own lock/result/score/rank + standings).
+// Invalid token: {"ok":false} and the page drops back to the join form.
+String buildMpPlayerJson(uint16_t token);
+// The /play join page served to players' phones.
+String buildMpJoinHtml();
 
 }  // namespace trivia
