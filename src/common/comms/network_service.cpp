@@ -485,7 +485,14 @@ void refreshScanCache() {
     scanActive = false;
     lastScanAt = millis();
   }
-  if (!scanActive && state != ONLINE && millis() - lastScanAt > NETWORK_SCAN_REFRESH_MS) {
+  // Scans run freely while the board isn't connected. Once ONLINE they
+  // run only while someone is using the portal: the scan hops the radio
+  // across channels for ~2-3 s, which starves the link — acceptable
+  // during configuration (feeds already pause for the portal window),
+  // never in the background, and never mid-OTA-download.
+  if (!scanActive && !otaUpdateInProgress() &&
+      millis() - lastScanAt > NETWORK_SCAN_REFRESH_MS &&
+      (state != ONLINE || portalEngaged())) {
     WiFi.scanNetworks(true, true);
     scanActive = true;
   }
@@ -645,6 +652,8 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <a style="color:#f5c400;word-break:break-all" href=")html" + String(OTA_LATEST_BIN_URL) + R"html(">)html" + String(OTA_LATEST_BIN_URL) + R"html(</a></p>
 <p><a style="color:#f5c400" href="/update">Upload a firmware file manually</a></p>
 <script>
+var netSel=document.getElementById('network');
+if(netSel&&netSel.options.length<2&&location.search.indexOf('rescan')<0){setTimeout(function(){location.href='/?rescan=1'},4000)}
 var otaWaiting=false;
 function otaCheck(){otaWaiting=true;document.getElementById('otaStatus').textContent='Checking...';fetch('/ota/check',{method:'POST'})}
 setInterval(function(){fetch('/ota/status').then(function(r){return r.json()}).then(function(s){var e=document.getElementById('otaStatus');
