@@ -14,6 +14,7 @@
 #include <time.h>
 
 #include "config.h"
+#include "common/app/power_monitor.h"
 #include "common/ui/ota_screen.h"
 #include "ota_update.h"
 
@@ -612,7 +613,14 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <select id="board-version" name="board_version">)html";
   page += buildBoardOptionsHtml(selectedBoardVersion);
   page += R"html(</select>
-<p class="hint">A board-version change takes effect after reboot.</p>
+<p class="hint">A board-version change takes effect after reboot.</p>)html";
+  if (batterySenseEnabled(getBoardVersion())) {
+    page += R"html(
+<hr><h3>Battery</h3>
+<p class="hint" id="battStatus">Reading battery...</p>
+<p class="hint">Live pack voltage from the V1.1 sense divider (updates every 5 s). Expected: ~4.2 V full, sinking to ~3.4 V empty. A steady ~5 V means the divider is tapped on the boost output instead of the raw battery; a jumping or zero reading means the divider is not on GPIO 7.</p>)html";
+  }
+  page += R"html(
 <hr><h3>Display Time Zone</h3>
 <label for="tz">Used for game times, countdowns, and the idle clock</label>
 <select id="tz" name="tz">)html";
@@ -671,6 +679,11 @@ else if(s.stage==='FAILED'){otaWaiting=false;e.textContent='Update failed (netwo
 else if(otaWaiting&&s.checked&&!s.ok){otaWaiting=false;e.textContent='Check failed - this network may block GitHub. Use the manual upload below.'}
 else if(otaWaiting&&s.checked&&s.ok){otaWaiting=false;e.textContent='No update available - firmware is current.'}
 })},2000);
+var battEl=document.getElementById('battStatus');
+if(battEl){setInterval(function(){fetch('/battery/status').then(function(r){return r.json()}).then(function(s){
+if(!s.present){battEl.textContent='Battery sensing is disabled for this board version.';return}
+battEl.textContent=s.volts>0.5?(s.volts.toFixed(2)+' V \u2014 '+(s.quarters>4?'reading...':(s.quarters+'/4 charge'))):'No reading yet.';
+})},5000)}
 </script>
 </main></body></html>)html";
   page.replace("@@NAME@@", netBranding.deviceName);
@@ -681,6 +694,21 @@ void serveStatus() {
   markPortalActivity();
   const char* name = state == ONLINE ? "online" : (state == CONNECTING ? "connecting" : "provisioning");
   server.send(200, "application/json", String("{\"state\":\"") + name + "\"}");
+}
+
+// Live pack voltage for the setup page's Battery section (V1.1 boards —
+// the section itself is only rendered when the saved board version has
+// the sense divider). quarters > 4 means "no trustworthy sample yet".
+void serveBatteryStatus() {
+  markPortalActivity();
+  if (!batterySenseEnabled(getBoardVersion())) {
+    server.send(200, "application/json", "{\"present\":false}");
+    return;
+  }
+  char buf[64];
+  snprintf(buf, sizeof(buf), "{\"present\":true,\"volts\":%.2f,\"quarters\":%d}",
+           power::batteryVolts(), (int)power::batteryQuarters());
+  server.send(200, "application/json", buf);
 }
 
 void handleDisplayTest() {
@@ -1155,6 +1183,7 @@ void registerPortalRoutes() {
   server.on("/trivia/name", HTTP_POST, handleTriviaName);
   server.on("/trivia/exit", HTTP_POST, handleTriviaExit);
   server.on("/ota/status", HTTP_GET, serveOtaStatus);
+  server.on("/battery/status", HTTP_GET, serveBatteryStatus);
   server.on("/update", HTTP_POST, handleUpdateResult, handleUpdateUpload);
   server.onNotFound(redirectToPortal);
 }

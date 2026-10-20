@@ -184,8 +184,25 @@ void serviceBatteryMonitor() {
   }
   sLastMonitorAt = now;
   sRuntimeVolts = readBatteryVolts();
-  sRuntimeQuarters = (sRuntimeVolts > 0.5f) ? voltsToQuarters(sRuntimeVolts)
-                                            : 0xFF;
+  // Plausibility guard: a 1S LiPo never sits above ~4.3 V. A higher
+  // reading means the divider taps the boost output (~5 V rail) or the
+  // pin floats — hide the gauge rather than show a lying "full".
+  // batteryVolts() stays raw so the setup portal can display the real
+  // number for diagnosis.
+  sRuntimeQuarters = (sRuntimeVolts > 0.5f && sRuntimeVolts <= 4.30f)
+                         ? voltsToQuarters(sRuntimeVolts)
+                         : 0xFF;
+  static uint8_t sLastLoggedQuarters = 0xFE;
+  if (sRuntimeQuarters != sLastLoggedQuarters) {
+    sLastLoggedQuarters = sRuntimeQuarters;
+    if (sRuntimeQuarters <= 4) {
+      DBG_PRINTF("[POWER] battery %.2f V -> %u/4\n", sRuntimeVolts,
+                 (unsigned)sRuntimeQuarters);
+    } else {
+      DBG_PRINTF("[POWER] battery %.2f V -> implausible, gauge hidden\n",
+                 sRuntimeVolts);
+    }
+  }
 }
 
 float batteryVolts() { return sRuntimeVolts; }

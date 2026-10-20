@@ -129,6 +129,16 @@ void loop() {
 
   handleNetworkDisplay();
 
+  // No usable connection: the network configuration screen owns the
+  // display until a connection exists. Without this gate the waiting
+  // carousel repaints over the provisioning instructions on every dwell,
+  // hiding the one screen the device can't work without. When a
+  // connection lands, consumeScoreboardRelease() (inside sport::tick)
+  // repaints the scoreboard.
+  if (isProvisioning()) {
+    return;
+  }
+
   // One-shot NTP sync once the network is up. The display timezone is a
   // portal setting (NVS "tz"); the factory default in src/config.h only
   // covers the very first boot, and a mid-session portal change applies
