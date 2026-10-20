@@ -640,13 +640,8 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <hr><h3>Manual Mode</h3>
 <p class="hint">Full manual control: clock countdown, scores, period, penalty LEDs, shots — from a dedicated page.</p>
 <button type="button" onclick="location.href='/manual'">Open Manual Mode</button>
-<hr><h3>Game Demo</h3>
-<p class="hint">Show a simulated live game on the scoreboard, including the game clock, scores, shots, penalties, and goal display.</p>
-<button id="demoStart" type="button" style="margin-top:8px" onclick="setDemo(true)">Start Game Demo</button>
-<button id="demoStop" type="button" style="margin-top:8px;background:#2a5daf;color:#fff;display:none" onclick="setDemo(false)">Stop Game Demo</button>
-<p class="hint" id="demoStatus">Demo is stopped.</p>
 <hr><h3>Diagnostics</h3>
-<p class="hint">Battery voltage and remaining charge, the screen self-test, and the audio test.</p>
+<p class="hint">Battery voltage and remaining charge, the screen self-test, the audio test, and the game demo.</p>
 <button type="button" style="margin-top:8px" onclick="location.href='/diag'">Open Diagnostics</button>
 <hr><h3>Firmware Update</h3>
 <p class="hint">Installed: )html" + String(FIRMWARE_VERSION) + R"html(. Automatic checks run at boot.</p>
@@ -657,9 +652,6 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <p><a style="color:#f5c400" href="/update">Upload a firmware file manually</a></p>
 <script>
 var otaWaiting=false;
-function setDemo(running){fetch(running?'/demo/start':'/demo/stop',{method:'POST'}).then(function(r){if(!r.ok)throw new Error('request failed');paintDemo(running)}).catch(function(){document.getElementById('demoStatus').textContent='Demo request failed.'})}
-function paintDemo(running){document.getElementById('demoStart').style.display=running?'none':'block';document.getElementById('demoStop').style.display=running?'block':'none';document.getElementById('demoStatus').textContent=running?'Game demo is running on the scoreboard.':'Demo is stopped.'}
-fetch('/demo/status').then(function(r){return r.json()}).then(function(s){paintDemo(s.running)}).catch(function(){document.getElementById('demoStatus').textContent='Unable to read demo status.'});
 function otaCheck(){otaWaiting=true;document.getElementById('otaStatus').textContent='Checking...';fetch('/ota/check',{method:'POST'})}
 setInterval(function(){fetch('/ota/status').then(function(r){return r.json()}).then(function(s){var e=document.getElementById('otaStatus');
 if(s.stage==='DOWNLOADING'){otaWaiting=false;e.textContent='Downloading update '+s.progress+'% - watch the scoreboard; do not power off.'}
@@ -722,6 +714,11 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <hr><h3>Audio Test</h3>
 <p class="hint">Plays the goal horn over the speaker.</p>
 <button type="button" onclick="atest()">Play Test Audio</button>
+<hr><h3>Game Demo</h3>
+<p class="hint">Show a simulated live game on the scoreboard, including the game clock, scores, shots, penalties, and goal display.</p>
+<button id="demoStart" type="button" style="margin-top:8px" onclick="setDemo(true)">Start Game Demo</button>
+<button id="demoStop" type="button" style="margin-top:8px;background:#2a5daf;color:#fff;display:none" onclick="setDemo(false)">Stop Game Demo</button>
+<p class="hint" id="demoStatus">Demo is stopped.</p>
 <hr><button type="button" onclick="location.href='/'">Back to Setup</button>
 <script>
 function pollBatt(){fetch('/battery/status').then(function(r){return r.json()}).then(function(s){var e=document.getElementById('battReadout');
@@ -734,6 +731,9 @@ e.textContent=s.volts.toFixed(2)+' V \u2014 '+pct+' ('+q+')';
 pollBatt();setInterval(pollBatt,5000);
 function dtest(){document.getElementById('dtestStatus').textContent='Running - watch the scoreboard...';fetch('/display/test',{method:'POST'}).then(function(){setTimeout(function(){document.getElementById('dtestStatus').textContent='Done.'},18000)}).catch(function(){document.getElementById('dtestStatus').textContent='Request failed.'})}
 function atest(){fetch('/audio/test',{method:'POST'})}
+function setDemo(running){fetch(running?'/demo/start':'/demo/stop',{method:'POST'}).then(function(r){if(!r.ok)throw new Error('request failed');paintDemo(running)}).catch(function(){document.getElementById('demoStatus').textContent='Demo request failed.'})}
+function paintDemo(running){document.getElementById('demoStart').style.display=running?'none':'block';document.getElementById('demoStop').style.display=running?'block':'none';document.getElementById('demoStatus').textContent=running?'Game demo is running on the scoreboard.':'Demo is stopped.'}
+fetch('/demo/status').then(function(r){return r.json()}).then(function(s){paintDemo(s.running)}).catch(function(){document.getElementById('demoStatus').textContent='Unable to read demo status.'});
 </script>
 </main></body></html>)html";
   page.replace("@@NAME@@", netBranding.deviceName);
