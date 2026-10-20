@@ -100,6 +100,7 @@ struct TriviaView {
   uint16_t score;
   uint8_t strikes;          // wrong answers so far (3 = game over)
   uint32_t questionEndMs;   // QUESTION phase: millis() deadline
+  uint32_t questionWindowMs;  // answer window length (timer bar scale)
   const TriviaQuestion* question;  // null in lobby/game over
   bool fireworks;           // reveal: 80+ point answer — celebrate on matrices
   bool roundComplete;       // game over: survived all 15 questions
@@ -166,15 +167,22 @@ bool mpSessionActive();
 // Returns the player's token, or 0 when rejected (lobby closed / full /
 // name taken / empty).
 uint16_t mpJoin(const char* name);
+// Why the last mpJoin() failed: "closed", "full", "taken", or "name" —
+// for the join page's error message.
+const char* mpLastJoinError();
 // Host settings, clamped to the ranges above. Only settable in the lobby.
 bool mpSetConfig(uint8_t questions, uint8_t seconds);
 // Closes joining and starts question 1 (false: no players / not lobby).
 bool mpStart();
+// Signed-up player count (for the route wrappers' error messages).
+uint8_t mpPlayerCount();
 // Locks a player's answer during the question window (first lock is final,
 // like solo). Unknown token / wrong phase: rejected silently.
 bool mpAnswer(uint16_t token, uint8_t index);
-// Host page poll: session state, settings, and the live standings.
-String buildMpHostJson();
+// Host page poll: session state, settings, and the live standings. The
+// ok/err pair is used by the action routes' responses (polls use the
+// defaults).
+String buildMpHostJson(bool ok = true, const char* err = nullptr);
 // Player page poll: personal state (own lock/result/score/rank + standings).
 // Invalid token: {"ok":false} and the page drops back to the join form.
 String buildMpPlayerJson(uint16_t token);

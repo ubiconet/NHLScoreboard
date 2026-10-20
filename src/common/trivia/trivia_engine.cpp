@@ -55,6 +55,7 @@ struct MpPlayer {
 MpPlayer sPlayers[TRIVIA_MP_MAX_PLAYERS];
 uint8_t sMpCount = 0;
 uint16_t sMpNextToken = 1;              // tokens handed out this session
+const char* sMpJoinErr = "";            // why the last mpJoin() said no
 bool sMpActive = false;
 uint8_t sMpQuestions = TRIVIA_MP_DEFAULT_QUESTIONS;
 uint8_t sMpSeconds = TRIVIA_MP_DEFAULT_SECONDS;
@@ -178,6 +179,7 @@ void publishView() {
   v.score = sScore;
   v.strikes = sStrikes;
   v.questionEndMs = sQEndMs;
+  v.questionWindowMs = sMpActive ? sMpWindowMs : TRIVIA_QUESTION_MS;
   v.question = (sPhase == TRIVIA_QUESTION || sPhase == TRIVIA_REVEAL)
                    ? sQuestion
                    : nullptr;
@@ -610,6 +612,25 @@ input{padding:10px;font-size:16px;border:0;border-radius:6px;width:58%;box-sizin
 </div>
 <button class="go" onclick="start()">Play Again</button>
 </div>
+<div id="mpcard" class="card">
+<div style="font-weight:800;font-size:18px;margin-bottom:6px">Multiplayer Night</div>
+<p class="muted">Up to 15 players join from their phones &mdash; share the link by SMS. Everyone plays the same questions; fastest correct answers score the most.</p>
+<div style="display:flex;gap:8px;margin:10px 0">
+<input readonly id="joinurl" style="flex:1;width:auto;min-width:0">
+<button style="padding:10px 12px;background:#f5c400;color:#000" onclick="copyLink()">Copy Link</button>
+</div>
+<p class="muted" id="joinhint">Open hosting to make the link live.</p>
+<p class="muted" style="margin:12px 0 2px">Questions (3&ndash;15)
+<input id="mpq" type="number" min="3" max="15" value="15" style="width:80px;display:inline-block"></p>
+<p class="muted" style="margin:8px 0 2px">Seconds per question (5&ndash;60)
+<input id="mps" type="number" min="5" max="60" value="10" style="width:80px;display:inline-block"></p>
+<button style="padding:8px 14px;background:#1c4587;color:#fff" onclick="mpConfig()">Apply Settings</button>
+<div id="mpstatus" class="muted" style="margin:10px 0;min-height:18px"></div>
+<div id="mpplayers"></div>
+<button class="go" id="mphost" onclick="mpHost()">Host Multiplayer Night</button>
+<button class="go" id="mpstart" style="display:none" onclick="mpStart()">Start Game</button>
+<div id="mpboard"></div>
+</div>
 <button class="exit" onclick="exitTrivia()">Exit Trivia Mode</button>
 </main><script>
 var s={phase:'lobby'},remMs=0;
@@ -617,9 +638,9 @@ function el(i){return document.getElementById(i)}
 function apply(d){s=d;remMs=d.remMs;paint()}
 function paint(){
 el('hi').textContent=s.high>0?('High score: '+s.high+(s.highName?' \u2014 '+s.highName:'')):'High score: none yet';
-el('lobby').style.display=s.phase=='lobby'?'block':'none';
-el('game').style.display=(s.phase=='question'||s.phase=='reveal')?'block':'none';
-el('over').style.display=s.phase=='over'?'block':'none';
+el('lobby').style.display=(s.phase=='lobby'&&!s.mp)?'block':'none';
+el('game').style.display=(!s.mp&&(s.phase=='question'||s.phase=='reveal'))?'block':'none';
+el('over').style.display=(!s.mp&&s.phase=='over')?'block':'none';
 if(s.phase=='question'||s.phase=='reveal'){
 el('qmeta').textContent='Q'+(s.qi+1)+'/'+s.ql+' \u00b7 '+['','Easy','Medium','Hard'][s.diff];
 el('qtext').textContent=s.q;
@@ -645,7 +666,29 @@ fetch('/trivia/answer',{method:'POST',headers:{'Content-Type':'application/x-www
 function saveName(){var n=el('namein').value.trim();if(!n)return;
 fetch('/trivia/name',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'name='+encodeURIComponent(n)}).then(function(r){return r.json()}).then(apply).catch(function(){})}
 function exitTrivia(){fetch('/trivia/exit',{method:'POST'}).then(function(){location.href='/'}).catch(function(){location.href='/'})}
-setInterval(function(){
+var mp={mp:false};
+function mprows(d){var h='';if(d.mp&&d.players)for(var i=0;i<d.players.length;i++){var p=d.players[i];
+h+='<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:16px"><span>'+(i+1)+'. '+p.n+'</span><span>'+p.s+'</span></div>'}return h}
+function mpapply(d){mp=d;
+el('joinurl').value=d.url||'';
+el('joinhint').textContent=d.mp?(d.phase=='lobby'?'Link is live \u2014 share it! Players can join until you press Start.':(d.phase=='over'?'Game over \u2014 host again for a new party.':'Game in progress \u2014 no more joiners.')):'Open hosting to make the link live.';
+if(document.activeElement!=el('mpq'))el('mpq').value=d.questions||15;
+if(document.activeElement!=el('mps'))el('mps').value=d.seconds||10;
+el('mphost').style.display=(!d.mp||d.phase=='over')?'block':'none';
+el('mpstart').style.display=(d.mp&&d.phase=='lobby'&&d.count>0)?'block':'none';
+el('mpstatus').textContent=!d.mp?'Not hosting.':(d.phase=='lobby'?(d.count+(d.count==1?' player':' players')+' signed up'+(d.count>=d.max?' \u2014 FULL':'')):(d.phase=='over'?('Winner: '+d.winner+'!'):(d.phase=='rankings'?'Showing standings...':'Question '+(d.qi+1)+' of '+d.questions+' in progress...')));
+el('mpplayers').innerHTML=(d.mp&&d.phase=='lobby')?mprows(d):'';
+el('mpboard').innerHTML=(d.mp&&(d.phase=='rankings'||d.phase=='over'))?('<b>Standings</b>'+mprows(d)):'';
+}
+function mpsync(){fetch('/trivia/mp/state').then(function(r){return r.json()}).then(mpapply).catch(function(){})}
+function mpHost(){fetch('/trivia/mp/host',{method:'POST'}).then(function(r){return r.json()}).then(function(d){mpapply(d);sync()}).catch(function(){})}
+function mpStart(){fetch('/trivia/mp/start',{method:'POST'}).then(function(r){return r.json()}).then(function(d){if(!d.ok)alert(d.err=='empty'?'No players have joined yet.':(d.err=='nohost'?'Open hosting first.':'Game already running.'));mpapply(d)}).catch(function(){})}
+function mpConfig(){fetch('/trivia/mp/config',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'questions='+el('mpq').value+'&seconds='+el('mps').value}).then(function(r){return r.json()}).then(mpapply).catch(function(){})}
+function copyLink(){var t=el('joinurl');t.focus();t.select();try{t.setSelectionRange(0,999)}catch(e){}
+function done(){el('joinhint').textContent='Copied! Paste it into a text message.'}
+function fallback(){try{document.execCommand('copy');done()}catch(e){}}
+try{navigator.clipboard.writeText(t.value).then(done,fallback)}catch(e){fallback()}}
+setInterval(mpsync,1000);mpsync();setInterval(function(){
 if(s.phase=='question'&&remMs>0){remMs-=100;if(remMs<0)remMs=0;
 el('tfill').style.width=Math.round(remMs/100)+'%';el('tfill').className=remMs<3000?'low':'';}
 },100);
@@ -693,13 +736,29 @@ bool mpHostLobby() {
 
 bool mpSessionActive() { return sMpActive; }
 
+uint8_t mpPlayerCount() { return sMpCount; }
+
+const char* mpLastJoinError() { return sMpJoinErr; }
+
 uint16_t mpJoin(const char* name) {
-  if (!sMpActive || sPhase != TRIVIA_LOBBY) return 0;  // joining closed
-  if (sMpCount >= TRIVIA_MP_MAX_PLAYERS) return 0;
+  if (!sMpActive || sPhase != TRIVIA_LOBBY) {
+    sMpJoinErr = "closed";  // joining closed
+    return 0;
+  }
+  if (sMpCount >= TRIVIA_MP_MAX_PLAYERS) {
+    sMpJoinErr = "full";
+    return 0;
+  }
   char cleaned[TRIVIA_NAME_MAX + 1] = {};
-  if (!cleanTriviaName(name, cleaned, sizeof(cleaned))) return 0;
+  if (!cleanTriviaName(name, cleaned, sizeof(cleaned))) {
+    sMpJoinErr = "name";
+    return 0;
+  }
   for (uint8_t i = 0; i < sMpCount; ++i) {
-    if (strcasecmp(sPlayers[i].name, cleaned) == 0) return 0;  // taken
+    if (strcasecmp(sPlayers[i].name, cleaned) == 0) {
+      sMpJoinErr = "taken";  // taken
+      return 0;
+    }
   }
   MpPlayer& p = sPlayers[sMpCount];
   p.token = sMpNextToken++;
@@ -712,7 +771,8 @@ uint16_t mpJoin(const char* name) {
   p.lastPoints = 0;
   p.rank = 0;
   ++sMpCount;
-  publishView();  // lobby card shows the new count
+  computeStandings();  // all-zero scores: top[] = join order, for the lobby
+  publishView();       // lobby card shows the new count
   DBG_PRINTF("[TRIVIA] MP join: %s (%u/%u)\n", p.name, sMpCount,
              (unsigned)TRIVIA_MP_MAX_PLAYERS);
   return p.token;
@@ -757,8 +817,15 @@ bool mpAnswer(uint16_t token, uint8_t index) {
   return true;  // no publishView: the device view doesn't change per lock
 }
 
-String buildMpHostJson() {
-  String j = "{\"active\":";
+String buildMpHostJson(bool ok, const char* err) {
+  String j = "{\"ok\":";
+  j += ok ? "true" : "false";
+  if (err != nullptr) {
+    j += ",\"err\":\"";
+    j += err;
+    j += "\"";
+  }
+  j += ",\"active\":";
   j += sModeActive ? "true" : "false";
   j += ",\"mp\":";
   j += sMpActive ? "true" : "false";
@@ -848,6 +915,8 @@ String buildMpPlayerJson(uint16_t token) {
   j += (int)p->score;
   j += ",\"rank\":";
   j += (int)p->rank;
+  j += ",\"winMs\":";
+  j += (unsigned long)sMpWindowMs;
   j += ",\"remMs\":";
   if (sPhase == TRIVIA_QUESTION) {
     int32_t rem = (int32_t)(sQEndMs - now);
@@ -983,8 +1052,8 @@ function ans(i){if(!s||s.phase!='question'||s.locked!=255)return;
 fetch('/play/answer?p='+tok,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'a='+i})
 .then(function(r){return r.json()}).then(apply).catch(function(){})}
 setInterval(function(){
-if(s&&s.phase=='question'&&remMs>0){remMs-=100;if(remMs<0)remMs=0;
-el('tfill').style.width=Math.round(remMs/100)+'%';el('tfill').className=remMs<3000?'low':'';}
+if(s&&s.phase=='question'&&remMs>0){remMs-=100;if(remMs<0)remMs=0;var w=s.winMs||10000;
+el('tfill').style.width=Math.min(100,Math.round(remMs*100/w))+'%';el('tfill').className=remMs<3000?'low':'';}
 },100);
 setInterval(sync,1000);
 sync();

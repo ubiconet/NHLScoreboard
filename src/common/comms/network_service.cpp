@@ -489,10 +489,12 @@ void refreshScanCache() {
   // run only while someone is using the portal: the scan hops the radio
   // across channels for ~2-3 s, which starves the link — acceptable
   // during configuration (feeds already pause for the portal window),
-  // never in the background, and never mid-OTA-download.
+  // never in the background, and never mid-OTA-download. Trivia mode is
+  // excluded too: the player phones keep the portal window alive for the
+  // whole party, and a scan stall mid-question would hit every player.
   if (!scanActive && !otaUpdateInProgress() &&
       millis() - lastScanAt > NETWORK_SCAN_REFRESH_MS &&
-      (state != ONLINE || portalEngaged())) {
+      (state != ONLINE || portalEngaged()) && !trivia::isModeActive()) {
     WiFi.scanNetworks(true, true);
     scanActive = true;
   }
@@ -628,7 +630,7 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
   page += R"html(>Enable audio output (game sounds and alerts)</label>
 <button type="submit">Save & Connect Scoreboard</button></form>
 <hr><h3>Trivia Mode</h3>
-<p class="hint">Hockey trivia night on the scoreboard — 750 questions, 15 per round, answer A/B/C/D from this phone. Three wrong answers and you're out.</p>
+<p class="hint">Trivia night on the scoreboard &mdash; play solo from this phone, or host a multiplayer party: up to 15 players join from their phones and the scoreboard shows the standings.</p>
 <p class="hint" id="triviaHigh">)html";
   if (trivia::getHighScore() > 0) {
     page += String("High score: ") + trivia::getHighScore() + " \u2014 " +
@@ -999,6 +1001,100 @@ void handleTriviaExit() {
   server.send(302, "text/plain", "");
 }
 
+// ---- Multiplayer trivia ----
+// Player traffic marks portal activity on purpose (opposite of the solo
+// controller policy): a full party of polling phones wants the feeds
+// paused and the radio free. refreshScanCache() is gated off during
+// trivia mode, so the always-fresh activity window can't kick a
+// channel-hopping scan mid-question.
+
+// The join page served to players' phones (short path — this URL gets
+// SMS'd around).
+void handlePlayPage() {
+  markPortalActivity();
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "text/html", trivia::buildMpJoinHtml());
+}
+
+// Sign-up: returns the player's token + their initial state, or a typed
+// error the page turns into a message.
+void handlePlayJoin() {
+  markPortalActivity();
+  uint16_t token = trivia::mpJoin(server.arg("name").c_str());
+  server.sendHeader("Cache-Control", "no-store");
+  if (token == 0) {
+    server.send(200, "application/json",
+                String("{\"ok\":false,\"err\":\"") +
+                    trivia::mpLastJoinError() + "\"}");
+    return;
+  }
+  server.send(200, "application/json",
+              String("{\"ok\":true,\"token\":") + (unsigned)token +
+                  ",\"state\":" + trivia::buildMpPlayerJson(token) + "}");
+}
+
+void handlePlayState() {
+  markPortalActivity();
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json",
+              trivia::buildMpPlayerJson((uint16_t)server.arg("p").toInt()));
+}
+
+void handlePlayAnswer() {
+  markPortalActivity();
+  int choice = server.arg("a").toInt();
+  if (choice < 0 || choice > 3) {
+    server.send(400, "text/plain", "Bad choice");
+    return;
+  }
+  trivia::mpAnswer((uint16_t)server.arg("p").toInt(),
+                   (uint8_t)choice);  // rejected silently when locked
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json",
+              trivia::buildMpPlayerJson((uint16_t)server.arg("p").toInt()));
+}
+
+void handleTriviaMpHost() {
+  markPortalActivity();
+  manualMode = false;
+  gameDemoMode = false;
+  trivia::enterMode();
+  if (!trivia::mpHostLobby()) {
+    server.send(500, "text/plain", "No trivia content");
+    return;
+  }
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", trivia::buildMpHostJson());
+}
+
+void handleTriviaMpState() {
+  markPortalActivity();
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", trivia::buildMpHostJson());
+}
+
+void handleTriviaMpConfig() {
+  markPortalActivity();
+  trivia::mpSetConfig((uint8_t)server.arg("questions").toInt(),
+                      (uint8_t)server.arg("seconds").toInt());
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", trivia::buildMpHostJson());
+}
+
+void handleTriviaMpStart() {
+  markPortalActivity();
+  if (!trivia::mpStart()) {
+    const char* err = trivia::mpSessionActive()
+                          ? (trivia::mpPlayerCount() == 0 ? "empty" : "running")
+                          : "nohost";
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", trivia::buildMpHostJson(false, err));
+    return;
+  }
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", trivia::buildMpHostJson());
+}
+
 void saveNetwork() {
   markPortalActivity();
   // Which form posted: the setup page always carries the team selects;
@@ -1255,6 +1351,14 @@ void registerPortalRoutes() {
   server.on("/trivia/answer", HTTP_POST, handleTriviaAnswer);
   server.on("/trivia/name", HTTP_POST, handleTriviaName);
   server.on("/trivia/exit", HTTP_POST, handleTriviaExit);
+  server.on("/play", HTTP_GET, handlePlayPage);
+  server.on("/play/join", HTTP_POST, handlePlayJoin);
+  server.on("/play/state", HTTP_GET, handlePlayState);
+  server.on("/play/answer", HTTP_POST, handlePlayAnswer);
+  server.on("/trivia/mp/host", HTTP_POST, handleTriviaMpHost);
+  server.on("/trivia/mp/state", HTTP_GET, handleTriviaMpState);
+  server.on("/trivia/mp/config", HTTP_POST, handleTriviaMpConfig);
+  server.on("/trivia/mp/start", HTTP_POST, handleTriviaMpStart);
   server.on("/ota/status", HTTP_GET, serveOtaStatus);
   server.on("/battery/status", HTTP_GET, serveBatteryStatus);
   server.on("/diag", HTTP_GET, serveDiagnosticsPage);
