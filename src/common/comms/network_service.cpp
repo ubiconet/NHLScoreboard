@@ -632,7 +632,7 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
   page += R"html(>Enable audio output (game sounds and alerts)</label>
 <label style="display:flex;align-items:center;gap:10px;margin-top:12px" for="hibernate"><input style="width:auto" id="hibernate" name="hibernate" type="checkbox" value="1")html";
   if (hibernateEnabled) page += " checked";
-  page += R"html(>Hibernate between games &mdash; go dark after 3 idle minutes and wake for puck drop (checks every 5 min)</label>
+  page += R"html(>Hibernate between games &mdash; display dark and portal offline between 5-min game checks; wake for puck drop. Power-cycle the board to use the portal.</label>
 <button type="submit">Save & Connect Scoreboard</button></form>
 <hr><h3>Trivia Mode</h3>
 <p class="hint">Trivia night on the scoreboard &mdash; play solo from this phone, or host a multiplayer party: up to 15 players join from their phones and the scoreboard shows the standings.</p>
@@ -1426,6 +1426,32 @@ bool portalEngaged() {
   return millis() < portalActiveUntil;
 }
 
+// Portal on/off switch (hibernate): while the board sleeps between
+// games the web server stops listening entirely — inbound HTTP costs
+// keep-alive sockets and CPU the battery doesn't have, and nothing can
+// wake the board over it. Power-cycling brings the portal back with the
+// usual post-boot idle window. The call only posts a request; the
+// network task performs the actual stop/start (WebServer isn't
+// thread-safe across cores, and handleClient() runs on core 0).
+volatile int portalEnableRequest = 0;  // +1 start, -1 stop, 0 = idle
+bool portalServerEnabled = true;
+void setPortalEnabled(bool enabled) {
+  portalEnableRequest = enabled ? 1 : -1;
+}
+void servicePortalEnableRequest() {
+  if (portalEnableRequest == 0) return;
+  bool enable = portalEnableRequest > 0;
+  portalEnableRequest = 0;
+  if (enable == portalServerEnabled) return;
+  portalServerEnabled = enable;
+  if (enable) {
+    server.begin();  // route handlers persist across stop/begin
+  } else {
+    server.stop();
+    portalActiveUntil = 0;  // portalEngaged() false from this moment
+  }
+}
+
 bool consumeDisplayTestRequest() {
   if (!displayTestRequested) return false;
   displayTestRequested = false;
@@ -1475,8 +1501,10 @@ bool isAudioEnabled() {
 }
 
 // Hibernate toggle (NVS "hibernate", default off): a board with no live
-// preferred-team game goes dark after a short idle grace and wakes for
-// the next puck drop (see the hibernate section of the sport config).
+// preferred-team game goes dark after a short idle grace — displays and
+// this portal offline, CPU throttled — and silently checks for a live
+// game every few minutes until puck drop (timing + power details in the
+// HIBERNATE section of the sport config; power-cycle to configure).
 bool isHibernateEnabled() {
   return hibernateEnabled;
 }
@@ -1569,6 +1597,7 @@ void startNetworkServices(const NetworkBranding& branding,
 }
 
 void handleNetworkServices() {
+  servicePortalEnableRequest();
   if (dnsRunning) {
     dnsServer.processNextRequest();
   }
@@ -1610,14 +1639,18 @@ bool consumeScoreboardRelease() {
 
 void startNetworkTask() {
   xTaskCreatePinnedToCore(
-    [](void*) {
-      while (true) {
-        handleNetworkServices();
-        tickManualClock();
-        trivia::tick();
-        vTaskDelay(pdMS_TO_TICKS(2));
-      }
-    },
+      [](void*) {
+        while (true) {
+          handleNetworkServices();
+          tickManualClock();
+          trivia::tick();
+          // 2 ms while the portal serves; 20 ms while hibernate has it
+          // stopped — the state machine and ArduinoOTA barely care, and
+          // the busy spin costs battery the dark period is supposed to
+          // save.
+          vTaskDelay(pdMS_TO_TICKS(portalServerEnabled ? 2 : 20));
+        }
+      },
     "NetworkTask",
     8192,
     nullptr,

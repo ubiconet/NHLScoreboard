@@ -55,7 +55,13 @@ without surprises.
     waiting, live, demo, manual, and trivia; it stays hidden on boards
     without the divider. Charge levels are linear over 3.4-4.18 V
     (the charger terminates at 4.18 V, which reads 100%/4-of-4; quarters
-    step evenly across the window). The board-version
+    step evenly across the window).
+    Optional hibernate mode (portal checkbox, NVS "hibernate") goes
+    dark between games: displays off, portal web server stopped
+    (power-cycle to configure), Wi-Fi modem sleep, both cores at
+    80 MHz, one silent schedule check every 5 min; a live
+    preferred-team game wakes it to full power (see HIBERNATE_* in
+    sport_config.h — the board never reboots itself into hibernate). The board-version
     setting defaults to V1.1 for never-configured hardware (a saved
     portal choice always wins). The portal's diagnostics page (`/diag`)
     shows the live pack voltage, the estimated remaining charge (linear

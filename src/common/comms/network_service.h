@@ -47,6 +47,10 @@ bool isProvisioning();
 // True while someone recently used the setup portal: background feed work
 // pauses so the web server gets the core and the radio to itself.
 bool portalEngaged();
+// Stops or restarts the portal web server (hibernate shuts it down for
+// the dark period — power-cycle the board to configure; a reboot brings
+// the portal back with the usual post-boot idle window).
+void setPortalEnabled(bool enabled);
 // One-shot display-test trigger from the portal's "Run Display Test"
 // button (POST /display/test). Returns true exactly once per request;
 // the sport layer runs its display test cycle on the render core.
@@ -89,8 +93,9 @@ bool isClockDisplayEnabled();
 // "audio_en", default on).
 bool isAudioEnabled();
 // User preference: hibernate between games (NVS "hibernate", default
-// off) — go dark when idle, silently check for a live game every few
-// minutes, wake for puck drop. Timing constants live in sport_config.h.
+// off) — display dark, portal offline, CPU throttled; a silent game
+// check every few minutes wakes it for puck drop. Power-cycle to
+// configure. Timing/power constants live in sport_config.h.
 bool isHibernateEnabled();
 // Effective display timezone as a POSIX TZ string, selected in the setup
 // portal (NVS "tz"); used for game times, countdowns, and the idle clock.

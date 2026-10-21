@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <WiFi.h>
 
 #include "config.h"
 #include "boot_logo.h"
@@ -525,11 +526,12 @@ void tick(const SportTickContext& ctx) {
   // After HIBERNATE_IDLE_GRACE_MS with no live game the board goes dark
   // and appears off: TFT panel asleep (the backlight has no firmware
   // control — it keeps glowing dimly, a hardware limit), MAX7219 chain
-  // in shutdown, TM1637 blank, penalty LEDs off. While dark, tick()
-  // only watches for wake reasons: the 5-min silent schedule check (the
-  // data task keeps running it) showing a live preferred-team game,
-  // portal activity, or an OTA download. It re-hibernates HIBERNATE_
-  // IDLE_GRACE_MS after the next idle period starts.
+  // in shutdown, TM1637 blank, penalty LEDs off. Portal web server
+  // stopped (power-cycle to configure), Wi-Fi modem sleep between
+  // checks, both cores at 80 MHz. While dark, tick() only watches the
+  // 5-min silent schedule check (the data task keeps running it) for a
+  // live preferred-team game; the board never reboots itself, and
+  // re-hibernates after the next idle period.
   static bool sHibernating = false;
   static uint32_t sIdleSinceMs = 0;
   if (sHibernating) {
@@ -540,10 +542,15 @@ void tick(const SportTickContext& ctx) {
       getPreferredTeamIds(preferred);
       wakeGameId = selectLiveGameId(sch, preferred);
     }
-    if (wakeGameId == 0 && (portalEngaged() || otaUpdateInProgress())) {
-      wakeGameId = -1;  // wake without a game: someone needs the board up
+    if (wakeGameId == 0 && otaUpdateInProgress()) {
+      wakeGameId = -1;  // an in-flight download always gets the board up
     }
     if (wakeGameId != 0) {
+      // Full power FIRST: the bit-banged displays need 240 MHz and the
+      // live session wants the radio always-awake and the portal back.
+      setCpuFrequencyMhz(240);
+      WiFi.setSleep(false);
+      setPortalEnabled(true);
       sHibernating = false;
       setGameHibernateActive(false);
       restoreDisplaysFromHibernate();
@@ -563,13 +570,14 @@ void tick(const SportTickContext& ctx) {
           sLastScheduleRenderAt = ctx.nowMs;
         }
       } else {
-        sIdleSinceMs = ctx.nowMs;  // portal/OTA wake: idle clock restarts on their exit
+        sIdleSinceMs = ctx.nowMs;  // OTA wake: idle clock restarts on its exit
       }
       invalidateMax7219Clock();
       invalidateTm1637WallClock();
       return;
     }
-    return;  // still dark — nothing visual happens this pass
+    delay(20);  // dark idle: pace the render loop instead of busy-spinning
+    return;     // still dark — nothing visual happens this pass
   }
   if (isHibernateEnabled()) {
     // Manual/demo/trivia own the display earlier in tick() and return
@@ -584,7 +592,12 @@ void tick(const SportTickContext& ctx) {
     } else if (ctx.nowMs - sIdleSinceMs >= HIBERNATE_IDLE_GRACE_MS) {
       sHibernating = true;
       setGameHibernateActive(true);
-      enterDisplayHibernate();
+      enterDisplayHibernate();  // blank at full speed before throttling
+      setPortalEnabled(false);
+      WiFi.setSleep(true);  // radio sleeps between the 5-min checks
+      setCpuFrequencyMhz(80);  // lowest frequency that keeps Wi-Fi alive
+      DBG_PRINTF("[HIB] dark after %lu s idle\n",
+                 (unsigned long)(millis() / 1000));
       return;
     }
   } else {

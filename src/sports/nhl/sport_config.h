@@ -176,10 +176,13 @@ static const uint32_t NHL_RETRY_BACKOFF_MAX_MS = 120000; // Exponential backoff 
 // When enabled, a board with no live preferred-team game goes dark 3 min
 // after boot (and 3 min after any game/portal session ends): TFT panel
 // into sleep, MAX7219 matrices into shutdown, TM1637 blank, penalty LEDs
-// off — it appears off. While dark the data task makes ONE silent
-// schedule check every 5 min; a live game (or portal use / an OTA
-// download) wakes the board, which re-hibernates the next idle period.
-// The radio stays associated throughout — Wi-Fi power save is unchanged.
+// off, portal web server STOPPED (power-cycle the board to configure),
+// Wi-Fi modem sleep between checks, and both cores at 80 MHz — it
+// appears off and sips power. While dark the data task makes ONE
+// silent schedule check every 5 min; a live preferred-team game wakes
+// the board to full power (240 MHz, radio awake, portal back) for puck
+// drop, and it re-hibernates after the next idle period. The board
+// never reboots itself into hibernate.
 static const uint32_t HIBERNATE_IDLE_GRACE_MS = 180000;  // idle time before going dark
 static const uint32_t HIBERNATE_CHECK_MS = 300000;       // silent game check while dark (5 min)
 
