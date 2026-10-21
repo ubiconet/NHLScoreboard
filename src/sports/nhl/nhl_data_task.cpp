@@ -257,11 +257,14 @@ void fetchNewsIfDue(bool online) {
   DBG_PRINTF("[ESPN] applied %u news stories\n", (unsigned)n);
 }
 
-void fetchScheduleIfDue(bool online) {
+void fetchScheduleIfDue(bool online, uint32_t minIntervalMs = 0) {
   if (!online || portalEngaged()) return;
   uint32_t now = millis();
   uint32_t interval = gScheduleValid ? NHL_SCHEDULE_POLL_INTERVAL_MS
                                      : NHL_SCHEDULE_RETRY_MS;
+  // Hibernate stretches the cadence to the silent game check (a dark
+  // board only needs to know whether a preferred game went live).
+  if (minIntervalMs > interval) interval = minIntervalMs;
   if (gLastScheduleAt != 0 && (now - gLastScheduleAt) < interval) return;
   gLastScheduleAt = now;
 
@@ -572,6 +575,18 @@ void nhlDataTaskLoop(void*) {
     // the divider) — runs on this core so the ~10 ms median-of-5 sample
     // never touches the render loop.
     power::serviceBatteryMonitor();
+
+    // Hibernate (portal setting): while the board sleeps between games,
+    // the only network work is ONE silent schedule check every
+    // HIBERNATE_CHECK_MS — the render core wakes the board when the
+    // fresh slate shows a live preferred-team game (or the portal / an
+    // OTA download needs it up). Everything else pauses; standings,
+    // landing, and news fetches all resume on wake.
+    if (gameHibernateActive()) {
+      fetchScheduleIfDue(online, HIBERNATE_CHECK_MS);
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
+    }
 
     fetchScheduleIfDue(online);
     fetchStandingsIfDue(online);

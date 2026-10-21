@@ -236,6 +236,12 @@ void initLedMatrix(int dinPin, int clkPin, int csPin, bool reverseHomeGuest,
   Serial.println("[HW] MAX7219 matrix driver initialized");
 }
 
+void setMax7219Power(bool on) {
+  // Shutdown register: 0x00 parks every module (segments off, registers
+  // retained), 0x01 resumes. Used by hibernate to make the chain dark.
+  max7219SendAll(MAX7219_REG_SHUTDOWN, on ? 0x01 : 0x00);
+}
+
 void setMax7219Display(int homeScore, int awayScore, int periodValue) {
   uint8_t awayRows[8];
   uint8_t homeRows[8];

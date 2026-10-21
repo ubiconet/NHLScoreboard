@@ -5,6 +5,7 @@
 #include "boot_logo.h"
 #include "common/app/sport_api.h"
 #include "common/comms/network_service.h"
+#include "common/comms/ota_update.h"
 #include "common/data/time_util.h"
 #include "common/hal/audio.h"
 #include "common/hal/count_leds.h"
@@ -184,6 +185,33 @@ long selectLiveGameId(const ScheduleSnapshot& sch, const int preferred[3]) {
     }
   }
   return 0;
+}
+
+// ---- Hibernate display control ----
+// "Off" as far as firmware can take it: penalty LEDs dark, matrices in
+// shutdown, TM1637 blank, TFT blacked and sent into panel sleep. The
+// backlight has no firmware control on this wiring — it stays dimly lit
+// (hardware limit; a switch or PWM gate would be needed to kill it).
+void enterDisplayHibernate() {
+  setCountLeds(0, 0, 0);
+  setMax7219Display(MAX7219_SCORE_BLANK, MAX7219_SCORE_BLANK,
+                    MAX7219_SCORE_BLANK);
+  setMax7219Power(false);
+  tm1637SetBrightness(0);  // 0 = display blank
+  GFXcanvas16& canvas = tftPanel.canvas();
+  canvas.fillScreen(0x0000);
+  tftPanel.pushFull();
+  tftPanel.raw().sendCommand(0x10);  // SLPIN
+  DBG_PRINTF("[HIB] dark after %lu s idle\n",
+             (unsigned long)(millis() / 1000));
+}
+
+void restoreDisplaysFromHibernate() {
+  tftPanel.raw().sendCommand(0x11);  // SLPOUT
+  delay(120);  // ST7789 wake time before the first write
+  setMax7219Power(true);
+  tm1637SetBrightness(TM1637_BRIGHTNESS);
+  // Content repaint is the caller's job (mode/state aware).
 }
 
 // Portal-triggered display test: one cycle through every display, a 2 s
@@ -491,6 +519,76 @@ void tick(const SportTickContext& ctx) {
       invalidateMax7219Clock();
       invalidateTm1637WallClock();
     }
+  }
+
+  // ---- Hibernate between games (portal setting) ----
+  // After HIBERNATE_IDLE_GRACE_MS with no live game the board goes dark
+  // and appears off: TFT panel asleep (the backlight has no firmware
+  // control — it keeps glowing dimly, a hardware limit), MAX7219 chain
+  // in shutdown, TM1637 blank, penalty LEDs off. While dark, tick()
+  // only watches for wake reasons: the 5-min silent schedule check (the
+  // data task keeps running it) showing a live preferred-team game,
+  // portal activity, or an OTA download. It re-hibernates HIBERNATE_
+  // IDLE_GRACE_MS after the next idle period starts.
+  static bool sHibernating = false;
+  static uint32_t sIdleSinceMs = 0;
+  if (sHibernating) {
+    long wakeGameId = 0;
+    ScheduleSnapshot sch{};
+    if (takeScheduleSnapshot(sch, sLastScheduleGen) && sch.valid) {
+      int preferred[3];
+      getPreferredTeamIds(preferred);
+      wakeGameId = selectLiveGameId(sch, preferred);
+    }
+    if (wakeGameId == 0 && (portalEngaged() || otaUpdateInProgress())) {
+      wakeGameId = -1;  // wake without a game: someone needs the board up
+    }
+    if (wakeGameId != 0) {
+      sHibernating = false;
+      setGameHibernateActive(false);
+      restoreDisplaysFromHibernate();
+      DBG_PRINTF("[HIB] awake%s\n", wakeGameId > 0 ? " — game on" : "");
+      if (wakeGameId > 0) {
+        setActiveGameId(wakeGameId);
+        scoreboardState = ScoreboardState::LIVE_GAME;
+        postgameGraceStartedAt = 0;
+        sIdleSinceMs = ctx.nowMs;
+        if (sLastGame.valid && sLastGame.gameId == wakeGameId) {
+          forceLiveRepaint(sLastGame);
+        } else {
+          int preferred[3];
+          getPreferredTeamIds(preferred);
+          JsonObjectConst sched = getUpcomingScheduleJson();
+          renderWaiting(sched, preferred);  // placeholder until the first landing snapshot
+          sLastScheduleRenderAt = ctx.nowMs;
+        }
+      } else {
+        sIdleSinceMs = ctx.nowMs;  // portal/OTA wake: idle clock restarts on their exit
+      }
+      invalidateMax7219Clock();
+      invalidateTm1637WallClock();
+      return;
+    }
+    return;  // still dark — nothing visual happens this pass
+  }
+  if (isHibernateEnabled()) {
+    // Manual/demo/trivia own the display earlier in tick() and return
+    // before this point — a live game, the portal, or an OTA download
+    // are the only things that keep a waiting board lit.
+    bool busy = scoreboardState == ScoreboardState::LIVE_GAME ||
+                portalEngaged() || otaUpdateInProgress();
+    if (busy) {
+      sIdleSinceMs = ctx.nowMs;
+    } else if (sIdleSinceMs == 0) {
+      sIdleSinceMs = ctx.nowMs;
+    } else if (ctx.nowMs - sIdleSinceMs >= HIBERNATE_IDLE_GRACE_MS) {
+      sHibernating = true;
+      setGameHibernateActive(true);
+      enterDisplayHibernate();
+      return;
+    }
+  } else {
+    sIdleSinceMs = 0;
   }
 
   rotateCarousel();

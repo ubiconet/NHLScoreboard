@@ -74,11 +74,11 @@ uint32_t sLastMonitorAt = 0;
 
 // State of charge is a straight voltage mapping over the pack's usable
 // window (user-specified levels): BATTERY_LOW_VOLTS (3.4 V) = empty,
-// BATTERY_FULL_VOLTS (4.2 V and above) = full. Voltage-only fuel gauging
-// is inherently coarse — the boost converter's load sags the pack
-// ~0.1-0.2 V (under-reading while running) — but the linear scale keeps
-// the gauge predictable and matches the quarter steps exactly; a true
-// gauge needs a fuel-gauge IC.
+// BATTERY_FULL_VOLTS (4.18 V and above — the charger's termination
+// voltage) = full. Voltage-only fuel gauging is inherently coarse — the
+// boost converter's load sags the pack ~0.1-0.2 V (under-reading while
+// running) — but the linear scale keeps the gauge predictable and
+// matches the quarter steps exactly; a true gauge needs a fuel-gauge IC.
 uint8_t voltsToPercent(float v) {
   float span = BATTERY_FULL_VOLTS - BATTERY_LOW_VOLTS;
   float pct = (v - BATTERY_LOW_VOLTS) / span * 100.0f + 0.5f;
@@ -87,17 +87,19 @@ uint8_t voltsToPercent(float v) {
   return (uint8_t)pct;
 }
 
-// Quarter segments light at even voltage steps across the same window
-// (0.2 V each): 3.4 = empty, then 3.6 / 3.8 / 4.0 light 1/4..3/4, and
-// 4.2 or above is full. An explicit threshold ladder (not a divided
-// float) keeps the exact boundaries on the lit side.
+// Quarter segments bucket the SAME percent scale: 4/4 spans 75-100% (a
+// completed charge holds "full" until the discharge crosses 75%,
+// ~3.99 V), then 3/4 / 2/4 at the 50% / 25% lines (~3.79 / ~3.60 V),
+// 1/4 down to the empty floor. An explicit threshold ladder (not a
+// divided float) keeps the exact boundaries on the lit side; the icon
+// and the percentage switch buckets at the same voltage.
 uint8_t voltsToQuarters(float v) {
   const float seg = (BATTERY_FULL_VOLTS - BATTERY_LOW_VOLTS) / 4.0f;
-  if (v >= BATTERY_FULL_VOLTS) return 4;
-  if (v >= BATTERY_FULL_VOLTS - seg) return 3;
-  if (v >= BATTERY_FULL_VOLTS - 2.0f * seg) return 2;
-  if (v >= BATTERY_FULL_VOLTS - 3.0f * seg) return 1;
-  return 0;
+  if (v >= BATTERY_FULL_VOLTS - seg) return 4;        // 75-100%: full
+  if (v >= BATTERY_FULL_VOLTS - 2.0f * seg) return 3; // 50-75%
+  if (v >= BATTERY_FULL_VOLTS - 3.0f * seg) return 2; // 25-50%
+  if (v > BATTERY_LOW_VOLTS) return 1;                // above empty
+  return 0;                                           // at/below 3.4 V
 }
 
 }  // namespace

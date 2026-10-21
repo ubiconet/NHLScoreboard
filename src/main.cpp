@@ -31,6 +31,11 @@ void setup() {
     power::sleepNow();  // silent recheck found the pack still low; no return
   }
 
+  // Devkit's onboard RGB LED is unused — pin its data line low before
+  // anything else so the floating WS2812 can't glow through the session.
+  pinMode(ONBOARD_RGB_LED_PIN, OUTPUT);
+  digitalWrite(ONBOARD_RGB_LED_PIN, LOW);
+
   // Sport bring-up FIRST: hardware init with the sport's pins, boot
   // tests, and the boot splash (its logo artwork belongs to the sport).
   // The splash paints within moments of power-on — nothing in front of

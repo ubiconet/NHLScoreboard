@@ -53,8 +53,9 @@ without surprises.
     (`common/ui/battery_indicator`, sampled by `serviceBatteryMonitor()`
     on core 0 every 30 s) sits top-right on every operational screen —
     waiting, live, demo, manual, and trivia; it stays hidden on boards
-    without the divider. Charge levels are linear over 3.4-4.2 V:
-    3.4 V empty, +0.2 V per quarter, 4.2 V full. The board-version
+    without the divider. Charge levels are linear over 3.4-4.18 V
+    (the charger terminates at 4.18 V, which reads 100%/4-of-4; quarters
+    step evenly across the window). The board-version
     setting defaults to V1.1 for never-configured hardware (a saved
     portal choice always wins). The portal's diagnostics page (`/diag`)
     shows the live pack voltage, the estimated remaining charge (linear

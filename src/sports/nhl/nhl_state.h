@@ -28,6 +28,13 @@ void publishSchedule(const ScheduleSnapshot& s);
 long getActiveGameId();
 void setActiveGameId(long gameId);
 
+// Hibernate-between-games flag (portal "hibernate" setting; see the
+// HIBERNATE_* constants in sport_config.h). The main loop owns the
+// transitions — it blanks/restores the displays; the data task reads it
+// to pare its fetch cadence down to the silent game check.
+bool gameHibernateActive();
+void setGameHibernateActive(bool active);
+
 // Schedule JSON cache used by the renderer's waiting carousel (the raw
 // day-score document, so upcoming cards can walk games/startTime fields).
 void publishUpcomingScheduleJson(JsonObjectConst src);

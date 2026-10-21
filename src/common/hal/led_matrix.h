@@ -30,6 +30,9 @@ void setMax7219DisplayTestAll(bool on);
 // Shows or clears local time: hour on the home matrix, minutes on the away
 // matrix. Refreshes once per minute; waits for NTP before first display.
 void updateMax7219Clock(bool enabled);
+// Puts the whole chain into the MAX7219 shutdown state (all segments dark,
+// registers retained) or back to normal operation — used by hibernate.
+void setMax7219Power(bool on);
 // Forces the next updateMax7219Clock(true) call to repaint even when the
 // minute hasn't changed (e.g. after leaving a live game).
 void invalidateMax7219Clock();

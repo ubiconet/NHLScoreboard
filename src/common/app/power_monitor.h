@@ -62,8 +62,9 @@ uint8_t batteryQuarters();
 
 // Estimated remaining charge, 0..100 percent, linear over the smoothed
 // pack voltage between BATTERY_LOW_VOLTS (empty) and BATTERY_FULL_VOLTS
-// (full, 4.2 V and above); 255 = unknown. Voltage-only estimate:
-// conservative under load (the boost converter sags the pack).
+// (full — the charger's 4.18 V termination reads 100%); 255 = unknown.
+// Voltage-only estimate: conservative under load (the boost converter
+// sags the pack).
 uint8_t batteryPercent();
 
 }  // namespace power

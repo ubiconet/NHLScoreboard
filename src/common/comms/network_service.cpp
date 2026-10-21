@@ -62,6 +62,7 @@ String pendingPassword;
 bool hasPending = false;
 bool clockDisplayEnabled = true;
 bool audioEnabled = true;
+bool hibernateEnabled = false;
 // Display-test request from the portal (see consumeDisplayTestRequest()).
 // Volatile: set by the network task's web handler, consumed on the render
 // core's tick.
@@ -416,6 +417,7 @@ void loadSavedNetwork() {
   prefTeam3 = preferences.getInt("team3", netDefaultTeams[2]);
   clockDisplayEnabled = preferences.getBool("show_clock", true);
   audioEnabled = preferences.getBool("audio_en", true);
+  hibernateEnabled = preferences.getBool("hibernate", false);
   tzString = preferences.getString("tz", FACTORY_DEFAULT_TIMEZONE);
   selectedBoardVersion =
       preferences.getInt("board_version", netDefaultBoardVersion);
@@ -628,6 +630,9 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <label style="display:flex;align-items:center;gap:10px;margin-top:12px" for="audio-en"><input style="width:auto" id="audio-en" name="audio_en" type="checkbox" value="1")html";
   if (audioEnabled) page += " checked";
   page += R"html(>Enable audio output (game sounds and alerts)</label>
+<label style="display:flex;align-items:center;gap:10px;margin-top:12px" for="hibernate"><input style="width:auto" id="hibernate" name="hibernate" type="checkbox" value="1")html";
+  if (hibernateEnabled) page += " checked";
+  page += R"html(>Hibernate between games &mdash; go dark after 3 idle minutes and wake for puck drop (checks every 5 min)</label>
 <button type="submit">Save & Connect Scoreboard</button></form>
 <hr><h3>Trivia Mode</h3>
 <p class="hint">Trivia night on the scoreboard &mdash; play solo from this phone, or host a multiplayer party: up to 15 players join from their phones and the scoreboard shows the standings.</p>
@@ -1115,6 +1120,7 @@ void saveNetwork() {
   if (server.hasArg("team3")) prefTeam3 = server.arg("team3").toInt();
   clockDisplayEnabled = server.hasArg("show_clock");
   audioEnabled = server.hasArg("audio_en");
+  hibernateEnabled = server.hasArg("hibernate");
   // Timezone is validated against the option table before it is trusted.
   bool tzChanged = false;
   if (server.hasArg("tz")) {
@@ -1148,6 +1154,7 @@ void saveNetwork() {
   preferences.putInt("team3", prefTeam3);
   preferences.putBool("show_clock", clockDisplayEnabled);
   preferences.putBool("audio_en", audioEnabled);
+  preferences.putBool("hibernate", hibernateEnabled);
   preferences.putString("tz", tzString);
   preferences.putInt("board_version", requestedBoardVersion);
   if (networkChanging) {
@@ -1465,6 +1472,13 @@ bool isClockDisplayEnabled() {
 // layer's sound playback (goal horn and cues) once the audio HAL lands.
 bool isAudioEnabled() {
   return audioEnabled;
+}
+
+// Hibernate toggle (NVS "hibernate", default off): a board with no live
+// preferred-team game goes dark after a short idle grace and wakes for
+// the next puck drop (see the hibernate section of the sport config).
+bool isHibernateEnabled() {
+  return hibernateEnabled;
 }
 
 int getBoardVersion() {

@@ -130,7 +130,10 @@ static const int BATTERY_SENSE_PIN = 7;            // ADC1_CH6, left header pos 
 static const float BATTERY_SENSE_DIVIDER = 2.0f;   // (R1 + R2) / R2
 static const float BATTERY_LOW_VOLTS = 3.40f;      // boot reading that trips shutdown;
                                                    //   also the gauge's EMPTY floor
-static const float BATTERY_FULL_VOLTS = 4.20f;     // gauge FULL — at/above = 100% (4/4)
+// Gauge FULL level. The charger terminates at 4.18 V on this pack, so a
+// topped-off battery reads 100% (4/4) and holds it until the smoothed
+// voltage crosses back below the 75% boundary (~3.99 V).
+static const float BATTERY_FULL_VOLTS = 4.18f;
 static const float BATTERY_RESUME_VOLTS = 3.90f;   // re-check resume (charger present)
 static const uint32_t BATTERY_RECHECK_MS = 900000; // silent re-check while asleep (15 min)
 static const uint8_t BATTERY_BAD_BOOT_STREAK = 3;  // bad boots before the backstop trips
@@ -168,6 +171,21 @@ static const uint32_t NHL_LANDING_STALE_MS = 90000;
 static const uint32_t NHL_SCHEDULE_POLL_INTERVAL_MS = 60000; // Detect followed-game start/end within 1 min
 static const uint32_t NHL_SCHEDULE_RETRY_MS = 15000;   // Base retry while the last schedule fetch failed (flaky Wi-Fi)
 static const uint32_t NHL_RETRY_BACKOFF_MAX_MS = 120000; // Exponential backoff cap for failed fetch retries.
+
+// ---- Optional hibernate mode (portal setting "hibernate") -------------------
+// When enabled, a board with no live preferred-team game goes dark 3 min
+// after boot (and 3 min after any game/portal session ends): TFT panel
+// into sleep, MAX7219 matrices into shutdown, TM1637 blank, penalty LEDs
+// off — it appears off. While dark the data task makes ONE silent
+// schedule check every 5 min; a live game (or portal use / an OTA
+// download) wakes the board, which re-hibernates the next idle period.
+// The radio stays associated throughout — Wi-Fi power save is unchanged.
+static const uint32_t HIBERNATE_IDLE_GRACE_MS = 180000;  // idle time before going dark
+static const uint32_t HIBERNATE_CHECK_MS = 300000;       // silent game check while dark (5 min)
+
+// Devkit onboard RGB LED (WS2812 on GPIO 48): unused by the app. Pinned
+// low right after boot so its floating data line can't make it glow.
+static const int ONBOARD_RGB_LED_PIN = 48;
 // After the first couple of connections following boot, new TLS connections
 // start failing instantly (start_ssl_client: -1) with the radio still
 // associated and heap healthy — consistent with the AP's flood protection

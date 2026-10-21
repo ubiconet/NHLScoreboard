@@ -43,6 +43,13 @@ long gActiveGameId = 0;
 long getActiveGameId() { return gActiveGameId; }
 void setActiveGameId(long gameId) { gActiveGameId = gameId; }
 
+// Set by the main loop when the board goes dark between games; read by
+// the data task every pass (plain bool, benign race like gActiveGameId).
+volatile bool gHibernateActive = false;
+
+bool gameHibernateActive() { return gHibernateActive; }
+void setGameHibernateActive(bool active) { gHibernateActive = active; }
+
 void publishUpcomingScheduleJson(JsonObjectConst src) {
   if (src.isNull()) {
     gUpcomingScheduleDoc.clear();

@@ -88,6 +88,10 @@ bool isClockDisplayEnabled();
 // User preference: enable the audio output — sounds and alerts (NVS
 // "audio_en", default on).
 bool isAudioEnabled();
+// User preference: hibernate between games (NVS "hibernate", default
+// off) — go dark when idle, silently check for a live game every few
+// minutes, wake for puck drop. Timing constants live in sport_config.h.
+bool isHibernateEnabled();
 // Effective display timezone as a POSIX TZ string, selected in the setup
 // portal (NVS "tz"); used for game times, countdowns, and the idle clock.
 const char* getTzString();
