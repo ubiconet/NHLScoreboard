@@ -16,7 +16,9 @@ void initTm1637(int clkPin, int dioPin, uint8_t brightness);
 // Game clock: (mm, ss). Wall clock: (hh, mm).
 void tm1637ShowPair(int hi, int lo, bool colonOn = true);
 
-// Brightness 0..7, or 0 to blank the display.
+// Brightness 1..7; 0 turns the display FULLY off (the TM1637 "display
+// off" command — digit data is retained, so a later brightness > 0
+// restores the last shown values).
 void tm1637SetBrightness(uint8_t brightness);
 
 // Mirror of updateMax7219Clock(): 12-hour wall clock, redrawn once per

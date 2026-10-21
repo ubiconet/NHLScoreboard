@@ -15,6 +15,7 @@ namespace {
 
 int sClk = -1, sDio = -1;
 uint8_t sBrightness = 3;
+bool sDisplayOn = true;  // brightness 0 = display OFF (0x80), not dim
 int sLastWallMinute = -1;
 
 // 7-segment patterns 0-9 (bit7 = decimal point / colon half).
@@ -52,12 +53,21 @@ bool writeByte(uint8_t b) {
   return true;
 }
 
+void writeDisplayControl() {
+  // 0x80 alone = display off; 0x88|b = on at brightness b (1/16..14/16
+  // duty). Brightness 0 previously sent 0x88|0, which left the digits
+  // faintly lit — hibernate/low-battery "blanking" showed a dim clock.
+  start();
+  writeByte(sDisplayOn ? (0x88 | (sBrightness & 0x07)) : 0x80);
+  stop();
+}
+
 void writeFrame(const uint8_t digits[4]) {
   start(); writeByte(0x40); stop();
   start(); writeByte(0xC0);
   for (int i = 0; i < 4; ++i) writeByte(digits[i]);
   stop();
-  start(); writeByte(0x88 | (sBrightness & 0x07)); stop();
+  writeDisplayControl();
 }
 
 }  // namespace
@@ -66,6 +76,7 @@ void initTm1637(int clkPin, int dioPin, uint8_t brightness) {
   sClk = clkPin;
   sDio = dioPin;
   sBrightness = brightness > 7 ? 7 : brightness;
+  sDisplayOn = sBrightness > 0;
   pinMode(sClk, OUTPUT);
   pinMode(sDio, OUTPUT);
   clkHigh();
@@ -87,7 +98,8 @@ void tm1637ShowPair(int hi, int lo, bool colonOn) {
 
 void tm1637SetBrightness(uint8_t brightness) {
   sBrightness = brightness > 7 ? 7 : brightness;
-  start(); writeByte(0x88 | (sBrightness & 0x07)); stop();
+  sDisplayOn = sBrightness > 0;  // 0 turns the display fully off
+  writeDisplayControl();
 }
 
 void invalidateTm1637WallClock() { sLastWallMinute = -1; }
