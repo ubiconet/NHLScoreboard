@@ -20,7 +20,7 @@ turns the board into a game show: 750 hockey questions, played solo from
 the phone, with the penalty LEDs as strikes and a persistent high score.
 A low-battery guard protects the LiPo supply on battery-version V1.1
 boards only: at power-on the pack is checked (voltage divider, plus a
-brownout boot-storm backstop), and when low the board flashes a warning
+battery-voltage check), and when low the board flashes a warning
 screen and deep-sleeps instead of brown-out cycling — divider-equipped
 boards resume by themselves once the charger is connected, and show a
 quarter-step battery icon on screen while running. Earlier board

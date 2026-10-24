@@ -40,13 +40,13 @@ without surprises.
     **board-version V1.1 feature**: on V1.1 boards it checks the pack at
     power-on via the divider on GPIO 7 (470k/470k + 100 nF; ADC1_CH6, left
     header pos 7 — ADC1 is never claimed by Wi-Fi, so the pin also feeds
-    the runtime battery gauge), and a brownout boot-storm NVS journal
-    backstops a collapsing pack. Low battery flashes the warning screen
-    (`common/ui/low_battery_screen`) and deep-sleeps the board.
+    the runtime battery gauge). Low battery flashes the warning screen
+    (`common/ui/low_battery_screen`) and deep-sleeps the board based only
+    on the measured battery voltage.
     `batterySenseEnabled()` keys off the portal's board-version setting
     (NVS), so one firmware serves every board — on V0.1/V1.0 boards
-    low-battery detection is disabled entirely (v3.63: no voltage check,
-    no boot journal; they boot and run unconditionally), and V1.1 boards
+    low-battery detection is disabled entirely (v3.63: no voltage check;
+    they boot and run unconditionally), and V1.1 boards
     get the voltage check with silent 15-min rechecks while asleep,
     resuming on their own once the charger lifts the pack past the resume
     threshold. On V1.1 boards a quarter-step battery icon

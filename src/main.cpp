@@ -22,10 +22,9 @@
 void setup() {
   Serial.begin(SERIAL_BAUD_RATE);
 
-  // Power gate first, before anything heavy (see power_monitor.h): the
-  // battery reading and the bad-boot journal must happen even on cycles
-  // that die seconds later. A timer-wake recheck that still finds the pack
-  // low goes back to sleep without any display work.
+  // Power gate first, before anything heavy (see power_monitor.h). A
+  // timer-wake recheck that still finds the pack low goes back to sleep
+  // without any display work.
   power::BootDecision powerDecision = power::earlyBootCheck();
   if (powerDecision == power::BootDecision::RESLEEP) {
     power::sleepNow();  // silent recheck found the pack still low; no return
@@ -86,10 +85,6 @@ void setup() {
 }
 
 void loop() {
-  // Marks this session healthy once it has run long enough that a later
-  // power-off must not count toward the power gate's bad-boot streak.
-  power::noteHealthyUptime();
-
   if (sport::skipBootUi()) {
     SportTickContext ctx = {millis(), false, false};
     sport::tick(ctx);

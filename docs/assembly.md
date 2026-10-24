@@ -152,7 +152,7 @@ Why it's wired this way:
   GPIO 21 has no ADC channel on ESP32-S3, GPIO 20 is native USB D−, and
   the ADC2 pins (including GPIO 14) go blind once Wi-Fi starts.
 - **After wiring**: select **Board V1.1 (battery sense)** in the setup
-  portal and reboot — that's what enables the boot check, the asleep
+  portal and reboot — that's what enables the voltage boot check, the asleep
   rechecks, and the on-screen battery gauge. Don't select V1.1 on a board
   without the divider; a floating ADC pin can read like a dead pack.
 

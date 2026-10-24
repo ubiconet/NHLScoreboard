@@ -1,7 +1,5 @@
 #include <Arduino.h>
-#include <Preferences.h>
 #include <esp_sleep.h>
-#include <esp_system.h>
 
 #include "config.h"
 #include "common/app/power_monitor.h"
@@ -19,17 +17,6 @@ namespace {
 // a true power-on. Flags "we chose to sleep for low battery", so a timer
 // wake knows to re-check silently instead of doing storm bookkeeping.
 RTC_DATA_ATTR bool sBatterySleep = false;
-
-Preferences prefs;
-
-// --- NVS boot journal (namespace "power") ---
-//   died:     1 = the previous boot started but never reached healthy
-//             uptime (brownout/collapse/user power-off), 2 = deliberate
-//             low-battery sleep, 0 = clean previous session.
-//   badboots: consecutive bad boots (brownout reset reason, or died == 1).
-constexpr const char* kPrefsNamespace = "power";
-constexpr const char* kKeyDied = "died";
-constexpr const char* kKeyBadBoots = "badboots";
 
 float readBatteryVolts() {
   // Only boards whose hardware carries the divider (V1.1+, per the
@@ -55,12 +42,6 @@ float readBatteryVolts() {
     samples[j + 1] = key;
   }
   return samples[2] * BATTERY_SENSE_DIVIDER / 1000.0f;
-}
-
-void journalDied(uint8_t value) {
-  prefs.begin(kPrefsNamespace, false);
-  prefs.putUChar(kKeyDied, value);
-  prefs.end();
 }
 
 // ---- Runtime gauge state (core-0 writer, render-core reader) ----
@@ -107,8 +88,8 @@ uint8_t voltsToQuarters(float v) {
 BootDecision earlyBootCheck() {
   // The power gate is a V1.1 hardware feature (battery-sense divider).
   // On earlier board revisions low-battery detection is disabled
-  // entirely: no voltage check and no boot-storm journal — those boards
-  // boot and run unconditionally, even through brownout cycles.
+  // entirely: those boards boot and run unconditionally, even through
+  // brownout cycles.
   if (!batterySenseEnabled(getBoardVersion())) {
     return BootDecision::NORMAL;
   }
@@ -121,41 +102,18 @@ BootDecision earlyBootCheck() {
     if (batterySenseEnabled(getBoardVersion()) &&
         readBatteryVolts() >= BATTERY_RESUME_VOLTS) {
       sBatterySleep = false;  // charger present — resume a normal boot
-      journalDied(0);
       return BootDecision::NORMAL;
     }
     return BootDecision::RESLEEP;
   }
 
-  // Storm bookkeeping — journal FIRST, sense second: a cycle that dies
-  // seconds later still counted toward the streak.
-  prefs.begin(kPrefsNamespace, false);
-  uint8_t died = prefs.getUChar(kKeyDied, 0);
-  uint8_t badBoots = prefs.getUChar(kKeyBadBoots, 0);
-  bool badBoot = (esp_reset_reason() == ESP_RST_BROWNOUT) || (died == 1);
-  if (badBoot) {
-    badBoots = (badBoots < 255) ? badBoots + 1 : badBoots;
-  } else {
-    badBoots = 0;
-  }
-  prefs.putUChar(kKeyDied, 1);  // assume short-lived until proven healthy
-  prefs.putUChar(kKeyBadBoots, badBoots);
-  prefs.end();
-
-  bool low = badBoots >= BATTERY_BAD_BOOT_STREAK;
-  if (batterySenseEnabled(getBoardVersion())) {
-    float volts = readBatteryVolts();
-    if (volts > 0.5f && volts <= BATTERY_LOW_VOLTS) low = true;
-  }
+  const float volts = readBatteryVolts();
+  const bool low = volts > 0.5f && volts <= BATTERY_LOW_VOLTS;
   return low ? BootDecision::SHUTDOWN : BootDecision::NORMAL;
 }
 
 void sleepNow() {
-  // Journal the deliberate sleep BEFORE anything slow: if the pack collapses
-  // during the warning hold, the next boot must not count this session
-  // toward the bad-boot streak.
   sBatterySleep = true;
-  journalDied(2);
   esp_sleep_enable_timer_wakeup((uint64_t)BATTERY_RECHECK_MS * 1000ULL);
   esp_deep_sleep_start();  // no return
 }
@@ -183,17 +141,6 @@ void showLowBatteryAndSleep() {
   tftPanel.raw().sendCommand(0x10);  // SLPIN
 
   sleepNow();
-}
-
-void noteHealthyUptime() {
-  if (!batterySenseEnabled(getBoardVersion())) return;  // gate disabled
-  if (millis() < BATTERY_HEALTHY_BOOT_MS) return;
-  static bool marked = false;
-  if (marked) return;
-  marked = true;
-  prefs.begin(kPrefsNamespace, false);
-  if (prefs.getUChar(kKeyDied, 0) == 1) prefs.putUChar(kKeyDied, 0);
-  prefs.end();
 }
 
 void serviceBatteryMonitor() {

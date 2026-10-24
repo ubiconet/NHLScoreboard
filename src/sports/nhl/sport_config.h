@@ -100,17 +100,13 @@ static const char* NETWORK_HOSTNAME = "nhl-scoreboard";
 // cycles on/off with no indication. The power gate (common/app/power_monitor,
 // driven from main.cpp's boot sequence) is a V1.1 HARDWARE FEATURE and is
 // DISABLED ENTIRELY on other board versions (v3.63): V0.1/V1.0 boards do no
-// voltage check and keep no boot-storm journal — they boot and run
-// unconditionally. On V1.1 boards (divider wired):
+// voltage check — they boot and run unconditionally. On V1.1 boards
+// (divider wired):
 //   * the pack voltage is read at boot and at/below BATTERY_LOW_VOLTS the
 //     board shows the low-battery screen and deep-sleeps immediately (no
 //     cycling first). While asleep it silently re-checks every
 //     BATTERY_RECHECK_MS and resumes on its own once the charger lifts the
 //     pack past BATTERY_RESUME_VOLTS.
-//   * a backstop counts rapid bad boots (brownout resets / boots that died
-//     before BATTERY_HEALTHY_BOOT_MS of uptime); BATTERY_BAD_BOOT_STREAK
-//     trips in a row trigger the low-battery screen + deep sleep. Recovery
-//     needs a power cycle after charging.
 // The divider is a V1.1 hardware feature: batterySenseEnabled() keys off
 // the portal's board-version setting (NVS), so ONE firmware serves every
 // board and only boards actually set to V1.1 read the pin. Don't select
@@ -136,8 +132,6 @@ static const float BATTERY_LOW_VOLTS = 3.40f;      // boot reading that trips sh
 static const float BATTERY_FULL_VOLTS = 4.18f;
 static const float BATTERY_RESUME_VOLTS = 3.90f;   // re-check resume (charger present)
 static const uint32_t BATTERY_RECHECK_MS = 900000; // silent re-check while asleep (15 min)
-static const uint8_t BATTERY_BAD_BOOT_STREAK = 3;  // bad boots before the backstop trips
-static const uint32_t BATTERY_HEALTHY_BOOT_MS = 90000; // uptime that marks a boot healthy
 // Runtime gauge sampling (serviceBatteryMonitor paces itself to this).
 // Quarter-step charge changes take minutes; 30 s is far finer than the
 // display ever shows, and each sample is a ~10 ms median-of-5 on core 0.
