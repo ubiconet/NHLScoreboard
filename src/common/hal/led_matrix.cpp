@@ -218,21 +218,42 @@ void initLedMatrix(int dinPin, int clkPin, int csPin, bool reverseHomeGuest,
   REVERSE_HOME_GUEST = reverseHomeGuest;
   FLIP_ALL_MODULES = flipAllModules;
 
+  // Bus bring-up. DIN/CLK/CS are floating inputs from the power ramp
+  // until this moment, and while they float, boost-converter/wire noise
+  // can clock garbage down the chain's shift registers — the source of
+  // the random one-or-two-module flash at power-on. Drive every pin a
+  // DEFINED low first, then flush three NOOP words through the shift
+  // registers BEFORE the first CS rising edge: whatever noise shifted in
+  // while the bus floated is discarded instead of latched into the
+  // register file. (CS must come up LOW — a rising CS edge is the latch.)
   pinMode(DIN_PIN, OUTPUT);
   pinMode(CLK_PIN, OUTPUT);
   pinMode(CS_PIN, OUTPUT);
-  digitalWrite(CS_PIN, HIGH);
+  digitalWrite(DIN_PIN, LOW);
+  digitalWrite(CLK_PIN, LOW);
+  digitalWrite(CS_PIN, LOW);
+  for (int i = 0; i < 6; ++i) max7219ShiftByte(0x00);  // 3x 0x0000 = NOOP
+  digitalWrite(CS_PIN, HIGH);  // latches harmless NOOPs into all 3 modules
 
-  // Initialize MAX7219 registers
-  max7219SendAll(MAX7219_REG_SHUTDOWN, 0x01);    // Normal operation
+  // Dark FIRST. Noise latched before firmware ran may have left the
+  // shutdown register at "normal" with garbage digits (or display-test
+  // mode on, which lights every LED at full brightness and overrides
+  // shutdown). The shutdown write parks the segments dark within one
+  // command; everything else is then configured while dark, and normal
+  // operation resumes only on a clean, fully blanked chain. (The old
+  // order wrote shutdown=normal FIRST and blanked digits LAST, so any
+  // garbage displayed until the end of init.)
+  max7219SendAll(MAX7219_REG_SHUTDOWN, 0x00);    // dark NOW, stays dark
+  max7219SendAll(MAX7219_REG_DISPLAYTEST, 0x00); // kill any noise-set test mode
   max7219SendAll(MAX7219_REG_DECODEMODE, 0x00);  // Raw matrix mode
   max7219SendAll(MAX7219_REG_SCANLIMIT, 0x07);   // Scan all 8 digits
   max7219Send3(MAX7219_REG_INTENSITY, kModuleIntensity[0],
                MAX7219_REG_INTENSITY, kModuleIntensity[2],
                MAX7219_REG_INTENSITY, kModuleIntensity[1]);
-  max7219SendAll(MAX7219_REG_DISPLAYTEST, 0x00); // Test off
+  for (uint8_t r = 0; r < 8; ++r)                // blank every digit register
+    max7219SendAll(MAX7219_REG_DIGIT0 + r, 0x00);
+  max7219SendAll(MAX7219_REG_SHUTDOWN, 0x01);    // resume — blank and quiet
 
-  setMax7219Scores(MAX7219_SCORE_BLANK, MAX7219_SCORE_BLANK);
   Serial.println("[HW] MAX7219 matrix driver initialized");
 }
 

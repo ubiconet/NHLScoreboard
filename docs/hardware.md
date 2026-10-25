@@ -138,6 +138,19 @@ shared by all three. With a shared LOAD the first bytes shifted land in
 the **last** physical device (home) — the driver's `max7219Send3` orders
 its slots accordingly.
 
+**MAX7219 power-on flash (bus pull resistors)** — DIN/CLK/CS float from
+the power ramp until the firmware drives them (GPIO 38–40 have no
+internal pulls at reset), and while they float, boost-ramp/wire noise
+can clock garbage into the chain and latch it into whichever module it
+lands in — the random one-or-two-matrix flash some power-ups show. The
+firmware (v3.81+) minimizes it: it drives the bus low and flushes NOOPs
+before the first CS edge, parks the chain in shutdown first, and runs
+`initLedMatrix` before the TFT bring-up. The window between the power
+ramp and the first firmware instructions can only be closed in hardware:
+add **10 kΩ CS→3V3** (no latch while the MCU resets) and **10 kΩ
+CLK→GND + 10 kΩ DIN→GND** (no clock edges; worst case noise shifts
+zeros, which decode as harmless NOOPs) at the ESP32 end of the chain.
+
 **TM1637** — power from 3V3 (left pos 1/2): its input high threshold
 scales with VCC, so 5 V power makes 3.3 V logic marginal. Slightly dimmer
 at 3V3 but 100 % reliable.
