@@ -174,6 +174,18 @@ point the env's src filter + `-I` at it, update `OTA_*` URLs in
   matches the published manifest version (devices only flash strictly
   newer versions), so **bump `FIRMWARE_VERSION` in `src/config.h` before
   every deploy**. GitHub's raw CDN caches the manifest ~5 min after a push.
+- **Website mirror (optional, per machine):** after the GitHub publish,
+  `_publish_website()` in `tools/release_deploy.py` copies the release
+  (app/factory/bootloader/partitions/boot_app0 bins + manifest.json) into
+  `SITE_ROOT/firmware/nhl/` for the miniboards website. When `SITE_ROOT`
+  (default `C:\projects\miniboards-site`, override with the
+  `MINIBOARD_SITE_ROOT` env var) is a git checkout it commits and pushes —
+  that push publishes the site copy; a plain folder just receives the
+  files for whatever publishes the site (an AI agent, sync tool, etc.).
+  When the folder doesn't exist the mirror silently skips, so the
+  GitHub-only flow is unchanged. Set `SITE_FIRMWARE_BASE` in the script
+  to rewrite the site copy's manifest URLs to the website's origin;
+  devices keep self-updating from GitHub raw either way.
 - **Self-update flow** (`src/common/comms/ota_update.cpp`, verified
   working end-to-end at v3.19 — device pulled a 1.67 MB release from
   GitHub raw and rebooted into it in ~25 s): shortly after the network
