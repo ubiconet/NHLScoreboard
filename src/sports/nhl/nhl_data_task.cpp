@@ -576,6 +576,10 @@ void nhlDataTaskLoop(void*) {
     // never touches the render loop.
     power::serviceBatteryMonitor();
 
+    // Signal-strength sample for the diagnostics surfaces (core-0 radio
+    // call; the render core reads the cached value).
+    setLastRssi(WiFi.RSSI());
+
     // Hibernate (portal setting): while the board sleeps between games,
     // the only network work is ONE silent schedule check every
     // HIBERNATE_CHECK_MS — the render core wakes the board when the

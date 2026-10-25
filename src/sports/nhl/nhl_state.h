@@ -35,6 +35,11 @@ void setActiveGameId(long gameId);
 bool gameHibernateActive();
 void setGameHibernateActive(bool active);
 
+// Last Wi-Fi RSSI (dBm) sampled by the data task on core 0; read by the
+// waiting-screen diagnostics and the portal status. 0 = never sampled.
+int getLastRssi();
+void setLastRssi(int dbm);
+
 // Schedule JSON cache used by the renderer's waiting carousel (the raw
 // day-score document, so upcoming cards can walk games/startTime fields).
 void publishUpcomingScheduleJson(JsonObjectConst src);

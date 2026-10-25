@@ -10,3 +10,5 @@ audio*.txt
 diag*.txt
 goal*.txt
 zoom_*.png
+# Standalone breadboard test fixture (not part of the scoreboard releases)
+board_test/

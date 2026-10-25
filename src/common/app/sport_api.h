@@ -81,4 +81,14 @@ void startDataTask();
 // updates for sport content.
 void tick(const SportTickContext& ctx);
 
+// ---- Feed diagnostics ----
+
+// JSON fragment (no outer braces) describing the sport's feed state for
+// the portal's /status endpoint: schedule fetch attempts/successes, the
+// last error and HTTP code, the followed game id, Wi-Fi signal, and the
+// device clock. Wired into the status JSON by main.cpp via the
+// network-service status hook. Empty string is fine for sports without
+// feeds.
+String feedDiagnosticsJson();
+
 }  // namespace sport

@@ -3,6 +3,8 @@
 #   - nhl_scoreboard_latest.bin       (always the most recent build)
 #   - nhl_scoreboard_<version>.bin    (permanent archive for this version,
 #                                      e.g. nhl_scoreboard_v1.0.bin)
+# It also creates a merged factory image that includes the bootloader and
+# partition table for first-time USB flashing.
 # The version is read from FIRMWARE_VERSION in src/config.h, so the archive
 # name always matches the version shown on the device's boot splash.
 
@@ -96,9 +98,29 @@ def _deploy(source, target, env):
 
     archived = os.path.join(releases_dir, "nhl_scoreboard_%s.bin" % version)
     latest = os.path.join(releases_dir, LATEST_FILE)
+    factory = os.path.join(
+        releases_dir, "nhl_scoreboard_%s_factory.bin" % version)
 
     shutil.copyfile(build_bin, archived)
     shutil.copyfile(build_bin, latest)
+    build_dir = os.path.dirname(build_bin)
+    esptool = os.path.join(
+        env["PROJECT_PACKAGES_DIR"], "tool-esptoolpy", "esptool.py")
+    merge = [
+        env.subst("$PYTHONEXE"), esptool, "--chip", "esp32s3", "merge_bin",
+        "--flash_mode", "qio", "--flash_freq", "80m", "--flash_size", "8MB",
+        "-o", factory,
+        "0x0", os.path.join(build_dir, "bootloader.bin"),
+        "0x8000", os.path.join(build_dir, "partitions.bin"),
+        "0xe000", os.path.join(
+            env["PROJECT_PACKAGES_DIR"], "framework-arduinoespressif32",
+            "tools", "partitions", "boot_app0.bin"),
+        "0x10000", build_bin,
+    ]
+    merged = subprocess.run(merge, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
+    if merged.returncode != 0:
+        env.Exit("factory image creation failed:\n" + merged.stderr.strip())
 
     # The manifest the firmware polls after boot. `version` lets a device
     # decide whether it is current; `file`/`url` say what to download.
@@ -113,10 +135,11 @@ def _deploy(source, target, env):
         f.write("\n")
 
     size_kb = os.path.getsize(archived) / 1024.0
-    print("deployed %s (%.1f KB) ->\n  %s\n  %s\n  %s (version %s)"
+    print("deployed %s (%.1f KB) ->\n  %s\n  %s\n  %s\n  %s (version %s)"
           % (build_bin, size_kb,
              os.path.relpath(archived, project_dir),
              os.path.relpath(latest, project_dir),
+             os.path.relpath(factory, project_dir),
              os.path.relpath(manifest_path, project_dir),
              version))
 

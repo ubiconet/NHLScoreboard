@@ -287,6 +287,29 @@ void runDisplayTestCycle() {
 // false runs the normal scoreboard state machine.
 static const bool HARDWARE_TEST_MODE = false;
 
+// BENCH ONLY (HARDWARE_TEST_MODE): slow-blink each MAX7219 bus pin in a
+// known order (DIN -> CLK -> CS, 6 s each) so a multimeter on the header
+// pin or the module end of the wire can verify the GPIO -> header ->
+// wire path (needle swings 0 V <-> 3.3 V during that pin's window).
+// Blocks ~20 s per pass; loops forever via runHardwareTestMode.
+void runMax7219BusPinProbe() {
+  const int pins[3] = {MAX7219_DIN_PIN, MAX7219_CLK_PIN, MAX7219_CS_PIN};
+  const char* names[3] = {"DIN", "CLK", "CS"};
+  Serial.println("[PROBE] === bus pin probe: DIN 6s, CLK 6s, CS 6s, repeat ===");
+  for (int i = 0; i < 3; ++i) {
+    Serial.printf("[PROBE] GPIO%d (%s) blinking NOW for 6 s ...\n", pins[i],
+                  names[i]);
+    for (int t = 0; t < 6; ++t) {
+      digitalWrite(pins[i], HIGH);
+      delay(500);
+      digitalWrite(pins[i], LOW);
+      delay(500);
+    }
+    digitalWrite(pins[i], LOW);
+  }
+  Serial.println("[PROBE] cycle done — restarting");
+}
+
 void runHardwareTestMode(uint32_t nowMs) {
   static bool staticDrawn = false;
   if (!staticDrawn) {
@@ -310,6 +333,9 @@ void runHardwareTestMode(uint32_t nowMs) {
   for (int i = 0; i < 4; ++i) {
     digitalWrite(ledOrder[i], i == step ? HIGH : LOW);
   }
+  // BENCH ONLY: loop the per-pin bus probe so the board is always in a
+  // known probing state whenever someone picks up a multimeter.
+  runMax7219BusPinProbe();
 }
 
 namespace sport {
@@ -719,6 +745,43 @@ void tick(const SportTickContext& ctx) {
       }
     }
   }
+}
+
+
+String feedDiagnosticsJson() {
+  // Portal-side feed diagnostics (pulled into /status and /diag by the
+  // network service's status hook — see main.cpp). Everything here is
+  // already-cached state: no radio calls, no allocation beyond the
+  // returned String.
+  uint32_t ago = (getScheduleLastFetchAt() == 0)
+                     ? 0
+                     : (millis() - getScheduleLastFetchAt()) / 1000;
+  char clock[24] = "unset";
+  if (timeIsSynced()) {
+    time_t t = time(nullptr);
+    tm lt = {};
+    localtime_r(&t, &lt);
+    strftime(clock, sizeof(clock), "%Y-%m-%d %H:%M", &lt);
+  }
+  String j = "\"schedAttempts\":";
+  j += (unsigned)getScheduleFetchAttempts();
+  j += ",\"schedOk\":";
+  j += (unsigned)getScheduleFetchSuccesses();
+  j += ",\"schedErr\":\"";
+  j += getScheduleLastError();
+  j += "\",\"schedCode\":";
+  j += getScheduleLastHttpCode();
+  j += ",\"schedAgeSec\":";
+  j += (unsigned)ago;
+  j += ",\"activeGameId\":";
+  j += getActiveGameId();
+  j += ",\"rssi\":";
+  j += getLastRssi();
+  j += ",\"clock\":\"";
+  j += clock;
+  j += "\",\"freeHeap\":";
+  j += (unsigned)ESP.getFreeHeap();
+  return j;
 }
 
 }  // namespace sport

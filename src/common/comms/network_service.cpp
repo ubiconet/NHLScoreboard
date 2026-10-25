@@ -38,6 +38,15 @@ const char DEFAULT_CONFIG[] = R"json({"version":1,"teams":[]})json";
 bool dnsRunning = false;
 bool apUp = false;
 bool otaStarted = false;
+// Optional sport-supplied JSON fragment appended to /status by the app
+// shell (main.cpp wires it to sport::feedDiagnosticsJson — common code
+// never reaches into the sport layer directly).
+String (*netStatusExtra)() = nullptr;
+
+// Portal server on/off (hibernate): defined early — serveStatus reports
+// it and the hibernate switch + network-task pacing read it below.
+bool portalServerEnabled = true;
+
 // Branding + team options, injected at startNetworkServices() by the app
 // shell (from the sport's config/tables). Empty until then.
 NetworkBranding netBranding = {"Scoreboard", "SCOREBOARD", "scoreboard"};
@@ -679,7 +688,15 @@ else if(otaWaiting&&s.checked&&s.ok){otaWaiting=false;e.textContent='No update a
 void serveStatus() {
   markPortalActivity();
   const char* name = state == ONLINE ? "online" : (state == CONNECTING ? "connecting" : "provisioning");
-  server.send(200, "application/json", String("{\"state\":\"") + name + "\"}");
+  String j = String("{\"state\":\"") + name + "\",\"uptimeSec\":" +
+             (unsigned)(millis() / 1000) + ",\"portal\":" +
+             (portalServerEnabled ? "true" : "false");
+  if (netStatusExtra != nullptr) {
+    j += ",\"feeds\":{" + netStatusExtra() + "}";
+  }
+  j += "}";
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", j);
 }
 
 // Live pack voltage for the diagnostics page (V1.1 boards). percent and
@@ -719,6 +736,9 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <h3>Battery</h3>
 <p class="readout" id="battReadout">Reading battery...</p>
 <p class="hint">Live pack voltage and estimated remaining charge for the 3.7 V LiPo (refreshes every 5 s). Voltage-based estimate: honest to roughly &plusmn;15 points through the flat middle of the discharge curve and conservative while the scoreboard is drawing hard. Full is ~4.2 V, empty ~3.4 V; the low-battery shutdown trips at 3.4 V.</p>
+<hr><h3>Feed Diagnostics</h3>
+<p class="readout" id="feedReadout" style="font-size:16px">Reading feeds...</p>
+<p class="hint">Live NHL feed state (refreshes every 5 s): schedule fetch attempts and successes, the last error and HTTP code, the followed game, Wi-Fi signal, and the device clock &mdash; an unsynced clock blocks schedule fetches entirely. code -1 means the fetch failed before any HTTP response (DNS/TLS/radio).</p>
 <hr><h3>Screen Self-Test</h3>
 <p class="hint">Cycles every display once (matrices, clock, penalty LEDs, screen), holds everything on for 2 seconds, then returns to what was showing.</p>
 <button type="button" onclick="dtest()">Run Display Test</button>
@@ -749,6 +769,9 @@ var q=s.quarters>4?'--':(s.quarters+'/4 on screen');
 e.textContent=s.volts.toFixed(2)+' V \u2014 '+pct+' ('+q+')';
 }).catch(function(){document.getElementById('battReadout').textContent='Unable to read battery.'})}
 pollBatt();setInterval(pollBatt,5000);
+function pollFeed(){fetch('/status').then(function(r){return r.json()}).then(function(s){var e=document.getElementById('feedReadout');var f=s.feeds||{};
+e.textContent='attempts '+(f.schedAttempts!=null?f.schedAttempts:'-')+' · ok '+(f.schedOk!=null?f.schedOk:'-')+' · code '+(f.schedCode!=null?f.schedCode:'-')+' · '+(f.schedErr||'')+' · game '+(f.activeGameId||0)+' · rssi '+(f.rssi||0)+' dBm · clock '+(f.clock||'?')}).catch(function(){document.getElementById('feedReadout').textContent='Unable to read feed status.'})}
+pollFeed();setInterval(pollFeed,5000);
 function dtest(){document.getElementById('dtestStatus').textContent='Running - watch the scoreboard...';fetch('/display/test',{method:'POST'}).then(function(){setTimeout(function(){document.getElementById('dtestStatus').textContent='Done.'},18000)}).catch(function(){document.getElementById('dtestStatus').textContent='Request failed.'})}
 function atest(){fetch('/audio/test',{method:'POST'})}
 function setDemo(running){fetch(running?'/demo/start':'/demo/stop',{method:'POST'}).then(function(r){if(!r.ok)throw new Error('request failed');paintDemo(running)}).catch(function(){document.getElementById('demoStatus').textContent='Demo request failed.'})}
@@ -1434,7 +1457,6 @@ bool portalEngaged() {
 // network task performs the actual stop/start (WebServer isn't
 // thread-safe across cores, and handleClient() runs on core 0).
 volatile int portalEnableRequest = 0;  // +1 start, -1 stop, 0 = idle
-bool portalServerEnabled = true;
 void setPortalEnabled(bool enabled) {
   portalEnableRequest = enabled ? 1 : -1;
 }
@@ -1544,7 +1566,9 @@ void startNetworkServices(const NetworkBranding& branding,
                           const int defaultPreferredTeams[3],
                           const NetworkBoardOption* boardOptions,
                           size_t boardOptionCount,
-                          int defaultBoardVersion) {
+                          int defaultBoardVersion,
+                          String (*statusExtraJson)()) {
+  netStatusExtra = statusExtraJson;
   netBranding = branding;
   netTeamOptions = teamOptions;
   netTeamOptionCount = teamOptionCount;

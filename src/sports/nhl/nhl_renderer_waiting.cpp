@@ -169,8 +169,11 @@ void drawNoGamesPage() {
   canvas().setTextColor(ST77XX_WHITE);
   canvas().setTextSize(2);
   drawCenteredText(canvas(), "No upcoming games", 160, 100);
-  // Diagnostics: proves the data task is publishing a schedule document.
-  char diag[60];
+  // Diagnostics: proves the data task is publishing a schedule document,
+  // plus the transport state that most often explains a silent scoreboard
+  // (Wi-Fi signal, clock sync — an unsynced clock blocks schedule
+  // fetches entirely — and free heap for TLS-handshake headroom).
+  char diag[72];
   uint32_t ago = (getScheduleLastFetchAt() == 0)
                      ? 0
                      : (millis() - getScheduleLastFetchAt()) / 1000;
@@ -181,6 +184,11 @@ void drawNoGamesPage() {
   canvas().setTextColor(COLOR_MUTED);
   canvas().setTextSize(1);
   drawCenteredText(canvas(), diag, 160, 132);
+  char env[56];
+  snprintf(env, sizeof(env), "rssi:%d dBm  clock:%s  heap:%u",
+           getLastRssi(), timeIsSynced() ? "set" : "UNSET",
+           (unsigned)ESP.getFreeHeap());
+  drawCenteredText(canvas(), env, 160, 144);
 }
 
 void drawLeaguePage() {

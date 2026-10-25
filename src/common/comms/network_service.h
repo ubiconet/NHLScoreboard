@@ -32,7 +32,8 @@ void startNetworkServices(const NetworkBranding& branding,
                           const int defaultPreferredTeams[3],
                           const NetworkBoardOption* boardOptions,
                           size_t boardOptionCount,
-                          int defaultBoardVersion);
+                          int defaultBoardVersion,
+                          String (*statusExtraJson)() = nullptr);
 void startNetworkTask();
 // Runs on the main loop; performs any pending display work owned by that core.
 void handleNetworkDisplay();

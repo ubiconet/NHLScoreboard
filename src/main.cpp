@@ -60,7 +60,8 @@ void setup() {
     startNetworkServices(branding, sport::teamOptions(teamOptionCount),
                          teamOptionCount, sport::defaultPreferredTeams(),
                          sport::boardOptions(boardOptionCount),
-                         boardOptionCount, sport::defaultBoardVersion());
+                         boardOptionCount, sport::defaultBoardVersion(),
+                         sport::feedDiagnosticsJson);
     startNetworkTask();
     sport::startDataTask();  // core-0 feed fetches
   }

@@ -50,6 +50,13 @@ volatile bool gHibernateActive = false;
 bool gameHibernateActive() { return gHibernateActive; }
 void setGameHibernateActive(bool active) { gHibernateActive = active; }
 
+// Written by the data task (core 0) once per loop pass; read from the
+// render core + network task for diagnostics. Plain int, benign race.
+volatile int gLastRssi = 0;
+
+int getLastRssi() { return gLastRssi; }
+void setLastRssi(int dbm) { gLastRssi = dbm; }
+
 void publishUpcomingScheduleJson(JsonObjectConst src) {
   if (src.isNull()) {
     gUpcomingScheduleDoc.clear();
