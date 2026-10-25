@@ -173,7 +173,9 @@ point the env's src filter + `-I` at it, update `OTA_*` URLs in
   update. The target refuses to deploy when `FIRMWARE_VERSION` still
   matches the published manifest version (devices only flash strictly
   newer versions), so **bump `FIRMWARE_VERSION` in `src/config.h` before
-  every deploy**. GitHub's raw CDN caches the manifest ~5 min after a push.
+  every deploy**. GitHub's raw CDN caches the manifest ~5 min after a
+  push; since v3.86 devices poll the Netlify copy instead (no-cache) —
+  GitHub `releases/` stays published as the archive/manual-download copy.
 - **Website mirror (per machine, enabled by default):** after the GitHub
   publish, `_publish_website()` in `tools/release_deploy.py` copies the
   release (app/factory/bootloader/partitions/boot_app0 bins +
@@ -183,13 +185,15 @@ point the env's src filter + `-I` at it, update `OTA_*` URLs in
   the `MINIBOARD_SITE_ROOT` env var), then commits and pushes — that push
   publishes the repo copy. It also regenerates browsable `index.html`
   pages for `/firmware/` and `/firmware/nhl/` (Netlify has no
-  server-side directory listing). The site itself is CLI-published to
-  Netlify from the Mac mini: `_publish_netlify()` runs `netlify deploy
-  --prod` automatically when the CLI is on PATH (needs a one-time
-  `netlify login` there) and otherwise prints the remaining step
-  (`git pull && netlify deploy --prod`). `SITE_FIRMWARE_BASE` in the
-  script optionally rewrites the site manifest's URLs to the website's
-  origin; device OTA stays on GitHub raw.
+  server-side directory listing). The site then deploys to Netlify from
+  this machine: `_publish_netlify()` runs `netlify deploy --prod` (CLI
+  installed and logged in; `NETLIFY_SITE_ID` names the miniboards site,
+  **sports-miniboards.com**) from a clean temp export of the site that
+  excludes `.git`/`.netlify`. `SITE_FIRMWARE_BASE` rewrites the SITE
+  manifest's download URLs to `https://sports-miniboards.com/firmware/nhl`
+  — **since v3.86 device OTA (`OTA_MANIFEST_URL` in `src/config.h`) reads
+  this Netlify copy**; the GitHub `releases/` manifest keeps GitHub-raw
+  URLs as the archive.
 - **Self-update flow** (`src/common/comms/ota_update.cpp`, verified
   working end-to-end at v3.19 — device pulled a 1.67 MB release from
   GitHub raw and rebooted into it in ~25 s): shortly after the network

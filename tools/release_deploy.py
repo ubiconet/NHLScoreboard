@@ -43,7 +43,10 @@ SITE_REPO_URL = "https://github.com/ubiconet/scoreboard-site.git"
 SITE_ROOT = os.environ.get("MINIBOARD_SITE_ROOT",
                            r"C:\projects\scoreboard-site")
 SITE_SLUG = "nhl"          # /firmware/nhl/ on the site
-SITE_FIRMWARE_BASE = ""    # e.g. "https://scoreboards.ubiconet.com/firmware/nhl"
+# The SITE copy of manifest.json points its download URLs here (the
+# device OTA checks the Netlify copy — see OTA_MANIFEST_URL in
+# src/config.h; the GitHub releases/ manifest keeps the raw GitHub URLs).
+SITE_FIRMWARE_BASE = "https://sports-miniboards.com/firmware/nhl"
 # Netlify republish (best effort, after the site push): runs
 # `netlify deploy --prod` when the CLI is on PATH. Needs a one-time
 # `netlify login` (or NETLIFY_AUTH_TOKEN) and NETLIFY_SITE_ID when the

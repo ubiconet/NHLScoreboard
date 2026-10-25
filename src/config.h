@@ -22,7 +22,7 @@
 // ---- Firmware identity -----------------------------------------------------
 // tools/release_deploy.py reads FIRMWARE_VERSION from THIS file to name the
 // release binary, so the definition must stay here.
-static const char* FIRMWARE_VERSION = "v3.85";
+static const char* FIRMWARE_VERSION = "v3.86";
 
 // ---- Install location (factory default) -------------------------------------
 // POSIX TZ string used ONLY until the user picks a timezone in the setup
@@ -38,21 +38,24 @@ static const char* FACTORY_DEFAULT_TIMEZONE = "EST5EDT,M3.2.0,M11.1.0";
 // `pio run -t deploy` writes the binary + manifest to releases/ in this
 // GitHub repo; the device polls the manifest after boot and flashes itself
 // when the version is strictly newer than FIRMWARE_VERSION.
-// raw.githubusercontent.com only serves HTTPS — the one TLS connection the
-// firmware still makes (feeds themselves run over plain HTTP; see
-// sports/nhl/nhl_client.cpp). It runs alone on core 0 with the feed session
-// closed, so the ~45 KB TLS context fits.
-// TEMPLATE CHECKLIST: point these at the new repo when forking for a new
-// sport (and update RAW_BASE + LATEST_FILE in tools/release_deploy.py).
+// sports-miniboards.com is the Netlify-hosted sales site — the deploy
+// publishes releases to BOTH its /firmware/nhl/ folder and the GitHub
+// releases/ folder, and the device checks the Netlify copy (fast CDN,
+// no-cache on the manifest; GitHub raw cached the manifest ~5 min).
+// HTTPS only — the one TLS connection the firmware still makes (feeds
+// themselves run over plain HTTP; see sports/nhl/nhl_client.cpp). It
+// runs alone on core 0 with the feed session closed, so the ~45 KB TLS
+// context fits.
+// TEMPLATE CHECKLIST: point these at the new site/repo when forking for
+// a new sport (and update RAW_BASE + SITE_FIRMWARE_BASE + LATEST_FILE in
+// tools/release_deploy.py).
 static const char* OTA_MANIFEST_URL =
-    "https://raw.githubusercontent.com/ubiconet/NHLScoreboard/main/"
-    "releases/manifest.json";
+    "https://sports-miniboards.com/firmware/nhl/manifest.json";
 // Displayed on the setup portal so a user doing a manual update knows
 // where the current binary lives. Must stay in sync with the manifest
 // URL above (same folder, deployed by `pio run -t deploy`).
 static const char* OTA_LATEST_BIN_URL =
-    "https://raw.githubusercontent.com/ubiconet/NHLScoreboard/main/"
-    "releases/nhl_scoreboard_latest.bin";
+    "https://sports-miniboards.com/firmware/nhl/nhl_scoreboard_latest.bin";
 
 #include "common/config.h"
 #include "sport_config.h"
