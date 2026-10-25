@@ -12,3 +12,6 @@ goal*.txt
 zoom_*.png
 # Standalone breadboard test fixture (not part of the scoreboard releases)
 board_test/
+# Windows flasher build artifacts
+tools/windows-flasher/bin/
+tools/windows-flasher/obj/
