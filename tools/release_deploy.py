@@ -206,27 +206,39 @@ def _publish_netlify(site_root):
     """Best-effort Netlify republish after the firmware push.
 
     The site is CLI-published (not git-connected), so a deploy must run
-    somewhere the Netlify CLI lives. Runs it here when available;
-    otherwise prints the remaining step for whichever machine owns the
-    site (the Mac mini: git pull && netlify deploy --prod).
+    somewhere the Netlify CLI is installed and logged in. Runs
+    `netlify deploy --prod` here when possible, from a clean export of
+    the site (everything except .git/.netlify — the repo history must
+    never be uploaded); otherwise prints the remaining step for whichever
+    machine owns the site (the Mac mini: git pull && netlify deploy
+    --prod).
     """
     if shutil.which("netlify") is None:
-        print("netlify republish skipped — CLI not on PATH (no Node on "
-              "this machine).\nFinish from the site machine: "
-              "git pull && netlify deploy --prod")
+        print("netlify republish skipped — CLI not on PATH.\n"
+              "Finish from the site machine: git pull && "
+              "netlify deploy --prod")
         return
-    cmd = ["netlify", "deploy", "--prod", "--dir", site_root]
-    if NETLIFY_SITE_ID:
-        cmd += ["--site", NETLIFY_SITE_ID]
-    dep = subprocess.run(cmd, capture_output=True, text=True,
-                         encoding="utf-8", errors="replace")
-    if dep.returncode == 0:
-        tail = (dep.stdout or "").strip().splitlines()
-        print("netlify republished: %s" %
-              (tail[-1] if tail else "deploy ok"))
-    else:
-        print("WARNING: netlify deploy failed:\n%s" %
-              ((dep.stdout or "") + (dep.stderr or "")).strip())
+    export_dir = None
+    try:
+        import tempfile
+        export_dir = tempfile.mkdtemp(prefix="netlify-export-")
+        shutil.copytree(site_root, export_dir, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns(".git", ".netlify"))
+        cmd = ["netlify", "deploy", "--prod", "--dir", export_dir]
+        if NETLIFY_SITE_ID:
+            cmd += ["--site", NETLIFY_SITE_ID]
+        dep = subprocess.run(cmd, capture_output=True, text=True,
+                             encoding="utf-8", errors="replace")
+        if dep.returncode == 0:
+            tail = (dep.stdout or "").strip().splitlines()
+            print("netlify republished: %s" %
+                  (tail[-1] if tail else "deploy ok"))
+        else:
+            print("WARNING: netlify deploy failed:\n%s" %
+                  ((dep.stdout or "") + (dep.stderr or "")).strip())
+    finally:
+        if export_dir:
+            shutil.rmtree(export_dir, ignore_errors=True)
 
 
 def _publish_website(version, releases_dir):
