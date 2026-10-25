@@ -136,8 +136,9 @@ bool advanceGameDemo(uint32_t nowMs) {
   }
 
   bool goalScored = elapsedSec != 0 && elapsedSec % 20 == 0;
+  bool homeScored = false;
   if (goalScored) {
-    bool homeScored = ((elapsedSec / 20) % 2) == 0;
+    homeScored = ((elapsedSec / 20) % 2) == 0;
     int column = sDemoGame.period <= 3 ? sDemoGame.period - 1 : 3;
     if (homeScored) {
       ++sDemoGame.homeScore;
@@ -164,6 +165,8 @@ bool advanceGameDemo(uint32_t nowMs) {
   if (goalScored) {
     startGoalAnnouncement(sDemoGame.latestGoal);
     if (isAudioEnabled()) startClip(GOAL_PCM, GOAL_SAMPLES, GOAL_RATE);
+    // Demo goals celebrate like preferred-team goals — bench-visible.
+    runGoalCelebration(sDemoGame, homeScored);
   }
   return true;
 }
@@ -731,10 +734,14 @@ void tick(const SportTickContext& ctx) {
           if (homeScored && game.homeTeamId == preferredTeams[i]) favorite = true;
           if (awayScored && game.awayTeamId == preferredTeams[i]) favorite = true;
         }
-        if (favorite && isAudioEnabled()) {
-          Serial.printf("[AUDIO] GOAL! %s %d - %s %d\n", game.awayAbbrev,
-                        game.awayScore, game.homeAbbrev, game.homeScore);
-          startClip(GOAL_PCM, GOAL_SAMPLES, GOAL_RATE);
+        if (favorite) {
+          if (isAudioEnabled()) {
+            Serial.printf("[AUDIO] GOAL! %s %d - %s %d\n", game.awayAbbrev,
+                          game.awayScore, game.homeAbbrev, game.homeScore);
+            startClip(GOAL_PCM, GOAL_SAMPLES, GOAL_RATE);
+          }
+          // Matrix/LED celebration rides the horn when it plays.
+          runGoalCelebration(game, homeScored);
         }
       }
       bool over = strcmp(game.gameState, "FINAL") == 0 ||

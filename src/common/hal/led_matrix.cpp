@@ -278,6 +278,28 @@ void setMax7219Display(int homeScore, int awayScore, int periodValue) {
                MAX7219_REG_INTENSITY, kModuleIntensity[1]);
 }
 
+void setMax7219ScoreFlash(int homeScore, int awayScore, int periodValue,
+                          bool invertHome, bool invertGuest) {
+  uint8_t awayRows[8];
+  uint8_t homeRows[8];
+  uint8_t periodRows[8];
+
+  scoreToMatrixRows(awayScore, awayRows);
+  scoreToMatrixRows(homeScore, homeRows);
+  scoreToMatrixRows(periodValue, periodRows);
+  // Reverse-video: swap lit and dark LEDs on the flagged sides. XOR
+  // commutes with rotateMatrix90Ccw/rotateMatrix180, so writeMatrixRows'
+  // mounting corrections still land right-side up.
+  if (invertHome)
+    for (int r = 0; r < 8; ++r) homeRows[r] ^= 0xFF;
+  if (invertGuest)
+    for (int r = 0; r < 8; ++r) awayRows[r] ^= 0xFF;
+  writeMatrixRows(awayRows, homeRows, periodRows);
+  max7219Send3(MAX7219_REG_INTENSITY, kModuleIntensity[0],
+               MAX7219_REG_INTENSITY, kModuleIntensity[2],
+               MAX7219_REG_INTENSITY, kModuleIntensity[1]);
+}
+
 void setMax7219Scores(int awayScore, int homeScore) {
   // Period module stays dark in normal mode until the renderer drives it.
   setMax7219Display(homeScore, awayScore, MAX7219_SCORE_BLANK);

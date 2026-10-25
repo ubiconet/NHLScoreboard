@@ -16,6 +16,12 @@ void setMax7219Scores(int awayScore, int homeScore);
 // Full 3-module chain write: home / guest(away) / period in one 24-bit
 // burst (MAX7219_SCORE_BLANK leaves that module dark).
 void setMax7219Display(int homeScore, int awayScore, int periodValue);
+// Celebration variant of setMax7219Display: either score frame may be
+// shown INVERTED (reverse video — every LED lit where the normal glyph
+// is dark, and vice versa). Complementing the rows commutes with the
+// mounting corrections, so orientation is unaffected.
+void setMax7219ScoreFlash(int homeScore, int awayScore, int periodValue,
+                          bool invertHome, bool invertGuest);
 // Scores on the outer modules with "SO" on the period module (shootout).
 void setMax7219Shootout(int homeScore, int awayScore);
 // Raw 8x8 frames for all three modules at once (one byte per row, bit 7 =

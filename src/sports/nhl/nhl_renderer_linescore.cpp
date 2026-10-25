@@ -5,6 +5,7 @@
 #include "config.h"
 #include "common/app/power_monitor.h"
 #include "common/comms/network_service.h"
+#include "common/hal/audio.h"
 #include "common/hal/count_leds.h"
 #include "common/hal/led_matrix.h"
 #include "common/hal/tft_panel.h"
@@ -720,6 +721,55 @@ void startGoalAnnouncement(const NhlGoal& goal) {
   sGoalDisplayPhase = GoalDisplayPhase::ANNOUNCEMENT;
   sGoalDisplayStartedAt = millis();
   drawGoalAnnouncement();
+}
+
+void runGoalCelebration(const GameSnapshot& g, bool homeScored) {
+  // Preferred-team goal celebration (also fired by the game demo): while
+  // the goal horn plays, the two score matrices alternate regular /
+  // inverted (reverse-video) frames — the scoring side inverts first —
+  // and the four penalty LEDs strobe on the same 250 ms rhythm. The TFT
+  // goal announcement stays up throughout (drawn before this runs).
+  // Blocking on the render core, same style as the display test: feeds
+  // keep flowing on core 0, and the loop exits with the horn
+  // (audioPlaying()), bounded by NHL_GOAL_CELEBRATION_MIN/MAX_MS.
+  const bool shootout = strcmp(g.periodType, "SO") == 0;
+  const int dispPeriod = g.inIntermission ? g.period + 1 : g.period;
+  const int home = g.homeScore, away = g.awayScore;
+
+  // The celebration replaces the plain score blink for this goal and
+  // restores the matrices itself.
+  sBlinkSide = 0;
+
+  uint32_t start = millis();
+  bool invertHome = !homeScored;  // first toggle inverts the scoring side
+  while (millis() - start < NHL_GOAL_CELEBRATION_MAX_MS &&
+         (audioPlaying() || millis() - start < NHL_GOAL_CELEBRATION_MIN_MS)) {
+    invertHome = !invertHome;
+    if (shootout) {
+      // Shootout frames carry the "SO" glyph on the period module —
+      // flash the two scores dark instead of inverting.
+      setMax7219Shootout(invertHome ? home : MAX7219_SCORE_BLANK,
+                         invertHome ? away : MAX7219_SCORE_BLANK);
+    } else {
+      setMax7219ScoreFlash(home, away,
+                           dispPeriod >= 1 ? dispPeriod : MAX7219_SCORE_BLANK,
+                           invertHome, !invertHome);
+    }
+    setCountLeds(invertHome ? 2 : 0, invertHome ? 2 : 0, 0);
+    delay(NHL_SCORE_BLINK_HALF_MS);
+  }
+
+  // Steady state restored: matrices back to the snapshot's scores and
+  // period, penalty LEDs back to the snapshot's counts — exactly what
+  // renderLiveGame applies on this poll.
+  if (shootout) {
+    setMax7219Shootout(home, away);
+  } else {
+    setMax7219Display(home, away,
+                      dispPeriod >= 1 ? dispPeriod : MAX7219_SCORE_BLANK);
+  }
+  setCountLeds(g.inIntermission ? 0 : g.homePenaltyCount,
+               g.inIntermission ? 0 : g.awayPenaltyCount, 0);
 }
 
 void updateGoalAnnouncement(const NhlGoal& goal) {

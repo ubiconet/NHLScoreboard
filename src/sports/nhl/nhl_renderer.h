@@ -46,6 +46,15 @@ void startGoalAnnouncement(const NhlGoal& goal);
 // Supplies jersey numbers fetched after the immediate goal announcement.
 void updateGoalAnnouncement(const NhlGoal& goal);
 
+// Preferred-team goal celebration (also used by the game demo): while the
+// goal horn plays, alternates the two score matrices between regular and
+// inverted (reverse-video) frames — the scoring side first — with the
+// penalty LEDs strobing on the same rhythm; restores the matrices and
+// LEDs to the snapshot's steady state when it ends. Blocking on the
+// render core (exits with the horn via audioPlaying(), bounded by
+// NHL_GOAL_CELEBRATION_MIN/MAX_MS).
+void runGoalCelebration(const GameSnapshot& g, bool homeScored);
+
 // Forces the next renderLiveGame() to repaint EVERYTHING (used after
 // something else owned the display, e.g. the portal display test).
 void forceLiveRepaint(const GameSnapshot& game);
