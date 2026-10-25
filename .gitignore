@@ -18,3 +18,7 @@ tools/windows-flasher/obj/
 # Local diagnostic scratch (serial captures, debug logs)
 .diag/
 debug.log
+
+# Python + Netlify CLI local artifacts
+__pycache__/
+.netlify/
