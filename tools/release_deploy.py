@@ -97,6 +97,103 @@ def _publish_releases(project_dir, version):
     print("releases pushed to GitHub (manifest version %s)" % version)
 
 
+def _natural_key(name):
+    """Sort key so v3.10 sorts after v3.9 (plain string sort fails)."""
+    return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", name)]
+
+
+def _fmt_size(n):
+    if n >= 1048576:
+        return "%.1f MB" % (n / 1048576.0)
+    if n >= 1024:
+        return "%.1f KB" % (n / 1024.0)
+    return "%d B" % n
+
+
+_SITE_PAGE_STYLE = ("body{margin:0;background:#061b46;color:#fff;"
+                    "font:16px system-ui,sans-serif}"
+                    "main{max-width:720px;margin:5vh auto;padding:24px;"
+                    "background:#0b2b62;border:2px solid #dfe9ff;"
+                    "border-radius:8px}"
+                    "h1{margin-top:0;font-size:24px}"
+                    "h2{font-size:18px;margin:20px 0 6px;color:#f5c400}"
+                    "table{width:100%;border-collapse:collapse}"
+                    "td{padding:6px 8px;border-top:1px solid #1c4587}"
+                    "td:last-child{text-align:right;color:#c5d3ee;"
+                    "white-space:nowrap}"
+                    "a{color:#f5c400;text-decoration:none}"
+                    "a:hover{text-decoration:underline}"
+                    ".hint{color:#c5d3ee;font-size:14px;line-height:1.5}")
+
+
+def _write_site_indexes(site_root, slug):
+    """Browsable index pages for the website's firmware folder.
+
+    Netlify (like any static host) has no server-side directory listing
+    to enable — a folder is browsable only when it carries its own
+    index.html. Both pages regenerate on every deploy from the files
+    actually on disk, so they can never drift from the real contents.
+    """
+    fw_root = os.path.join(site_root, "firmware")
+    fw_dir = os.path.join(fw_root, slug)
+    latest_names = (LATEST_FILE, LATEST_FACTORY_FILE, LATEST_BOOTLOADER_FILE,
+                    LATEST_PARTITIONS_FILE, LATEST_BOOT_APP0_FILE)
+
+    latest_rows, archive_rows = [], []
+    for name in sorted(os.listdir(fw_dir), key=_natural_key, reverse=True):
+        path = os.path.join(fw_dir, name)
+        if name == "index.html" or not os.path.isfile(path):
+            continue
+        row = ('<tr><td><a href="%s">%s</a></td><td>%s</td></tr>'
+               % (name, name, _fmt_size(os.path.getsize(path))))
+        if name in latest_names or name == "manifest.json":
+            latest_rows.append(row)
+        else:
+            archive_rows.append(row)
+
+    page = (
+        "<!doctype html><html><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        "<title>miniboards firmware &mdash; %s</title>"
+        "<style>%s</style></head><body><main>"
+        "<h1>miniboards firmware &mdash; %s</h1>"
+        "<h2>Latest release</h2><table>%s</table>"
+        "<p class=\"hint\">Flash the <b>factory</b> image to a blank board "
+        "(single file at 0x0 &mdash; bootloader + partitions included); the "
+        "plain app image is for OTA / flashing at 0x10000. manifest.json "
+        "carries the version metadata update tools read.</p>"
+        "<h2>All versions</h2><table>%s</table>"
+        "</main></body></html>"
+        % (slug.upper(), _SITE_PAGE_STYLE, slug.upper(),
+           "".join(latest_rows), "".join(archive_rows)))
+    with open(os.path.join(fw_dir, "index.html"), "w",
+              encoding="utf-8") as f:
+        f.write(page)
+
+    # Root /firmware page: one row per board folder that has published
+    # binaries (other miniboard repos mirror into sibling folders).
+    board_rows = []
+    for board in sorted(d for d in os.listdir(fw_root)
+                        if os.path.isdir(os.path.join(fw_root, d))):
+        if not any(n.endswith(".bin") for n in
+                   os.listdir(os.path.join(fw_root, board))):
+            continue
+        board_rows.append('<tr><td><a href="%s/">%s</a></td></tr>'
+                          % (board, board.upper()))
+    with open(os.path.join(fw_root, "index.html"), "w",
+              encoding="utf-8") as f:
+        f.write("<!doctype html><html><head><meta charset=\"utf-8\">"
+                "<meta name=\"viewport\" content=\"width=device-width,"
+                "initial-scale=1\"><title>miniboards firmware</title>"
+                "<style>%s</style></head><body><main>"
+                "<h1>miniboards firmware</h1>"
+                "<p class=\"hint\">Release binaries for every miniboard "
+                "&mdash; open a board for its downloads.</p>"
+                "<table>%s</table></main></body></html>"
+                % (_SITE_PAGE_STYLE, "".join(board_rows)))
+    print("site firmware index pages updated")
+
+
 def _publish_website(version, releases_dir):
     """Mirrors the release into the miniboards website's firmware folder.
 
@@ -140,6 +237,7 @@ def _publish_website(version, releases_dir):
             f.write("\n")
         print("site manifest URLs rewritten to %s" % base)
     print("website mirror updated: %s" % fw_dir)
+    _write_site_indexes(SITE_ROOT, SITE_SLUG)
 
     if not os.path.isdir(os.path.join(SITE_ROOT, ".git")):
         return  # plain folder: staged for whatever publishes the site

@@ -185,7 +185,11 @@ point the env's src filter + `-I` at it, update `OTA_*` URLs in
   When the folder doesn't exist the mirror silently skips, so the
   GitHub-only flow is unchanged. Set `SITE_FIRMWARE_BASE` in the script
   to rewrite the site copy's manifest URLs to the website's origin;
-  devices keep self-updating from GitHub raw either way.
+  devices keep self-updating from GitHub raw either way. The mirror also
+  regenerates browsable `index.html` pages for `/firmware/` (board list)
+  and `/firmware/nhl/` (latest release pinned, versioned archives,
+  sizes) — the site is on Netlify, which has no server-side directory
+  listing, so a folder is browsable only via its own index page.
 - **Self-update flow** (`src/common/comms/ota_update.cpp`, verified
   working end-to-end at v3.19 — device pulled a 1.67 MB release from
   GitHub raw and rebooted into it in ~25 s): shortly after the network
