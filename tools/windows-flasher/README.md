@@ -20,8 +20,14 @@ dotnet publish -c Release
 ```
 
 Run `bin\Release\net8.0-windows\win-x64\publish\NhlScoreboardFlasher.exe`.
-Choose a release image from `releases/`, select the ESP32-S3 serial port, and
-click **Flash**. The port list refreshes automatically while the app is open.
+On launch, the flasher reads the same published `releases/manifest.json` as
+the device OTA updater. Current releases download the build-matched
+bootloader, OTA partition table, `boot_app0`, and application image, then
+write them at the exact offsets and with the same esptool options as
+PlatformIO's USB upload. Select the ESP32-S3 serial port and click **Flash**.
+The port list refreshes automatically while the app is open. This installs
+both OTA app slots and enables future device OTA updates. The **Choose
+offline image** option accepts only a factory image for legacy recovery.
 
 Use `nhl_scoreboard_<version>_factory.bin` for a new board or to restore a
 board completely. It includes the bootloader and partition table and is

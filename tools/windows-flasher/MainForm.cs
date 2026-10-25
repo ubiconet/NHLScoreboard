@@ -6,10 +6,13 @@ namespace NhlScoreboardFlasher;
 
 internal sealed class MainForm : Form
 {
-    private const string ApplicationOffset = "0x10000";
+    private const string ReleaseManifestUrl =
+        "https://raw.githubusercontent.com/ubiconet/NHLScoreboard/main/releases/manifest.json";
+    private static readonly HttpClient HttpClient = new();
     private readonly ComboBox _ports = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly TextBox _firmware = new() { ReadOnly = true };
-    private readonly Button _browse = new() { Text = "Choose firmware..." };
+    private readonly Button _browse = new() { Text = "Choose offline image..." };
+    private readonly Button _downloadLatest = new() { Text = "Download latest release" };
     private readonly Button _refresh = new() { Text = "Refresh ports" };
     private readonly Button _flash = new() { Text = "Flash", Enabled = false };
     private readonly Label _status = new() { AutoSize = true, Text = "Looking for ESP32 serial ports..." };
@@ -25,6 +28,8 @@ internal sealed class MainForm : Form
         RegexOptions.Compiled);
     private bool _refreshing;
     private bool _flashing;
+    private FlashPlan? _flashPlan;
+    private string? _downloadDirectory;
 
     public MainForm()
     {
@@ -33,11 +38,12 @@ internal sealed class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
 
         var layout = new TableLayoutPanel {
-            Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 3, RowCount = 6,
+            Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 3, RowCount = 7,
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -51,16 +57,19 @@ internal sealed class MainForm : Form
         layout.Controls.Add(new Label { Text = "Firmware image:", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 1);
         layout.Controls.Add(_firmware, 1, 1);
         layout.Controls.Add(_browse, 2, 1);
-        layout.Controls.Add(_status, 0, 2);
+        layout.Controls.Add(_downloadLatest, 1, 2);
+        layout.SetColumnSpan(_downloadLatest, 2);
+        layout.Controls.Add(_status, 0, 3);
         layout.SetColumnSpan(_status, 3);
-        layout.Controls.Add(_progress, 0, 3);
+        layout.Controls.Add(_progress, 0, 4);
         layout.SetColumnSpan(_progress, 3);
-        layout.Controls.Add(_log, 0, 4);
+        layout.Controls.Add(_log, 0, 5);
         layout.SetColumnSpan(_log, 3);
-        layout.Controls.Add(_flash, 2, 5);
+        layout.Controls.Add(_flash, 2, 6);
         Controls.Add(layout);
 
         _browse.Click += (_, _) => ChooseFirmware();
+        _downloadLatest.Click += async (_, _) => await DownloadLatestFirmwareAsync();
         _refresh.Click += async (_, _) => await RefreshPortsAsync();
         _flash.Click += async (_, _) => await FlashAsync();
         _ports.SelectedIndexChanged += (_, _) => UpdateFlashButton();
@@ -68,7 +77,9 @@ internal sealed class MainForm : Form
         Shown += async (_, _) => {
             _scanTimer.Start();
             await RefreshPortsAsync();
+            await DownloadLatestFirmwareAsync();
         };
+        FormClosed += (_, _) => DeleteDownloadedFiles();
     }
 
     private void ChooseFirmware()
@@ -79,12 +90,158 @@ internal sealed class MainForm : Form
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
+        if (!IsFactoryImage(dialog.FileName)) {
+            _status.Text =
+                "Select a factory image. An application-only image cannot install the OTA layout.";
+            return;
+        }
+
+        DeleteDownloadedFiles();
         _firmware.Text = dialog.FileName;
-        var isFactory = IsFactoryImage(dialog.FileName);
-        _status.Text = isFactory
-            ? "Factory image selected: suitable for a blank or existing board."
-            : "Application image selected: requires the NHL Scoreboard partition layout.";
+        _flashPlan = FlashPlan.ForLegacyFactory(dialog.FileName);
+        _status.Text =
+            "Factory image selected. Prefer Download latest release for the exact PlatformIO layout.";
         UpdateFlashButton();
+    }
+
+    private async Task DownloadLatestFirmwareAsync()
+    {
+        _downloadLatest.Enabled = false;
+        _browse.Enabled = false;
+        _flash.Enabled = false;
+        _status.Text = "Checking the published OTA release...";
+        try {
+            var manifestJson = await HttpClient.GetStringAsync(ReleaseManifestUrl);
+            var manifest = ParseReleaseManifest(manifestJson);
+            DeleteDownloadedFiles();
+            _downloadDirectory = Path.Combine(Path.GetTempPath(),
+                $"nhl-scoreboard-{manifest.Version}-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(_downloadDirectory);
+            _flashPlan = await DownloadFlashPlanAsync(manifest, _downloadDirectory);
+            _firmware.Text = _flashPlan.ApplicationPath;
+            _status.Text = _flashPlan.UsesPlatformIoLayout
+                ? $"Latest release {manifest.Version} is ready with the PlatformIO OTA layout."
+                : $"Latest release {manifest.Version} is ready (legacy factory image).";
+            AppendLog(_flashPlan.UsesPlatformIoLayout
+                ? $"Downloaded {manifest.Version} application, bootloader, OTA partition table, and boot_app0."
+                : $"Downloaded {manifest.Version} factory image from {manifest.FactoryUrl}");
+        }
+        catch (HttpRequestException ex) {
+            _status.Text = "Could not download the published release. Check the Internet connection.";
+            AppendLog(ex.Message);
+        }
+        catch (JsonException ex) {
+            _status.Text = "The published OTA manifest is invalid.";
+            AppendLog(ex.Message);
+        }
+        catch (InvalidDataException ex) {
+            _status.Text = "The published OTA manifest does not provide a usable factory image.";
+            AppendLog(ex.Message);
+        }
+        catch (IOException ex) {
+            _status.Text = "Could not save the downloaded release files.";
+            AppendLog(ex.Message);
+        }
+        finally {
+            _downloadLatest.Enabled = true;
+            _browse.Enabled = true;
+            UpdateFlashButton();
+        }
+    }
+
+    private static ReleaseManifest ParseReleaseManifest(string manifestJson)
+    {
+        using var document = JsonDocument.Parse(manifestJson);
+        var root = document.RootElement;
+        var version = root.GetProperty("version").GetString();
+        if (string.IsNullOrWhiteSpace(version)) {
+            throw new InvalidDataException("The manifest version is missing.");
+        }
+
+        var factoryUrl = root.TryGetProperty("factoryUrl", out var factoryUrlProperty)
+            ? factoryUrlProperty.GetString()
+            : null;
+        if (string.IsNullOrWhiteSpace(factoryUrl)) {
+            var baseUrl = new Uri(ReleaseManifestUrl);
+            factoryUrl = new Uri(baseUrl, $"nhl_scoreboard_{version}_factory.bin").ToString();
+        }
+        if (!Uri.TryCreate(factoryUrl, UriKind.Absolute, out var parsedUrl) ||
+            parsedUrl.Scheme != Uri.UriSchemeHttps) {
+            throw new InvalidDataException("The manifest factory URL is invalid.");
+        }
+
+        return new ReleaseManifest(
+            version,
+            parsedUrl.ToString(),
+            GetOptionalHttpsUrl(root, "bootloaderUrl"),
+            GetOptionalHttpsUrl(root, "partitionsUrl"),
+            GetOptionalHttpsUrl(root, "bootApp0Url"),
+            GetRequiredHttpsUrl(root, "url"));
+    }
+
+    private static string? GetOptionalHttpsUrl(JsonElement root, string name)
+    {
+        return root.TryGetProperty(name, out var property) &&
+               !string.IsNullOrWhiteSpace(property.GetString())
+            ? ValidateHttpsUrl(property.GetString()!, name)
+            : null;
+    }
+
+    private static string GetRequiredHttpsUrl(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var property) ||
+            string.IsNullOrWhiteSpace(property.GetString())) {
+            throw new InvalidDataException($"The manifest {name} is missing.");
+        }
+        return ValidateHttpsUrl(property.GetString()!, name);
+    }
+
+    private static string ValidateHttpsUrl(string value, string name)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var url) ||
+            url.Scheme != Uri.UriSchemeHttps) {
+            throw new InvalidDataException($"The manifest {name} is invalid.");
+        }
+        return url.ToString();
+    }
+
+    private async Task<FlashPlan> DownloadFlashPlanAsync(
+        ReleaseManifest manifest, string directory)
+    {
+        if (!manifest.HasPlatformIoLayout) {
+            throw new InvalidDataException(
+                $"Published release {manifest.Version} does not include the PlatformIO bootloader and OTA partition components.");
+        }
+
+        _status.Text = $"Downloading {manifest.Version} PlatformIO flash components...";
+        var applicationPath = await DownloadFileAsync(manifest.ApplicationUrl, directory, "firmware.bin");
+        var bootloaderPath = await DownloadFileAsync(manifest.BootloaderUrl!, directory, "bootloader.bin");
+        var partitionsPath = await DownloadFileAsync(manifest.PartitionsUrl!, directory, "partitions.bin");
+        var bootApp0Path = await DownloadFileAsync(manifest.BootApp0Url!, directory, "boot_app0.bin");
+        return FlashPlan.ForPlatformIo(applicationPath, bootloaderPath, partitionsPath, bootApp0Path);
+    }
+
+    private static async Task<string> DownloadFileAsync(string url, string directory, string fileName)
+    {
+        var data = await HttpClient.GetByteArrayAsync(url);
+        if (data.Length == 0) throw new InvalidDataException($"Downloaded {fileName} is empty.");
+        var path = Path.Combine(directory, fileName);
+        await File.WriteAllBytesAsync(path, data);
+        return path;
+    }
+
+    private void DeleteDownloadedFiles()
+    {
+        if (string.IsNullOrWhiteSpace(_downloadDirectory)) return;
+        try {
+            if (Directory.Exists(_downloadDirectory)) Directory.Delete(_downloadDirectory, recursive: true);
+        }
+        catch (IOException ex) {
+            AppendLog($"Could not remove temporary release files: {ex.Message}");
+        }
+        finally {
+            _downloadDirectory = null;
+        }
     }
 
     private async Task RefreshPortsAsync()
@@ -128,31 +285,32 @@ internal sealed class MainForm : Form
 
     private async Task FlashAsync()
     {
-        if (_ports.SelectedItem is not SerialPortItem port || string.IsNullOrWhiteSpace(_firmware.Text)) return;
+        if (_ports.SelectedItem is not SerialPortItem port || _flashPlan is null) return;
         var tools = FindPlatformIoTools();
         if (tools is null) {
             _status.Text = "PlatformIO's Python/esptool installation was not found.";
             return;
         }
 
-        var factory = IsFactoryImage(_firmware.Text);
-        var offset = factory ? "0x0" : ApplicationOffset;
         _scanTimer.Stop();
         _flash.Enabled = false;
         _browse.Enabled = false;
+        _downloadLatest.Enabled = false;
         _refresh.Enabled = false;
         _log.Clear();
         _progress.Value = 0;
         _flashing = true;
-        _status.Text = $"Flashing {Path.GetFileName(_firmware.Text)} to {port.Port}...";
+        _status.Text = $"Flashing {Path.GetFileName(_flashPlan.ApplicationPath)} to {port.Port}...";
         try {
             var logProgress = new Progress<string>(HandleFlashOutput);
-            var result = await RunProcessAsync(tools.Python, new[] {
+            var arguments = new List<string> {
                 tools.Esptool, "--chip", "esp32s3", "--port", port.Port,
-                "--baud", "921600", "--before", "default_reset", "--after", "hard_reset",
-                "write_flash", "--flash_mode", "qio", "--flash_freq", "80m",
-                "--flash_size", "8MB", offset, _firmware.Text,
-            }, logProgress);
+                "--baud", "460800", "--before", "default_reset", "--after", "hard_reset",
+                "write_flash", "-z", "--flash_mode", "qio", "--flash_freq", "80m",
+                "--flash_size", "8MB",
+            };
+            arguments.AddRange(_flashPlan.FlashArguments);
+            var result = await RunProcessAsync(tools.Python, arguments.ToArray(), logProgress);
             _flashing = false;
             if (result.ExitCode == 0) _progress.Value = 100;
             _status.Text = result.ExitCode == 0
@@ -166,6 +324,7 @@ internal sealed class MainForm : Form
         }
         finally {
             _browse.Enabled = true;
+            _downloadLatest.Enabled = true;
             _refresh.Enabled = true;
             _scanTimer.Start();
             UpdateFlashButton();
@@ -174,7 +333,8 @@ internal sealed class MainForm : Form
 
     private void UpdateFlashButton() =>
         _flash.Enabled = !_refreshing && _ports.SelectedItem is SerialPortItem &&
-                         File.Exists(_firmware.Text) && FindPlatformIoTools() is not null;
+                         _flashPlan is not null && _flashPlan.FilesExist &&
+                         FindPlatformIoTools() is not null;
 
     private static bool IsFactoryImage(string path) =>
         Path.GetFileNameWithoutExtension(path).EndsWith("_factory", StringComparison.OrdinalIgnoreCase);
@@ -279,6 +439,38 @@ internal sealed class MainForm : Form
         public override string ToString() => $"{Port} — {Description} {HardwareId}".Trim();
     }
 
+    private sealed record FlashPlan(
+        string ApplicationPath,
+        IReadOnlyList<string> FlashArguments,
+        bool UsesPlatformIoLayout,
+        IReadOnlyList<string> RequiredFiles)
+    {
+        public bool FilesExist => RequiredFiles.All(File.Exists);
+
+        public static FlashPlan ForPlatformIo(
+            string applicationPath, string bootloaderPath, string partitionsPath, string bootApp0Path) =>
+            new(applicationPath, new[] {
+                    "0x0", bootloaderPath,
+                    "0x8000", partitionsPath,
+                    "0xe000", bootApp0Path,
+                    "0x10000", applicationPath,
+                }, true, new[] { applicationPath, bootloaderPath, partitionsPath, bootApp0Path });
+
+        public static FlashPlan ForLegacyFactory(string factoryPath) =>
+            new(factoryPath, new[] { "0x0", factoryPath }, false, new[] { factoryPath });
+    }
+
     private sealed record PlatformIoTools(string Python, string Esptool);
     private sealed record ProcessResult(int ExitCode, string Output);
+    private sealed record ReleaseManifest(
+        string Version,
+        string FactoryUrl,
+        string? BootloaderUrl,
+        string? PartitionsUrl,
+        string? BootApp0Url,
+        string ApplicationUrl)
+    {
+        public bool HasPlatformIoLayout =>
+            BootloaderUrl is not null && PartitionsUrl is not null && BootApp0Url is not null;
+    }
 }
