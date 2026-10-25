@@ -383,19 +383,18 @@ TriviaBank triviaBank() {
 }
 
 void setup() {
-  // MAX7219 chain FIRST — ahead of the TFT bring-up (the slowest early
-  // step). DIN/CLK/CS float from the power ramp until initLedMatrix
-  // drives them, and while they float, boost-ramp noise can clock
-  // garbage into the chain — the random one-or-two-module flash at
-  // power-on. initLedMatrix flushes the shift registers and parks the
-  // modules dark within a couple of ms, so the vulnerable window ends as
-  // early as the firmware can act. The splash pays ~2 ms for this.
-  const int boardVersion = getBoardVersion();
-  // V1.1 inherits the V1.0 pin map (matrix order/orientation, TM1637 on
-  // 15/16) and adds the battery-sense divider — hence the >= comparisons.
-  const bool boardV1 = boardVersion >= BOARD_VERSION_V1_0;
-  initLedMatrix(MAX7219_DIN_PIN, MAX7219_CLK_PIN, MAX7219_CS_PIN, boardV1,
-                boardV1);
+  // MAX7219 BUS pins first, ahead of everything: DIN/CLK/CS float from
+  // the power ramp until firmware drives them, and floating lines let
+  // boost-ramp noise clock garbage into the chain (the power-on flash).
+  // initLedMatrixBus only claims the pins — CLK low, DIN low, CS high
+  // (latch shut) — so nothing can clock or latch from here on. The
+  // REGISTER init deliberately stays at its later spot below, after the
+  // TFT bring-up: the ESP32 executes while the 5V boost rail is still
+  // climbing, and MAX7219 register writes in that window land randomly —
+  // v3.81 initialized too early and produced random garble instead of
+  // the occasional flash. The panel work between the two is the settle
+  // time the rail needs.
+  initLedMatrixBus(MAX7219_DIN_PIN, MAX7219_CLK_PIN, MAX7219_CS_PIN);
 
   // The TFT panel comes up next: begin() raises it clean black (no boot
   // snow — see TftPanel::begin) and the boot splash paints within moments
@@ -406,14 +405,20 @@ void setup() {
   tftPanel.begin(TFT_CS_PIN, TFT_DC_PIN, TFT_MOSI_PIN, TFT_SCLK_PIN,
                  TFT_RESET_PIN, TFT_NATIVE_WIDTH, TFT_NATIVE_HEIGHT, 1);
 
-  // Initialize hardware: penalty LEDs and the TM1637 clock (game clock
-  // when live, wall clock between games).
+  // Initialize hardware: penalty LEDs, MAX7219 matrices, and the TM1637
+  // clock (game clock when live, wall clock between games).
+  const int boardVersion = getBoardVersion();
   const int countLedPins[7] = {homePenalty1Pin(boardVersion),
                                homePenalty2Pin(boardVersion), PENALTY_FILL_A,
                                awayPenalty1Pin(boardVersion),
                                awayPenalty2Pin(boardVersion), PENALTY_FILL_B1,
                                PENALTY_FILL_B2};
   initCountLeds(countLedPins);
+  // V1.1 inherits the V1.0 pin map (matrix order/orientation, TM1637 on
+  // 15/16) and adds the battery-sense divider — hence the >= comparisons.
+  const bool boardV1 = boardVersion >= BOARD_VERSION_V1_0;
+  initLedMatrix(MAX7219_DIN_PIN, MAX7219_CLK_PIN, MAX7219_CS_PIN, boardV1,
+                boardV1);
   const int tm1637ClkPin = boardVersion >= BOARD_VERSION_V1_0
                                ? TM1637_CLK_V1_0_PIN
                                : TM1637_CLK_V0_1_PIN;

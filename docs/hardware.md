@@ -143,13 +143,17 @@ the power ramp until the firmware drives them (GPIO 38–40 have no
 internal pulls at reset), and while they float, boost-ramp/wire noise
 can clock garbage into the chain and latch it into whichever module it
 lands in — the random one-or-two-matrix flash some power-ups show. The
-firmware (v3.81+) minimizes it: it drives the bus low and flushes NOOPs
-before the first CS edge, parks the chain in shutdown first, and runs
-`initLedMatrix` before the TFT bring-up. The window between the power
-ramp and the first firmware instructions can only be closed in hardware:
-add **10 kΩ CS→3V3** (no latch while the MCU resets) and **10 kΩ
-CLK→GND + 10 kΩ DIN→GND** (no clock edges; worst case noise shifts
-zeros, which decode as harmless NOOPs) at the ESP32 end of the chain.
+firmware (v3.85+) splits the defense: `initLedMatrixBus()` grabs the bus
+pins as the very first hardware action (CLK low, DIN low, CS high —
+nothing can clock or latch from that moment), while the REGISTER init
+stays after the TFT bring-up — the ESP32 executes before the 5V boost
+rail reaches the MAX7219s' operating range, and register writes in that
+window land randomly (v3.81 initialized too early and showed random
+garble). The residual window between the power ramp and the first
+firmware instructions can only be closed in hardware: add **10 kΩ
+CS→3V3** (no latch while the MCU resets) and **10 kΩ CLK→GND + 10 kΩ
+DIN→GND** (no clock edges; worst case noise shifts zeros, which decode
+as harmless NOOPs) at the ESP32 end of the chain.
 
 **TM1637** — power from 3V3 (left pos 1/2): its input high threshold
 scales with VCC, so 5 V power makes 3.3 V logic marginal. Slightly dimmer

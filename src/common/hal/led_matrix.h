@@ -10,6 +10,20 @@
 // Pass this instead of a real score to leave a matrix dark (no game active).
 static const int MAX7219_SCORE_BLANK = -1;
 
+// Early bus pin grab, called as the first hardware action of boot:
+// drives DIN/CLK low and CS high, ending the window where floating
+// lines let power-ramp noise clock garbage into the chain. Does NOT
+// touch the MAX7219 registers — the 5V boost rail may still be ramping
+// (the ESP32 executes before the MAX7219s are in their operating
+// range), so register writes wait for initLedMatrix() at its usual
+// later spot, after the display bring-up has given the rail time to
+// settle.
+void initLedMatrixBus(int dinPin, int clkPin, int csPin);
+
+// Full driver bring-up: flushes the shift registers, parks the chain in
+// shutdown, configures and blanks it while dark, then resumes normal
+// operation. Call AFTER the power rail has settled (see
+// initLedMatrixBus).
 void initLedMatrix(int dinPin, int clkPin, int csPin,
                    bool reverseHomeGuest = false, bool flipAllModules = false);
 void setMax7219Scores(int awayScore, int homeScore);

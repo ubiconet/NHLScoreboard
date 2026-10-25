@@ -210,6 +210,25 @@ void blankRows(uint8_t rows[8]) {
 }
 } // namespace
 
+void initLedMatrixBus(int dinPin, int clkPin, int csPin) {
+  DIN_PIN = dinPin;
+  CLK_PIN = clkPin;
+  CS_PIN = csPin;
+  // Idle levels end the floating window: CLK low (no clock edges), DIN
+  // low (zeros even if something ever clocks), CS high (latch closed —
+  // only a RISING CS commits shift-register contents into the chips).
+  // No register writes here: the ESP32 can be executing before the 5V
+  // boost rail reaches the MAX7219s' operating range, and writes in
+  // that window land randomly (v3.81's too-early init caused exactly
+  // that — random garble instead of the occasional power-on flash).
+  pinMode(DIN_PIN, OUTPUT);
+  pinMode(CLK_PIN, OUTPUT);
+  pinMode(CS_PIN, OUTPUT);
+  digitalWrite(DIN_PIN, LOW);
+  digitalWrite(CLK_PIN, LOW);
+  digitalWrite(CS_PIN, HIGH);
+}
+
 void initLedMatrix(int dinPin, int clkPin, int csPin, bool reverseHomeGuest,
                    bool flipAllModules) {
   DIN_PIN = dinPin;
@@ -218,17 +237,11 @@ void initLedMatrix(int dinPin, int clkPin, int csPin, bool reverseHomeGuest,
   REVERSE_HOME_GUEST = reverseHomeGuest;
   FLIP_ALL_MODULES = flipAllModules;
 
-  // Bus bring-up. DIN/CLK/CS are floating inputs from the power ramp
-  // until this moment, and while they float, boost-converter/wire noise
-  // can clock garbage down the chain's shift registers — the source of
-  // the random one-or-two-module flash at power-on. Drive every pin a
-  // DEFINED low first, then flush three NOOP words through the shift
-  // registers BEFORE the first CS rising edge: whatever noise shifted in
-  // while the bus floated is discarded instead of latched into the
-  // register file. (CS must come up LOW — a rising CS edge is the latch.)
-  pinMode(DIN_PIN, OUTPUT);
-  pinMode(CLK_PIN, OUTPUT);
-  pinMode(CS_PIN, OUTPUT);
+  // The bus pins were grabbed by initLedMatrixBus() at the very top of
+  // boot, but noise from BEFORE that grab may have left garbage in the
+  // chain's shift registers. Flush it out: with CS held low, clock three
+  // NOOP words through, so the first CS rising edge (below) latches
+  // harmless NOOPs into all three modules instead of that garbage.
   digitalWrite(DIN_PIN, LOW);
   digitalWrite(CLK_PIN, LOW);
   digitalWrite(CS_PIN, LOW);
