@@ -15,3 +15,6 @@ board_test/
 # Windows flasher build artifacts
 tools/windows-flasher/bin/
 tools/windows-flasher/obj/
+# Local diagnostic scratch (serial captures, debug logs)
+.diag/
+debug.log
