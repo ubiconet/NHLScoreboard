@@ -216,7 +216,11 @@ def _publish_netlify(site_root):
     machine owns the site (the Mac mini: git pull && netlify deploy
     --prod).
     """
-    if shutil.which("netlify") is None:
+    # On Windows the npm dir holds an extensionless sh shim next to
+    # netlify.cmd — shutil.which can return the shim, which subprocess
+    # then fails to launch, so prefer the .cmd explicitly.
+    exe = shutil.which("netlify.cmd") or shutil.which("netlify")
+    if exe is None:
         print("netlify republish skipped — CLI not on PATH.\n"
               "Finish from the site machine: git pull && "
               "netlify deploy --prod")
@@ -225,9 +229,10 @@ def _publish_netlify(site_root):
     try:
         import tempfile
         export_dir = tempfile.mkdtemp(prefix="netlify-export-")
-        shutil.copytree(site_root, export_dir, dirs_exist_ok=True,
+        deploy_dir = os.path.join(export_dir, "site")
+        shutil.copytree(site_root, deploy_dir,
                         ignore=shutil.ignore_patterns(".git", ".netlify"))
-        cmd = ["netlify", "deploy", "--prod", "--dir", export_dir]
+        cmd = [exe, "deploy", "--prod", "--dir", deploy_dir]
         if NETLIFY_SITE_ID:
             cmd += ["--site", NETLIFY_SITE_ID]
         dep = subprocess.run(cmd, capture_output=True, text=True,
@@ -286,8 +291,10 @@ def _publish_website(version, releases_dir):
             manifest = json.load(f)
         base = SITE_FIRMWARE_BASE.rstrip("/") + "/"
         for key in list(manifest):
-            file_key = key[:-3] + "File"  # "...Url" -> "...File"
-            if key.endswith("Url") and file_key in manifest:
+            # "...Url" -> "...File"; the bare lowercase "url" key maps to
+            # "file" (and needs its own match — endswith("Url") misses it).
+            file_key = "file" if key == "url" else key[:-3] + "File"
+            if (key == "url" or key.endswith("Url")) and file_key in manifest:
                 manifest[key] = base + manifest[file_key]
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2)
