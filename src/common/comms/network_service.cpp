@@ -1104,7 +1104,9 @@ void handleTriviaMpState() {
 void handleTriviaMpConfig() {
   markPortalActivity();
   trivia::mpSetConfig((uint8_t)server.arg("questions").toInt(),
-                      (uint8_t)server.arg("seconds").toInt());
+                      (uint8_t)server.arg("seconds").toInt(),
+                      (uint8_t)server.arg("gap").toInt(),
+                      (uint8_t)server.arg("diffs").toInt());
   server.sendHeader("Cache-Control", "no-store");
   server.send(200, "application/json", trivia::buildMpHostJson());
 }

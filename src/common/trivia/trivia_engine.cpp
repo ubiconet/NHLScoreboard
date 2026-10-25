@@ -60,6 +60,9 @@ bool sMpActive = false;
 uint8_t sMpQuestions = TRIVIA_MP_DEFAULT_QUESTIONS;
 uint8_t sMpSeconds = TRIVIA_MP_DEFAULT_SECONDS;
 uint32_t sMpWindowMs = TRIVIA_MP_DEFAULT_SECONDS * 1000;
+uint8_t sMpDiffs = TRIVIA_MP_DEFAULT_DIFFS;   // allowed difficulty bitmask
+uint8_t sMpGapSeconds = TRIVIA_MP_DEFAULT_GAP_S;  // standings pause
+uint32_t sMpGapMs = (uint32_t)TRIVIA_MP_DEFAULT_GAP_S * 1000;
 uint32_t sRankEndMs = 0;                // RANKINGS phase deadline
 uint8_t sMpCorrectCount = 0;            // last reveal: right-answer count
 TriviaBoardRow sTop[5];
@@ -204,12 +207,18 @@ void publishView() {
 }
 
 void startQuestion(uint32_t nowMs) {
-  // Difficulty ramps easy -> hard across the round: fixed thirds solo,
-  // proportional to the host's question count in multiplayer.
+  // Difficulty ramps easy -> hard across the round: fixed thirds solo;
+  // in multiplayer across the ALLOWED levels (all three selected gives
+  // the classic thirds; a subset still ramps low -> high over just those
+  // pools, e.g. easy+hard splits the round between them).
   uint8_t level;
   if (sMpActive) {
-    level = 1 + (uint8_t)((uint16_t)sQIndex * 3 / sMpQuestions);
-    if (level > 3) level = 3;
+    uint8_t ramp[3];
+    uint8_t n = 0;
+    if (sMpDiffs & TRIVIA_MP_DIFF_EASY) ramp[n++] = 1;
+    if (sMpDiffs & TRIVIA_MP_DIFF_MEDIUM) ramp[n++] = 2;
+    if (sMpDiffs & TRIVIA_MP_DIFF_HARD) ramp[n++] = 3;
+    level = ramp[(uint16_t)sQIndex * n / sMpQuestions];  // sQIndex < total
   } else {
     level = 1 + sQIndex / TRIVIA_QUESTIONS_PER_LEVEL;  // 1, 2, 3
   }
@@ -325,7 +334,7 @@ void enterGameOver(uint32_t nowMs) {
 
 void enterRankings(uint32_t nowMs) {
   sPhase = TRIVIA_RANKINGS;
-  sRankEndMs = nowMs + TRIVIA_MP_RANKINGS_MS;
+  sRankEndMs = nowMs + sMpGapMs;  // host-tuned standings pause
   publishView();
 }
 
@@ -399,10 +408,10 @@ void tick() {
   if (sPhase == TRIVIA_QUESTION && (int32_t)(now - sQEndMs) >= 0) {
     enterReveal(now);
   } else if (sPhase == TRIVIA_REVEAL && (int32_t)(now - sRevealEndMs) >= 0) {
-    if (sMpActive) {
+    if (sMpActive && sMpGapMs > 0) {
       enterRankings(now);  // standings card on the TFT between questions
     } else {
-      advance(now);
+      advance(now);  // solo, or a zero gap: next question right away
     }
   } else if (sPhase == TRIVIA_RANKINGS &&
              (int32_t)(now - sRankEndMs) >= 0) {
@@ -624,6 +633,12 @@ input{padding:10px;font-size:16px;border:0;border-radius:6px;width:58%;box-sizin
 <input id="mpq" type="number" min="3" max="15" value="15" style="width:80px;display:inline-block"></p>
 <p class="muted" style="margin:8px 0 2px">Seconds per question (5&ndash;60)
 <input id="mps" type="number" min="5" max="60" value="10" style="width:80px;display:inline-block"></p>
+<p class="muted" style="margin:8px 0 2px">Difficulties allowed
+<label style="margin-left:6px;white-space:nowrap"><input type="checkbox" id="mpd1" checked style="width:auto"> Easy</label>
+<label style="margin-left:6px;white-space:nowrap"><input type="checkbox" id="mpd2" checked style="width:auto"> Medium</label>
+<label style="margin-left:6px;white-space:nowrap"><input type="checkbox" id="mpd4" checked style="width:auto"> Hard</label></p>
+<p class="muted" style="margin:8px 0 2px">Seconds between questions (0&ndash;30)
+<input id="mpg" type="number" min="0" max="30" value="3" style="width:80px;display:inline-block"></p>
 <button style="padding:8px 14px;background:#1c4587;color:#fff" onclick="mpConfig()">Apply Settings</button>
 <div id="mpstatus" class="muted" style="margin:10px 0;min-height:18px"></div>
 <div id="mpplayers"></div>
@@ -674,6 +689,11 @@ el('joinurl').value=d.url||'';
 el('joinhint').textContent=d.mp?(d.phase=='lobby'?'Link is live \u2014 share it! Players can join until you press Start.':(d.phase=='over'?'Game over \u2014 host again for a new party.':'Game in progress \u2014 no more joiners.')):'Open hosting to make the link live.';
 if(document.activeElement!=el('mpq'))el('mpq').value=d.questions||15;
 if(document.activeElement!=el('mps'))el('mps').value=d.seconds||10;
+if(document.activeElement!=el('mpg'))el('mpg').value=(d.gap!=null?d.gap:3);
+var dm=(d.diffs!=null?d.diffs:7);
+if(document.activeElement!=el('mpd1'))el('mpd1').checked=!!(dm&1);
+if(document.activeElement!=el('mpd2'))el('mpd2').checked=!!(dm&2);
+if(document.activeElement!=el('mpd4'))el('mpd4').checked=!!(dm&4);
 el('mphost').style.display=(!d.mp||d.phase=='over')?'block':'none';
 el('mpstart').style.display=(d.mp&&d.phase=='lobby'&&d.count>0)?'block':'none';
 el('mpstatus').textContent=!d.mp?'Not hosting.':(d.phase=='lobby'?(d.count+(d.count==1?' player':' players')+' signed up'+(d.count>=d.max?' \u2014 FULL':'')):(d.phase=='over'?('Winner: '+d.winner+'!'):(d.phase=='rankings'?'Showing standings...':'Question '+(d.qi+1)+' of '+d.questions+' in progress...')));
@@ -683,7 +703,8 @@ el('mpboard').innerHTML=(d.mp&&(d.phase=='rankings'||d.phase=='over'))?('<b>Stan
 function mpsync(){fetch('/trivia/mp/state').then(function(r){return r.json()}).then(mpapply).catch(function(){})}
 function mpHost(){fetch('/trivia/mp/host',{method:'POST'}).then(function(r){return r.json()}).then(function(d){mpapply(d);sync()}).catch(function(){})}
 function mpStart(){fetch('/trivia/mp/start',{method:'POST'}).then(function(r){return r.json()}).then(function(d){if(!d.ok)alert(d.err=='empty'?'No players have joined yet.':(d.err=='nohost'?'Open hosting first.':'Game already running.'));mpapply(d)}).catch(function(){})}
-function mpConfig(){fetch('/trivia/mp/config',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'questions='+el('mpq').value+'&seconds='+el('mps').value}).then(function(r){return r.json()}).then(mpapply).catch(function(){})}
+function mpConfig(){var dv=(el('mpd1').checked?1:0)|(el('mpd2').checked?2:0)|(el('mpd4').checked?4:0);
+fetch('/trivia/mp/config',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'questions='+el('mpq').value+'&seconds='+el('mps').value+'&gap='+el('mpg').value+'&diffs='+dv}).then(function(r){return r.json()}).then(mpapply).catch(function(){})}
 function copyLink(){var t=el('joinurl');t.focus();t.select();try{t.setSelectionRange(0,999)}catch(e){}
 function done(){el('joinhint').textContent='Copied! Paste it into a text message.'}
 function fallback(){try{document.execCommand('copy');done()}catch(e){}}
@@ -778,17 +799,25 @@ uint16_t mpJoin(const char* name) {
   return p.token;
 }
 
-bool mpSetConfig(uint8_t questions, uint8_t seconds) {
+bool mpSetConfig(uint8_t questions, uint8_t seconds, uint8_t gapSeconds,
+                 uint8_t diffs) {
   if (!sMpActive || sPhase != TRIVIA_LOBBY) return false;
   if (questions < TRIVIA_MP_MIN_QUESTIONS) questions = TRIVIA_MP_MIN_QUESTIONS;
   if (questions > TRIVIA_MP_MAX_QUESTIONS) questions = TRIVIA_MP_MAX_QUESTIONS;
   if (seconds < TRIVIA_MP_MIN_SECONDS) seconds = TRIVIA_MP_MIN_SECONDS;
   if (seconds > TRIVIA_MP_MAX_SECONDS) seconds = TRIVIA_MP_MAX_SECONDS;
+  if (gapSeconds < TRIVIA_MP_MIN_GAP_S) gapSeconds = TRIVIA_MP_MIN_GAP_S;
+  if (gapSeconds > TRIVIA_MP_MAX_GAP_S) gapSeconds = TRIVIA_MP_MAX_GAP_S;
+  diffs &= TRIVIA_MP_DIFF_EASY | TRIVIA_MP_DIFF_MEDIUM | TRIVIA_MP_DIFF_HARD;
+  if (diffs == 0) diffs = TRIVIA_MP_DEFAULT_DIFFS;  // never an empty round
   sMpQuestions = questions;
   sMpSeconds = seconds;
   sMpWindowMs = (uint32_t)seconds * 1000;
-  DBG_PRINTF("[TRIVIA] MP config: %u questions, %u s each\n", questions,
-             seconds);
+  sMpGapSeconds = gapSeconds;
+  sMpGapMs = (uint32_t)gapSeconds * 1000;
+  sMpDiffs = diffs;
+  DBG_PRINTF("[TRIVIA] MP config: %u questions, %u s each, %u s gap, "
+             "diffs 0x%X\n", questions, seconds, gapSeconds, diffs);
   return true;
 }
 
@@ -845,6 +874,10 @@ String buildMpHostJson(bool ok, const char* err) {
     j += (int)sMpQuestions;
     j += ",\"seconds\":";
     j += (int)sMpSeconds;
+    j += ",\"gap\":";
+    j += (int)sMpGapSeconds;
+    j += ",\"diffs\":";
+    j += (int)sMpDiffs;
     j += ",\"players\":[";
     for (uint8_t i = 0; i < sMpCount; ++i) {
       if (i > 0) j += ",";

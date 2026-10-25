@@ -64,9 +64,12 @@ static const uint16_t TRIVIA_FIREWORKS_MIN_POINTS = 80;  // score this high = fi
 // ---- Multiplayer party mode ----
 // One host (the /trivia controller page) opens a lobby, players sign up
 // from their own phones at /play, and everyone plays the same questions
-// in lockstep. The device becomes the room display: standings between
-// questions, winner + matrix fireworks at the end. No strikes and no
-// early exit — everyone plays every question, ranking is by score.
+// in lockstep. The host tunes the party in the lobby: question count,
+// seconds per question, which difficulty levels may appear (multi-
+// select), and the standings pause between questions. The device becomes
+// the room display: standings between questions, winner + matrix
+// fireworks at the end. No strikes and no early exit — everyone plays
+// every question, ranking is by score.
 // Player capacity is bounded on purpose: every phone polls once a second
 // through the single-threaded web server (see the capacity notes in
 // AGENTS.md) — 15 keeps request rate and per-connection heap comfortable.
@@ -77,7 +80,18 @@ static const uint8_t TRIVIA_MP_MAX_QUESTIONS = TRIVIA_ROUND_QUESTIONS;
 static const uint8_t TRIVIA_MP_DEFAULT_SECONDS = 10;
 static const uint8_t TRIVIA_MP_MIN_SECONDS = 5;
 static const uint8_t TRIVIA_MP_MAX_SECONDS = 60;
-static const uint32_t TRIVIA_MP_RANKINGS_MS = 3000;  // standings between questions
+// Host multi-select: which difficulty levels may appear, as a bitmask.
+// The round still ramps low -> high across whatever subset is allowed.
+static const uint8_t TRIVIA_MP_DIFF_EASY = 0x1;
+static const uint8_t TRIVIA_MP_DIFF_MEDIUM = 0x2;
+static const uint8_t TRIVIA_MP_DIFF_HARD = 0x4;
+static const uint8_t TRIVIA_MP_DEFAULT_DIFFS =
+    TRIVIA_MP_DIFF_EASY | TRIVIA_MP_DIFF_MEDIUM | TRIVIA_MP_DIFF_HARD;
+// Standings pause between questions, in seconds (0 = skip the standings
+// card: the next question starts right after the answer reveal).
+static const uint8_t TRIVIA_MP_DEFAULT_GAP_S = 3;
+static const uint8_t TRIVIA_MP_MIN_GAP_S = 0;
+static const uint8_t TRIVIA_MP_MAX_GAP_S = 30;
 
 // One leaderboard row shipped in the view (name + score, top 5).
 struct TriviaBoardRow {
@@ -171,7 +185,11 @@ uint16_t mpJoin(const char* name);
 // for the join page's error message.
 const char* mpLastJoinError();
 // Host settings, clamped to the ranges above. Only settable in the lobby.
-bool mpSetConfig(uint8_t questions, uint8_t seconds);
+// diffs is a TRIVIA_MP_DIFF_* bitmask (an empty mask falls back to all
+// three levels); gapSeconds is the standings pause between questions
+// (0 = next question right after the reveal).
+bool mpSetConfig(uint8_t questions, uint8_t seconds, uint8_t gapSeconds,
+                 uint8_t diffs);
 // Closes joining and starts question 1 (false: no players / not lobby).
 bool mpStart();
 // Signed-up player count (for the route wrappers' error messages).
