@@ -12,7 +12,6 @@
 #include <time.h>
 
 #include "config.h"
-#include "common/app/power_monitor.h"
 #include "common/app/sport_api.h"
 #include "common/comms/network_service.h"
 #include "common/trivia/trivia_engine.h"
@@ -22,13 +21,10 @@
 void setup() {
   Serial.begin(SERIAL_BAUD_RATE);
 
-  // Power gate first, before anything heavy (see power_monitor.h). A
-  // timer-wake recheck that still finds the pack low goes back to sleep
-  // without any display work.
-  power::BootDecision powerDecision = power::earlyBootCheck();
-  if (powerDecision == power::BootDecision::RESLEEP) {
-    power::sleepNow();  // silent recheck found the pack still low; no return
-  }
+  // No power-on battery gate (removed v3.79): every board version boots
+  // and runs unconditionally — power control is the physical switch. The
+  // battery is still sensed at runtime, but only on boards with the V1.1
+  // divider (see power_monitor.h).
 
   // Devkit's onboard RGB LED is unused — pin its data line low before
   // anything else so the floating WS2812 can't glow through the session.
@@ -42,12 +38,6 @@ void setup() {
   // (bench test) this is also the LAST shell step — no network, no boot
   // UI; the sport's tick owns the display from the first loop pass.
   sport::setup();
-
-  if (powerDecision == power::BootDecision::SHUTDOWN) {
-    // Flash LOW BATTERY, blank the matrices/TM1637/penalty LEDs,
-    // deep-sleep; no return.
-    power::showLowBatteryAndSleep();
-  }
 
   if (!sport::skipBootUi()) {
     // No blocking hold here: network services start immediately and connect
@@ -133,10 +123,23 @@ void loop() {
   // No usable connection: the network configuration screen owns the
   // display until a connection exists. Without this gate the waiting
   // carousel repaints over the provisioning instructions on every dwell,
-  // hiding the one screen the device can't work without. When a
-  // connection lands, consumeScoreboardRelease() (inside sport::tick)
-  // repaints the scoreboard.
+  // hiding the one screen the device can't work without. ONE exception:
+  // the portal's display overrides (game demo, manual/trivia mode, the
+  // display/audio tests) run WITHOUT a network so new builds can be
+  // bench-tested offline — while one is active the sport owns the
+  // display, and the provisioning instructions repaint once it releases.
+  // When a connection lands, consumeScoreboardRelease() (inside
+  // sport::tick) repaints the scoreboard.
   if (isProvisioning()) {
+    static bool sOverrideOwnedDisplay = false;
+    if (portalDisplayOverrideActive()) {
+      sOverrideOwnedDisplay = true;
+      SportTickContext ctx = {millis(), false, true};
+      sport::tick(ctx);
+    } else if (sOverrideOwnedDisplay) {
+      sOverrideOwnedDisplay = false;
+      requestNetworkScreenRepaint();  // back to the AP instructions
+    }
     return;
   }
 

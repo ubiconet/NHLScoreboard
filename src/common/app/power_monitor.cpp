@@ -1,22 +1,11 @@
 #include <Arduino.h>
-#include <esp_sleep.h>
 
 #include "config.h"
 #include "common/app/power_monitor.h"
 #include "common/comms/network_service.h"
-#include "common/hal/count_leds.h"
-#include "common/hal/led_matrix.h"
-#include "common/hal/tft_panel.h"
-#include "common/hal/tm1637.h"
-#include "common/ui/low_battery_screen.h"
 
 namespace power {
 namespace {
-
-// Survives deep sleep and soft/brownout resets while power holds; zeroed by
-// a true power-on. Flags "we chose to sleep for low battery", so a timer
-// wake knows to re-check silently instead of doing storm bookkeeping.
-RTC_DATA_ATTR bool sBatterySleep = false;
 
 float readBatteryVolts() {
   // Only boards whose hardware carries the divider (V1.1+, per the
@@ -84,64 +73,6 @@ uint8_t voltsToQuarters(float v) {
 }
 
 }  // namespace
-
-BootDecision earlyBootCheck() {
-  // The power gate is a V1.1 hardware feature (battery-sense divider).
-  // On earlier board revisions low-battery detection is disabled
-  // entirely: those boards boot and run unconditionally, even through
-  // brownout cycles.
-  if (!batterySenseEnabled(getBoardVersion())) {
-    return BootDecision::NORMAL;
-  }
-
-  // Timer wake from our own low-battery sleep: re-check the pack and stay
-  // down silently (no display work) until the charger resumes it.
-  bool timerWake = sBatterySleep &&
-                   esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER;
-  if (timerWake) {
-    if (batterySenseEnabled(getBoardVersion()) &&
-        readBatteryVolts() >= BATTERY_RESUME_VOLTS) {
-      sBatterySleep = false;  // charger present — resume a normal boot
-      return BootDecision::NORMAL;
-    }
-    return BootDecision::RESLEEP;
-  }
-
-  const float volts = readBatteryVolts();
-  const bool low = volts > 0.5f && volts <= BATTERY_LOW_VOLTS;
-  return low ? BootDecision::SHUTDOWN : BootDecision::NORMAL;
-}
-
-void sleepNow() {
-  sBatterySleep = true;
-  esp_sleep_enable_timer_wakeup((uint64_t)BATTERY_RECHECK_MS * 1000ULL);
-  esp_deep_sleep_start();  // no return
-}
-
-void showLowBatteryAndSleep() {
-  float volts = readBatteryVolts();  // 0.0 when no divider is wired
-  DBG_PRINTF("[POWER] low battery (%.2f V) — warning, then deep sleep\n", volts);
-  renderLowBatteryWarning(volts, 2500);
-
-  // Dark outputs: the matrices, the TM1637 clock, and the penalty LEDs
-  // would otherwise keep drawing (and showing stale state) through the
-  // sleep.
-  setMax7219Display(MAX7219_SCORE_BLANK, MAX7219_SCORE_BLANK,
-                    MAX7219_SCORE_BLANK);
-  setCountLeds(0, 0, 0);
-  tm1637SetBrightness(0);
-
-  // Blank the panel and put it into its low-power state — the ST7789 keeps
-  // scanning GRAM (mA-range) unless told to sleep. The backlight LEDs have
-  // no firmware control on this wiring, so they stay lit until the switch
-  // is flipped; power off after seeing the warning when possible.
-  GFXcanvas16& canvas = tftPanel.canvas();
-  canvas.fillScreen(COLOR_BG);
-  tftPanel.pushFull();
-  tftPanel.raw().sendCommand(0x10);  // SLPIN
-
-  sleepNow();
-}
 
 void serviceBatteryMonitor() {
   if (!batterySenseEnabled(getBoardVersion())) return;  // no divider

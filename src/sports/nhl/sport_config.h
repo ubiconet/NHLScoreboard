@@ -95,43 +95,35 @@ static const char* NETWORK_AP_SSID = "NHL_SCOREBOARD";
 static const char* NETWORK_HOSTNAME = "nhl-scoreboard";
 
 // ---- Battery power (LiPo + boost converter supply) --------------------------
-// The board runs off a 3.7 V LiPo through a 5 V boost converter. When the
-// pack runs low the boost rail collapses under load and the board brown-out
-// cycles on/off with no indication. The power gate (common/app/power_monitor,
-// driven from main.cpp's boot sequence) is a V1.1 HARDWARE FEATURE and is
-// DISABLED ENTIRELY on other board versions (v3.63): V0.1/V1.0 boards do no
-// voltage check — they boot and run unconditionally. On V1.1 boards
-// (divider wired):
-//   * the pack voltage is read at boot and at/below BATTERY_LOW_VOLTS the
-//     board shows the low-battery screen and deep-sleeps immediately (no
-//     cycling first). While asleep it silently re-checks every
-//     BATTERY_RECHECK_MS and resumes on its own once the charger lifts the
-//     pack past BATTERY_RESUME_VOLTS.
+// The board runs off a 3.7 V LiPo through a 5 V boost converter. There
+// is NO low-battery power gate (removed v3.79): no board version checks
+// the pack at power-on, and the firmware never shuts down or deep-sleeps
+// on a low battery — power control is the physical switch. What remains
+// is the RUNTIME gauge (common/app/power_monitor), and battery sensing
+// is a V1.1 HARDWARE FEATURE, disabled entirely on other board
+// versions: V0.1/V1.0 boards never read the pin.
 // The divider is a V1.1 hardware feature: batterySenseEnabled() keys off
 // the portal's board-version setting (NVS), so ONE firmware serves every
 // board and only boards actually set to V1.1 read the pin. Don't select
 // V1.1 on a board without the divider — a floating ADC pin can read like
-// a dead pack (the gate's >0.5 V plausibility guard only rejects a dead
-// short, not noise).
+// a dead pack (the monitor's >0.5 V plausibility guard only rejects a
+// dead short, not noise).
 // Sense pin: GPIO 7 = ADC1_CH6, left header pos 7 — spare since the v3.44
 // PCB rev moved the guest penalty LEDs to 11/12. It sits on ADC1, which
 // Wi-Fi never claims, so the divider stays readable at RUNTIME (the
-// on-screen battery gauge samples it while the board runs), not only at
-// the boot check. Note GPIO 21 (near the power rails) has no ADC channel
-// on ESP32-S3 and GPIO 20 is native USB D−, so neither can sense.
+// on-screen battery gauge samples it while the board runs). Note GPIO 21
+// (near the power rails) has no ADC channel on ESP32-S3 and GPIO 20 is
+// native USB D−, so neither can sense.
 // Divider wiring: BAT+ (after the switch / boost input +) --[470k]--
 // BATTERY_SENSE_PIN --[470k]-- GND, with 100 nF across the lower
 // resistor (wiring diagram in docs/assembly.md).
 static const int BATTERY_SENSE_PIN = 7;            // ADC1_CH6, left header pos 7
 static const float BATTERY_SENSE_DIVIDER = 2.0f;   // (R1 + R2) / R2
-static const float BATTERY_LOW_VOLTS = 3.40f;      // boot reading that trips shutdown;
-                                                   //   also the gauge's EMPTY floor
+static const float BATTERY_LOW_VOLTS = 3.40f;      // gauge EMPTY floor
 // Gauge FULL level. The charger terminates at 4.18 V on this pack, so a
 // topped-off battery reads 100% (4/4) and holds it until the smoothed
 // voltage crosses back below the 75% boundary (~3.99 V).
 static const float BATTERY_FULL_VOLTS = 4.18f;
-static const float BATTERY_RESUME_VOLTS = 3.90f;   // re-check resume (charger present)
-static const uint32_t BATTERY_RECHECK_MS = 900000; // silent re-check while asleep (15 min)
 // Runtime gauge sampling (serviceBatteryMonitor paces itself to this).
 // Quarter-step charge changes take minutes; 30 s is far finer than the
 // display ever shows, and each sample is a ~10 ms median-of-5 on core 0.
@@ -139,7 +131,8 @@ static const uint32_t BATTERY_MONITOR_INTERVAL_MS = 30000;
 
 // True on boards whose hardware carries the battery-sense divider (V1.1+).
 // boardVersion comes from the portal's board-version setting (NVS); the
-// power gate uses this to decide whether the pack voltage can be trusted.
+// runtime gauge uses this to decide whether the pack voltage can be
+// trusted.
 static inline bool batterySenseEnabled(int boardVersion) {
   return boardVersion >= BOARD_VERSION_V1_1;
 }

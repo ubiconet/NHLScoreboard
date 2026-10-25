@@ -735,7 +735,7 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 </style></head><body><main><h1>@@NAME@@ Diagnostics</h1>
 <h3>Battery</h3>
 <p class="readout" id="battReadout">Reading battery...</p>
-<p class="hint">Live pack voltage and estimated remaining charge for the 3.7 V LiPo (refreshes every 5 s). Voltage-based estimate: honest to roughly &plusmn;15 points through the flat middle of the discharge curve and conservative while the scoreboard is drawing hard. Full is ~4.2 V, empty ~3.4 V; the low-battery shutdown trips at 3.4 V.</p>
+<p class="hint">Live pack voltage and estimated remaining charge for the 3.7 V LiPo (refreshes every 5 s). Voltage-based estimate: honest to roughly &plusmn;15 points through the flat middle of the discharge curve and conservative while the scoreboard is drawing hard. Full is ~4.2 V, empty ~3.4 V.</p>
 <hr><h3>Feed Diagnostics</h3>
 <p class="readout" id="feedReadout" style="font-size:16px">Reading feeds...</p>
 <p class="hint">Live NHL feed state (refreshes every 5 s): schedule fetch attempts and successes, the last error and HTTP code, the followed game, Wi-Fi signal, and the device clock &mdash; an unsynced clock blocks schedule fetches entirely. code -1 means the fetch failed before any HTTP response (DNS/TLS/radio).</p>
@@ -1489,6 +1489,14 @@ bool consumeAudioTestRequest() {
 bool isManualMode() { return manualMode; }
 void setManualMode(bool on) { manualMode = on; }
 bool isGameDemoMode() { return gameDemoMode; }
+
+bool portalDisplayOverrideActive() {
+  return gameDemoMode || manualMode || trivia::isModeActive() ||
+         displayTestRequested || audioTestRequested;
+}
+
+void requestNetworkScreenRepaint() { redrawSetupPending = true; }
+
 int  getManualClockSec() { return manualClockSec; }
 bool getManualClockRunning() { return manualClockRunning; }
 int  getManualHomeScore() { return manualHomeScore; }

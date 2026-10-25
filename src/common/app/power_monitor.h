@@ -2,40 +2,20 @@
 
 #include <Arduino.h>
 
-// Power gate — the low-battery defense for the LiPo + boost supply (see the
-// battery section of the sport's sport_config.h). A board-version V1.1
-// feature ONLY: when the portal's board-version setting selects a board
-// without the sense divider, the whole gate is disabled — no voltage check,
-// and every boot proceeds normally. On V1.1 boards, the divider on
-// BATTERY_SENSE_PIN is read at power-on, before the displays light and
-// before Wi-Fi starts. At/below BATTERY_LOW_VOLTS the board flashes the
-// warning and sleeps immediately. While asleep it silently re-checks every
-// BATTERY_RECHECK_MS and resumes on its own once the charger lifts the pack
-// past BATTERY_RESUME_VOLTS.
+// Battery monitor — the runtime pack gauge for the LiPo + boost supply
+// (constants in the sport's sport_config.h). Battery sensing is a
+// board-version V1.1 HARDWARE feature ONLY: when the portal's
+// board-version setting selects a board without the sense divider on
+// BATTERY_SENSE_PIN, nothing here reads the pin — no gauge, no voltage
+// anywhere. There is deliberately NO low-battery power gate anymore
+// (removed v3.79): the board never shuts itself down or deep-sleeps on a
+// low pack, on any board version — power control is the physical switch.
+// serviceBatteryMonitor() samples the divider every
+// BATTERY_MONITOR_INTERVAL_MS; call it from the core-0 data task loop.
 namespace power {
 
-enum class BootDecision {
-  NORMAL,    // proceed with the boot
-  RESLEEP,   // timer-wake recheck found the pack still low: stay asleep
-  SHUTDOWN,  // low battery: flash the warning and shut down
-};
-
-// Runs at the very top of setup(), before the display or Wi-Fi come up.
-BootDecision earlyBootCheck();
-
-// Enter (or re-enter) the low-battery deep sleep. Never returns.
-void sleepNow();
-
-// Flash the low-battery warning on the TFT, blank the matrices, the TM1637
-// clock, and the penalty LEDs, then deep-sleep. Never returns. The display
-// must already be initialized (call after sport::setup()).
-void showLowBatteryAndSleep();
-
-// ---- Runtime battery gauge (V1.1 boards only) ----
-// The sense pin sits on ADC1 (Wi-Fi never claims it), so the pack voltage
-// stays readable while the board runs. serviceBatteryMonitor() paces
-// itself to BATTERY_MONITOR_INTERVAL_MS — call it from the core-0 data
-// task loop; it reads nothing on boards without the divider.
+// Sample the pack and update the runtime gauge. No-op on boards without
+// the V1.1 sense divider.
 void serviceBatteryMonitor();
 
 // Last runtime sample. 0.0 when unknown (no divider / no sample yet).

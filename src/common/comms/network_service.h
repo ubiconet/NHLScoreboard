@@ -70,6 +70,19 @@ bool isManualMode();
 void setManualMode(bool on);
 // Portal-triggered demo display mode.
 bool isGameDemoMode();
+
+// True while any portal-triggered display override (game demo, manual
+// mode, trivia mode, or a pending display/audio test) should own the
+// screen even with no network connection — lets the diagnostics page's
+// hardware checks run while the board is still provisioning (no Wi-Fi),
+// so new builds can be bench-tested offline.
+bool portalDisplayOverrideActive();
+
+// Re-fire the last network boot screen (the AP instructions while
+// provisioning) after such an override releases the display while the
+// board is still offline.
+void requestNetworkScreenRepaint();
+
 int  getManualClockSec();
 bool getManualClockRunning();
 int  getManualHomeScore();

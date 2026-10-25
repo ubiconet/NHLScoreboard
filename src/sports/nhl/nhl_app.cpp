@@ -605,10 +605,12 @@ void tick(const SportTickContext& ctx) {
     delay(20);  // dark idle: pace the render loop instead of busy-spinning
     return;     // still dark — nothing visual happens this pass
   }
-  if (isHibernateEnabled()) {
+  if (isHibernateEnabled() && !ctx.isProvisioning) {
     // Manual/demo/trivia own the display earlier in tick() and return
     // before this point — a live game, the portal, or an OTA download
-    // are the only things that keep a waiting board lit.
+    // are the only things that keep a waiting board lit. Never while
+    // provisioning: an unconfigured board going dark would kill the
+    // setup portal with no schedule fetch alive to wake it.
     bool busy = scoreboardState == ScoreboardState::LIVE_GAME ||
                 portalEngaged() || otaUpdateInProgress();
     if (busy) {

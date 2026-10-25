@@ -35,27 +35,23 @@ without surprises.
     (right header pos 4–6).
   - 4 penalty LEDs (home P1/P2, guest P1/P2) — target GPIO `4, 5, 11, 12`
     (guest pair moved off 6/7 for the PCB rev, v3.44).
-  - Power: 3.7 V LiPo → switch → 5 V boost converter. The power gate
-    (`common/app/power_monitor`, battery constants in `sport_config.h`) is a
-    **board-version V1.1 feature**: on V1.1 boards it checks the pack at
-    power-on via the divider on GPIO 7 (470k/470k + 100 nF; ADC1_CH6, left
-    header pos 7 — ADC1 is never claimed by Wi-Fi, so the pin also feeds
-    the runtime battery gauge). Low battery flashes the warning screen
-    (`common/ui/low_battery_screen`) and deep-sleeps the board based only
-    on the measured battery voltage.
+  - Power: 3.7 V LiPo → switch → 5 V boost converter. There is **no
+    low-battery power gate** (removed v3.79): no board version checks the
+    pack at power-on, and the firmware never shuts down or deep-sleeps on
+    a low battery — power control is the physical switch. What remains is
+    the **runtime battery gauge** (`common/app/power_monitor`, battery
+    constants in `sport_config.h`), a **board-version V1.1 feature**:
     `batterySenseEnabled()` keys off the portal's board-version setting
     (NVS), so one firmware serves every board — on V0.1/V1.0 boards
-    low-battery detection is disabled entirely (v3.63: no voltage check;
-    they boot and run unconditionally), and V1.1 boards
-    get the voltage check with silent 15-min rechecks while asleep,
-    resuming on their own once the charger lifts the pack past the resume
-    threshold. On V1.1 boards a quarter-step battery icon
-    (`common/ui/battery_indicator`, sampled by `serviceBatteryMonitor()`
-    on core 0 every 30 s) sits top-right on every operational screen —
-    waiting, live, demo, manual, and trivia; it stays hidden on boards
-    without the divider. Charge levels are linear over 3.4-4.18 V
-    (the charger terminates at 4.18 V, which reads 100%/4-of-4; quarters
-    step evenly across the window).
+    battery sensing is disabled entirely (the pin is never read), and on
+    V1.1 boards the divider on GPIO 7 (470k/470k + 100 nF; ADC1_CH6,
+    left header pos 7 — ADC1 is never claimed by Wi-Fi) feeds a
+    quarter-step battery icon (`common/ui/battery_indicator`, sampled by
+    `serviceBatteryMonitor()` on core 0 every 30 s) top-right on every
+    operational screen — waiting, live, demo, manual, and trivia; it
+    stays hidden on boards without the divider. Charge levels are linear
+    over 3.4-4.18 V (the charger terminates at 4.18 V, which reads
+    100%/4-of-4; quarters step evenly across the window).
     Optional hibernate mode (portal checkbox, NVS "hibernate") goes
     dark between games: displays off, portal web server stopped
     (power-cycle to configure), Wi-Fi modem sleep, both cores at
@@ -65,7 +61,12 @@ without surprises.
     setting defaults to V1.1 for never-configured hardware (a saved
     portal choice always wins). The portal's diagnostics page (`/diag`)
     shows the live pack voltage, the estimated remaining charge (linear
-    over 3.4-4.2 V, smoothed), and the display/audio self-tests.
+    over 3.4-4.2 V, smoothed), and the display/audio self-tests. Since
+    v3.79 those hardware checks (plus game demo and manual/trivia mode)
+    work with **no Wi-Fi at all**: while the board runs its setup AP,
+    `portalDisplayOverrideActive()` lets the sport own the display for
+    them (the AP instructions repaint when the override releases), so new
+    builds can be bench-tested offline.
 - **Firmware:** Arduino-ESP32 framework, PlatformIO build system.
 - **Build envs:**
   - `esp32-s3-devkitc-1` → USB CDC upload.
