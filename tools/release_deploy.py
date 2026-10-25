@@ -205,16 +205,30 @@ def _write_site_indexes(site_root, slug):
     print("site firmware index pages updated")
 
 
-def _publish_netlify(site_root):
-    """Best-effort Netlify republish after the firmware push.
+def _netlify_repo_connected(exe):
+    """True when the Netlify site deploys from its linked GitHub repo —
+    then every push to scoreboard-site publishes Netlify automatically
+    and no CLI upload is needed (the preferred flow)."""
+    if not NETLIFY_SITE_ID:
+        return False
+    site = subprocess.run([exe, "api", "getSite", "--data",
+                           '{"site_id":"%s"}' % NETLIFY_SITE_ID],
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
+    try:
+        return bool(json.loads(site.stdout or "{}").get("repo", {}).get("repo"))
+    except ValueError:
+        return False
 
-    The site is CLI-published (not git-connected), so a deploy must run
-    somewhere the Netlify CLI is installed and logged in. Runs
-    `netlify deploy --prod` here when possible, from a clean export of
-    the site (everything except .git/.netlify — the repo history must
-    never be uploaded); otherwise prints the remaining step for whichever
-    machine owns the site (the Mac mini: git pull && netlify deploy
-    --prod).
+
+def _publish_netlify(site_root):
+    """Netlify republish after the firmware push, GitHub-first.
+
+    Preferred flow: the site is repo-connected in Netlify, so the push to
+    scoreboard-site already triggered the deploy — nothing to do here.
+    Fallback (until that one-time link exists): `netlify deploy --prod`
+    from a clean temp export of the site (everything except
+    .git/.netlify — the repo history must never be uploaded).
     """
     # On Windows the npm dir holds an extensionless sh shim next to
     # netlify.cmd — shutil.which can return the shim, which subprocess
@@ -224,6 +238,10 @@ def _publish_netlify(site_root):
         print("netlify republish skipped — CLI not on PATH.\n"
               "Finish from the site machine: git pull && "
               "netlify deploy --prod")
+        return
+    if _netlify_repo_connected(exe):
+        print("netlify publishes via the scoreboard-site GitHub push "
+              "(site is repo-connected)")
         return
     export_dir = None
     try:

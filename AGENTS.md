@@ -185,11 +185,16 @@ point the env's src filter + `-I` at it, update `OTA_*` URLs in
   the `MINIBOARD_SITE_ROOT` env var), then commits and pushes — that push
   publishes the repo copy. It also regenerates browsable `index.html`
   pages for `/firmware/` and `/firmware/nhl/` (Netlify has no
-  server-side directory listing). The site then deploys to Netlify from
-  this machine: `_publish_netlify()` runs `netlify deploy --prod` (CLI
-  installed and logged in; `NETLIFY_SITE_ID` names the miniboards site,
-  **sports-miniboards.com**) from a clean temp export of the site that
-  excludes `.git`/`.netlify`. `SITE_FIRMWARE_BASE` rewrites the SITE
+  server-side directory listing). Netlify publishes **from GitHub** once
+  the site is repo-linked (one-time Netlify UI step: Site configuration
+  → Build & deploy → Link repository → `ubiconet/scoreboard-site`, main,
+  publish dir `.` — also authorize the Netlify GitHub App for that repo):
+  `_publish_netlify()` probes the link via `netlify api getSite` and, when
+  connected, does nothing — the push to scoreboard-site IS the Netlify
+  publish. Until the link exists it falls back to `netlify deploy --prod`
+  from a clean temp export of the site (excludes `.git`/`.netlify`).
+  `NETLIFY_SITE_ID` names the miniboards site,
+  **sports-miniboards.com**. `SITE_FIRMWARE_BASE` rewrites the SITE
   manifest's download URLs to `https://sports-miniboards.com/firmware/nhl`
   — **since v3.86 device OTA (`OTA_MANIFEST_URL` in `src/config.h`) reads
   this Netlify copy**; the GitHub `releases/` manifest keeps GitHub-raw
