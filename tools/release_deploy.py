@@ -28,20 +28,28 @@ LATEST_PARTITIONS_FILE = "nhl_scoreboard_latest_partitions.bin"
 LATEST_BOOT_APP0_FILE = "nhl_scoreboard_latest_boot_app0.bin"
 
 # Optional website mirror: every release is ALSO copied into
-# SITE_ROOT/firmware/<slug>/ for the miniboards website (the site itself
-# is published separately, e.g. by an AI agent). Point SITE_ROOT at the
-# site's local checkout — when that folder is a git repository the mirror
-# is committed and pushed (that push is the site's publish); a plain
-# folder just receives the files for whatever publishes the site. When
-# the folder doesn't exist the mirror is skipped with a note, so the
-# GitHub-only flow keeps working on machines without the site checkout.
-# The MINIBOARD_SITE_ROOT env var overrides the path without an edit.
-# SITE_FIRMWARE_BASE, when set, rewrites the SITE copy of manifest.json to
-# point its download URLs at the website instead of GitHub raw.
+# SITE_ROOT/firmware/<slug>/ of the sales site repo
+# (github.com/ubiconet/scoreboard-site — static pages, served both from
+# the Mac mini's local http.server tunnel and from Netlify). When
+# SITE_ROOT doesn't exist it is cloned from SITE_REPO_URL automatically
+# (git pushes use the machine's stored GitHub credentials). When the
+# checkout is a git repository the mirror is committed and pushed — that
+# push publishes the repo copy; the Mac mini side (git pull) and the
+# Netlify CLI deploy are the site's own publish steps (see
+# _publish_netlify below). The MINIBOARD_SITE_ROOT env var overrides the
+# path without an edit. SITE_FIRMWARE_BASE, when set, rewrites the SITE
+# copy of manifest.json to point its download URLs at the website.
+SITE_REPO_URL = "https://github.com/ubiconet/scoreboard-site.git"
 SITE_ROOT = os.environ.get("MINIBOARD_SITE_ROOT",
-                           r"C:\projects\miniboards-site")
+                           r"C:\projects\scoreboard-site")
 SITE_SLUG = "nhl"          # /firmware/nhl/ on the site
-SITE_FIRMWARE_BASE = ""    # e.g. "https://miniboards.example.com/firmware/nhl"
+SITE_FIRMWARE_BASE = ""    # e.g. "https://scoreboards.ubiconet.com/firmware/nhl"
+# Netlify republish (best effort, after the site push): runs
+# `netlify deploy --prod` when the CLI is on PATH. Needs a one-time
+# `netlify login` (or NETLIFY_AUTH_TOKEN) and NETLIFY_SITE_ID when the
+# checkout carries no .netlify/state.json link. Skipped with a note
+# otherwise — e.g. on machines without Node.
+NETLIFY_SITE_ID = os.environ.get("NETLIFY_SITE_ID", "")
 
 
 def _firmware_version():
@@ -194,6 +202,33 @@ def _write_site_indexes(site_root, slug):
     print("site firmware index pages updated")
 
 
+def _publish_netlify(site_root):
+    """Best-effort Netlify republish after the firmware push.
+
+    The site is CLI-published (not git-connected), so a deploy must run
+    somewhere the Netlify CLI lives. Runs it here when available;
+    otherwise prints the remaining step for whichever machine owns the
+    site (the Mac mini: git pull && netlify deploy --prod).
+    """
+    if shutil.which("netlify") is None:
+        print("netlify republish skipped — CLI not on PATH (no Node on "
+              "this machine).\nFinish from the site machine: "
+              "git pull && netlify deploy --prod")
+        return
+    cmd = ["netlify", "deploy", "--prod", "--dir", site_root]
+    if NETLIFY_SITE_ID:
+        cmd += ["--site", NETLIFY_SITE_ID]
+    dep = subprocess.run(cmd, capture_output=True, text=True,
+                         encoding="utf-8", errors="replace")
+    if dep.returncode == 0:
+        tail = (dep.stdout or "").strip().splitlines()
+        print("netlify republished: %s" %
+              (tail[-1] if tail else "deploy ok"))
+    else:
+        print("WARNING: netlify deploy failed:\n%s" %
+              ((dep.stdout or "") + (dep.stderr or "")).strip())
+
+
 def _publish_website(version, releases_dir):
     """Mirrors the release into the miniboards website's firmware folder.
 
@@ -205,10 +240,17 @@ def _publish_website(version, releases_dir):
     GitHub-only flow is unaffected on machines without the site.
     """
     if not os.path.isdir(SITE_ROOT):
-        print("website mirror skipped — SITE_ROOT not found: %s\n"
-              "(set MINIBOARD_SITE_ROOT or SITE_ROOT in this script to "
-              "enable)" % SITE_ROOT)
-        return
+        if not SITE_REPO_URL:
+            print("website mirror skipped — SITE_ROOT not found: %s" % SITE_ROOT)
+            return
+        print("website mirror: cloning %s" % SITE_REPO_URL)
+        clone = subprocess.run(["git", "clone", SITE_REPO_URL, SITE_ROOT],
+                               capture_output=True, text=True,
+                               encoding="utf-8", errors="replace")
+        if clone.returncode != 0:
+            print("website mirror skipped — clone failed:\n%s"
+                  % clone.stderr.strip())
+            return
 
     fw_dir = os.path.join(SITE_ROOT, "firmware", SITE_SLUG)
     os.makedirs(fw_dir, exist_ok=True)
@@ -240,7 +282,8 @@ def _publish_website(version, releases_dir):
     _write_site_indexes(SITE_ROOT, SITE_SLUG)
 
     if not os.path.isdir(os.path.join(SITE_ROOT, ".git")):
-        return  # plain folder: staged for whatever publishes the site
+        _publish_netlify(SITE_ROOT)  # plain folder: deploy it if we can
+        return
 
     add = _git(["add", "--", "firmware"], SITE_ROOT)
     if add.returncode != 0:
@@ -259,9 +302,10 @@ def _publish_website(version, releases_dir):
     if push.returncode != 0:
         print("WARNING: site git push FAILED — committed locally only:\n" +
               (push.stdout + push.stderr).strip())
-    else:
-        print("website firmware pushed (firmware/%s %s)"
-              % (SITE_SLUG, version))
+        return
+    print("website firmware pushed (firmware/%s %s)"
+          % (SITE_SLUG, version))
+    _publish_netlify(SITE_ROOT)
 
 
 def _deploy(source, target, env):
