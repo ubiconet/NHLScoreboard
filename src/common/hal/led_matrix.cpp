@@ -318,7 +318,8 @@ void setMax7219Scores(int awayScore, int homeScore) {
   setMax7219Display(homeScore, awayScore, MAX7219_SCORE_BLANK);
 }
 
-void setMax7219Shootout(int homeScore, int awayScore) {
+void setMax7219Shootout(int homeScore, int awayScore, bool invertHome,
+                        bool invertGuest) {
   // Scores on the outer modules, "SO" on the period module (two 3x5
   // letters in the same slot layout as a two-digit period number).
   uint8_t awayRows[8], homeRows[8], soRows[8] = {0};
@@ -327,6 +328,10 @@ void setMax7219Shootout(int homeScore, int awayScore) {
   for (int r = 0; r < 8; ++r) {
     soRows[r] = ((FONT3X8_S[r] & 0x07) << 4) | (FONT3X8_O[r] & 0x07);
   }
+  if (invertHome)
+    for (int r = 0; r < 8; ++r) homeRows[r] ^= 0xFF;
+  if (invertGuest)
+    for (int r = 0; r < 8; ++r) awayRows[r] ^= 0xFF;
   writeMatrixRows(awayRows, homeRows, soRows);
   max7219Send3(MAX7219_REG_INTENSITY, kModuleIntensity[0],
                MAX7219_REG_INTENSITY, kModuleIntensity[2],

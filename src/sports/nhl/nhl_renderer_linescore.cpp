@@ -91,33 +91,36 @@ bool goalDisplayActive() {
   return sGoalDisplayPhase != GoalDisplayPhase::NONE;
 }
 
-// Goal blink: the scoring team's NEW score flashes on its matrix
-// (NHL_SCORE_BLINK_FLASHES x 250 ms on / 250 ms off), then returns to
-// the steady display. bit 1 = home, bit 2 = guest.
+// Goal blink: the scoring team's NEW score flashes INVERTED (reverse
+// video) on its matrix alone (NHL_SCORE_BLINK_FLASHES x 250 ms inverted /
+// 250 ms normal), then returns to the steady display. bit 1 = home,
+// bit 2 = guest.
 uint32_t sBlinkStart = 0;
 uint8_t sBlinkSide = 0;    // 0 = idle
 uint8_t sBlinkPhase = 0;   // last applied half-period index
 
-void applyScoreMatrices(bool blankBlinkSide) {
+void applyScoreMatrices(bool invertBlinkSide) {
   const GameSnapshot& g = nhl_render::currentGame;
   int dispPeriod = g.inIntermission ? g.period + 1 : g.period;
+  int per = dispPeriod >= 1 ? dispPeriod : MAX7219_SCORE_BLANK;
   int home = d.homeScore, away = d.awayScore;
-  if (blankBlinkSide) {
-    if (sBlinkSide & 0x1) home = MAX7219_SCORE_BLANK;
-    if (sBlinkSide & 0x2) away = MAX7219_SCORE_BLANK;
-  }
+  bool invHome = invertBlinkSide && (sBlinkSide & 0x1);
+  bool invGuest = invertBlinkSide && (sBlinkSide & 0x2);
   if (strcmp(g.periodType, "SO") == 0) {
-    setMax7219Shootout(home, away);  // shootout: SO on the period module
+    setMax7219Shootout(home, away, invHome, invGuest);  // shootout: SO on the period module
     return;
   }
-  setMax7219Display(home, away,
-                    dispPeriod >= 1 ? dispPeriod : MAX7219_SCORE_BLANK);
+  if (invHome || invGuest) {
+    setMax7219ScoreFlash(home, away, per, invHome, invGuest);
+  } else {
+    setMax7219Display(home, away, per);
+  }
 }
 
 void startScoreBlink(uint8_t side) {
   sBlinkSide |= side;
   sBlinkStart = millis();
-  sBlinkPhase = 0;   // begins in the ON (score showing) half
+  sBlinkPhase = 0;   // begins in the normal (un-inverted) half
 }
 
 // ---- Penalty countdown tick ----
@@ -601,8 +604,9 @@ void renderLiveGame(const GameSnapshot& g) {  nhl_render::currentGame = g;
   }
 
   // matrices + goal flash — the score lives on the matrices; a score
-  // INCREASE (goal) blinks that team's NEW score on its matrix (the
-  // SOG panels never change appearance — goal feedback is matrix-only).
+  // INCREASE (goal) flashes that team's NEW score INVERTED on its matrix
+  // alone (the SOG panels never change appearance — goal feedback is
+  // matrix-only).
   bool homeGoal = false, awayGoal = false;
   if (g.awayScore != d.awayScore) {
     awayGoal = g.awayScore > d.awayScore && d.awayScore >= 0;
@@ -725,12 +729,12 @@ void startGoalAnnouncement(const NhlGoal& goal) {
 
 void runGoalCelebration(const GameSnapshot& g, bool homeScored) {
   // Preferred-team goal celebration (also fired by the game demo): while
-  // the goal horn plays, the two score matrices alternate regular /
-  // inverted (reverse-video) frames — the scoring side inverts first —
-  // and the four penalty LEDs strobe on the same 250 ms rhythm. The TFT
-  // goal announcement stays up throughout (drawn before this runs).
-  // Blocking on the render core, same style as the display test: feeds
-  // keep flowing on core 0, and the loop exits with the horn
+  // the goal horn plays, the SCORING team's matrix alone alternates
+  // regular / inverted (reverse-video) frames — the other side holds its
+  // steady score — and the four penalty LEDs strobe on the same 250 ms
+  // rhythm. The TFT goal announcement stays up throughout (drawn before
+  // this runs). Blocking on the render core, same style as the display
+  // test: feeds keep flowing on core 0, and the loop exits with the horn
   // (audioPlaying()), bounded by NHL_GOAL_CELEBRATION_MIN/MAX_MS.
   const bool shootout = strcmp(g.periodType, "SO") == 0;
   const int dispPeriod = g.inIntermission ? g.period + 1 : g.period;
@@ -741,21 +745,21 @@ void runGoalCelebration(const GameSnapshot& g, bool homeScored) {
   sBlinkSide = 0;
 
   uint32_t start = millis();
-  bool invertHome = !homeScored;  // first toggle inverts the scoring side
+  bool invert = false;
   while (millis() - start < NHL_GOAL_CELEBRATION_MAX_MS &&
          (audioPlaying() || millis() - start < NHL_GOAL_CELEBRATION_MIN_MS)) {
-    invertHome = !invertHome;
+    invert = !invert;  // first frame inverts the scoring side
     if (shootout) {
-      // Shootout frames carry the "SO" glyph on the period module —
-      // flash the two scores dark instead of inverting.
-      setMax7219Shootout(invertHome ? home : MAX7219_SCORE_BLANK,
-                         invertHome ? away : MAX7219_SCORE_BLANK);
+      // Shootout frames carry the "SO" glyph on the period module — only
+      // the scoring side's outer module inverts.
+      setMax7219Shootout(home, away, invert && homeScored,
+                         invert && !homeScored);
     } else {
       setMax7219ScoreFlash(home, away,
                            dispPeriod >= 1 ? dispPeriod : MAX7219_SCORE_BLANK,
-                           invertHome, !invertHome);
+                           invert && homeScored, invert && !homeScored);
     }
-    setCountLeds(invertHome ? 2 : 0, invertHome ? 2 : 0, 0);
+    setCountLeds(invert ? 2 : 0, invert ? 2 : 0, 0);
     delay(NHL_SCORE_BLINK_HALF_MS);
   }
 
@@ -805,8 +809,8 @@ void tickLiveClock() {
     sGoalDisplayPhase = GoalDisplayPhase::NONE;
     forceLiveRepaint(nhl_render::currentGame);
   }
-  // Score blink: 250 ms on / 250 ms off x3 on the scoring side's matrix,
-  // then back to the steady display.
+  // Score blink: 250 ms normal / 250 ms inverted x3 on the scoring side's
+  // matrix alone, then back to the steady display.
   if (sBlinkSide != 0) {
     uint8_t phase = (now - sBlinkStart) / NHL_SCORE_BLINK_HALF_MS;
     if (phase >= 2 * NHL_SCORE_BLINK_FLASHES) {

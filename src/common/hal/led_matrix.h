@@ -37,7 +37,9 @@ void setMax7219Display(int homeScore, int awayScore, int periodValue);
 void setMax7219ScoreFlash(int homeScore, int awayScore, int periodValue,
                           bool invertHome, bool invertGuest);
 // Scores on the outer modules with "SO" on the period module (shootout).
-void setMax7219Shootout(int homeScore, int awayScore);
+// Either score frame may be shown INVERTED, like setMax7219ScoreFlash.
+void setMax7219Shootout(int homeScore, int awayScore,
+                        bool invertHome = false, bool invertGuest = false);
 // Raw 8x8 frames for all three modules at once (one byte per row, bit 7 =
 // leftmost column), with the usual chain-order + mounting corrections
 // applied, at game intensity. Used by non-score effects (trivia fireworks).
