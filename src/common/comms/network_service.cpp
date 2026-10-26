@@ -661,8 +661,7 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <p class="hint">Battery voltage and remaining charge, the screen self-test, the audio test, and the game demo.</p>
 <button type="button" style="margin-top:8px" onclick="location.href='/diag'">Open Diagnostics</button>
 <hr><h3>Firmware Update</h3>
-<p class="hint">Installed: )html" + String(FIRMWARE_VERSION) + R"html(. Automatic checks run at boot.</p>
-<button type="button" style="margin-top:8px" onclick="otaCheck()">Check for Update Now</button>
+<p class="hint">Installed: )html" + String(FIRMWARE_VERSION) + R"html(. Update checks run automatically at boot — power-cycle the board to check and install.</p>
 <p class="hint" id="otaStatus">&nbsp;</p>
 <p class="hint">Latest binary (for manual updates):<br>
 <a style="color:#f5c400;word-break:break-all" href=")html" + String(OTA_LATEST_BIN_URL) + R"html(">)html" + String(OTA_LATEST_BIN_URL) + R"html(</a></p>
@@ -670,14 +669,10 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <script>
 var netSel=document.getElementById('network');
 if(netSel&&netSel.options.length<2&&location.search.indexOf('rescan')<0){setTimeout(function(){location.href='/?rescan=1'},4000)}
-var otaWaiting=false;
-function otaCheck(){otaWaiting=true;document.getElementById('otaStatus').textContent='Checking...';fetch('/ota/check',{method:'POST'})}
 setInterval(function(){fetch('/ota/status').then(function(r){return r.json()}).then(function(s){var e=document.getElementById('otaStatus');
-if(s.stage==='DOWNLOADING'){otaWaiting=false;e.textContent='Downloading update '+s.progress+'% - watch the scoreboard; do not power off.'}
-else if(s.stage==='REBOOTING'){otaWaiting=false;e.textContent='Update installed - rebooting...'}
-else if(s.stage==='FAILED'){otaWaiting=false;e.textContent='Update failed - could not reach sports-miniboards.com. Use the manual upload below.'}
-else if(otaWaiting&&s.checked&&!s.ok){otaWaiting=false;e.textContent='Check failed - could not reach sports-miniboards.com. Checks are most reliable just after a power-cycle; or use the manual upload below.'}
-else if(otaWaiting&&s.checked&&s.ok){otaWaiting=false;e.textContent='No update available - firmware is current.'}
+if(s.stage==='DOWNLOADING'){e.textContent='Downloading update '+s.progress+'% - watch the scoreboard; do not power off.'}
+else if(s.stage==='REBOOTING'){e.textContent='Update installed - rebooting...'}
+else if(s.stage==='FAILED'){e.textContent='Update failed - power-cycle the board to retry.'}
 })},2000);
 </script>
 </main></body></html>)html";
@@ -1284,16 +1279,6 @@ void serveConfig() {
   server.send(200, "application/json", readConfig());
 }
 
-void handleOtaCheckNow() {
-  markPortalActivity();
-  if (!isOnline()) {
-    server.send(503, "text/plain", "Not online");
-    return;
-  }
-  requestOtaCheckNow();
-  server.send(200, "application/json", "{\"ok\":true}");
-}
-
 void serveOtaStatus() {
   markPortalActivity();
   const char* stage = "NONE";
@@ -1367,7 +1352,6 @@ void registerPortalRoutes() {
   server.on("/save", HTTP_POST, saveNetwork);
   server.on("/config", HTTP_POST, saveConfig);
   server.on("/update", HTTP_GET, serveUpdatePage);
-  server.on("/ota/check", HTTP_POST, handleOtaCheckNow);
   server.on("/display/test", HTTP_POST, handleDisplayTest);
   server.on("/audio/test", HTTP_POST, handleAudioTest);
   server.on("/demo/start", HTTP_POST, handleDemoStart);

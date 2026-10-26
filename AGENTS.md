@@ -216,9 +216,19 @@ point the env's src filter + `-I` at it, update `OTA_*` URLs in
   automatic check runs exactly once per power cycle — two attempts in
   the boot window, then never again mid-session (the fragmented
   post-feed heap can't fund the handshake, and the AP refuses later
-  fresh TLS connections). To update a running device: power-cycle it,
-  or use the portal's "check now". The portal button remains available
-  and works best right after a boot.
+  fresh TLS connections). To update a running device: power-cycle it.
+  The portal's "check now" button was removed in v3.89 — the portal's
+  Firmware Update section now offers only the latest-binary link and
+  the manual upload page; `/ota/status` still reports progress during
+  a boot-time auto-update.
+- **The OTA manifest buffer must fit the whole manifest**
+  (`sManifestBuf` in `ota_update.cpp`, 2 KB): `readExactBody()`
+  refuses any body larger than the buffer, and the manifest grew past
+  the original 512-byte buffer when the flasher-tool fields
+  (factory/bootloader/partitions/boot_app0) were added — every OTA
+  check silently failed until v3.89 fixed it (live manifest is
+  ~775 B on the Netlify copy, ~915 B on GitHub raw). If the manifest
+  ever approaches 2 KB, grow the buffer in the same change.
 - **CRITICAL WIRING** — the sport's data task MUST call
   `serviceOtaUpdates(onlineFor)` every loop pass, hold feeds while
   `otaUpdateInProgress()`, and gate the first feed fetch behind
