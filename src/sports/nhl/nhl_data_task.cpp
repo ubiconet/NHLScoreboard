@@ -553,7 +553,7 @@ void nhlDataTaskLoop(void*) {
     bool online = sOnlineSince != 0;
     uint32_t onlineFor = online ? millis() - sOnlineSince : 0;
 
-    // OTA self-update service: check for a newer GitHub release each pass
+    // OTA self-update service: check for a newer release each pass
     // (it paces itself — boot-only automatic checks plus the portal's
     // on-demand request). While a download is in flight this loop does
     // nothing else, and the feed fetches below must not start until the

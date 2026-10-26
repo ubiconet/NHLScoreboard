@@ -2,9 +2,11 @@
 
 #include <Arduino.h>
 
-// Firmware self-update against the releases/manifest.json in the GitHub
-// repo (written by `pio run -t deploy`). Runs entirely on the core-0 data
-// task: fetch manifest, compare version with FIRMWARE_VERSION, and when
+// Firmware self-update against manifest.json on sports-miniboards.com
+// (OTA_MANIFEST_URL in config.h; `pio run -t deploy` publishes it — the
+// GitHub releases/ folder is the archive copy). Runs entirely on the
+// core-0 data task: fetch manifest, compare version with
+// FIRMWARE_VERSION, and when
 // they differ download + flash the new binary while the renderer shows the
 // "updating, do not turn off" screen (see handleOtaUpdateScreen()).
 // onlineForMs = milliseconds since the network last came online (0 while

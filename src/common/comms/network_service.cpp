@@ -675,8 +675,8 @@ function otaCheck(){otaWaiting=true;document.getElementById('otaStatus').textCon
 setInterval(function(){fetch('/ota/status').then(function(r){return r.json()}).then(function(s){var e=document.getElementById('otaStatus');
 if(s.stage==='DOWNLOADING'){otaWaiting=false;e.textContent='Downloading update '+s.progress+'% - watch the scoreboard; do not power off.'}
 else if(s.stage==='REBOOTING'){otaWaiting=false;e.textContent='Update installed - rebooting...'}
-else if(s.stage==='FAILED'){otaWaiting=false;e.textContent='Update failed (network may block GitHub) - use the manual upload below.'}
-else if(otaWaiting&&s.checked&&!s.ok){otaWaiting=false;e.textContent='Check failed - this network may block GitHub. Use the manual upload below.'}
+else if(s.stage==='FAILED'){otaWaiting=false;e.textContent='Update failed - could not reach sports-miniboards.com. Use the manual upload below.'}
+else if(otaWaiting&&s.checked&&!s.ok){otaWaiting=false;e.textContent='Check failed - could not reach sports-miniboards.com. Checks are most reliable just after a power-cycle; or use the manual upload below.'}
 else if(otaWaiting&&s.checked&&s.ok){otaWaiting=false;e.textContent='No update available - firmware is current.'}
 })},2000);
 </script>
