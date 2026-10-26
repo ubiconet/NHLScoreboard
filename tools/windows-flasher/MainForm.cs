@@ -306,7 +306,7 @@ internal sealed class MainForm : Form
             var arguments = new List<string> {
                 tools.Esptool, "--chip", "esp32s3", "--port", port.Port,
                 "--baud", "460800", "--before", "default_reset", "--after", "hard_reset",
-                "write_flash", "-z", "--flash_mode", "qio", "--flash_freq", "80m",
+                "write_flash", "-z", "--flash_mode", "dio", "--flash_freq", "80m",
                 "--flash_size", "8MB",
             };
             arguments.AddRange(_flashPlan.FlashArguments);

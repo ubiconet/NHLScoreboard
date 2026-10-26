@@ -391,7 +391,7 @@ def _deploy(source, target, env):
         env["PROJECT_PACKAGES_DIR"], "tool-esptoolpy", "esptool.py")
     merge = [
         env.subst("$PYTHONEXE"), esptool, "--chip", "esp32s3", "merge_bin",
-        "--flash_mode", "qio", "--flash_freq", "80m", "--flash_size", "8MB",
+        "--flash_mode", "dio", "--flash_freq", "80m", "--flash_size", "8MB",
         "-o", factory,
         "0x0", bootloader,
         "0x8000", partitions,
