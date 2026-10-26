@@ -49,10 +49,16 @@ SITE_SLUG = "nhl"          # /firmware/nhl/ on the site
 SITE_FIRMWARE_BASE = "https://sports-miniboards.com/firmware/nhl"
 # Netlify republish (best effort, after the site push): runs
 # `netlify deploy --prod` when the CLI is on PATH. Needs a one-time
-# `netlify login` (or NETLIFY_AUTH_TOKEN) and NETLIFY_SITE_ID when the
-# checkout carries no .netlify/state.json link. Skipped with a note
-# otherwise — e.g. on machines without Node.
-NETLIFY_SITE_ID = os.environ.get("NETLIFY_SITE_ID", "")
+# `netlify login` (or NETLIFY_AUTH_TOKEN). Default below is the
+# miniboards site (sports-miniboards.com) — the env var overrides it.
+# The CLI always runs with cwd=SITE_ROOT: this firmware repo carries a
+# stray .netlify/state.json linking an UNRELATED site, and a CLI run
+# from here resolves that link plus this repo as the publish dir
+# (observed at the v3.87 deploy: 422 + publish resolved to the repo
+# root). Without the id the fallback is skipped — publishing nothing is
+# safer than publishing the wrong thing.
+NETLIFY_SITE_ID = os.environ.get(
+    "NETLIFY_SITE_ID", "d9f7dd6a-4f03-4c17-a19a-908160ce4d1a")
 
 
 def _firmware_version():
@@ -205,7 +211,7 @@ def _write_site_indexes(site_root, slug):
     print("site firmware index pages updated")
 
 
-def _netlify_repo_connected(exe):
+def _netlify_repo_connected(exe, site_root):
     """True when the Netlify site deploys from its linked GitHub repo —
     then every push to scoreboard-site publishes Netlify automatically
     and no CLI upload is needed (the preferred flow)."""
@@ -214,7 +220,8 @@ def _netlify_repo_connected(exe):
     site = subprocess.run([exe, "api", "getSite", "--data",
                            '{"site_id":"%s"}' % NETLIFY_SITE_ID],
                           capture_output=True, text=True,
-                          encoding="utf-8", errors="replace")
+                          encoding="utf-8", errors="replace",
+                          cwd=site_root)
     try:
         return bool(json.loads(site.stdout or "{}").get("repo", {}).get("repo"))
     except ValueError:
@@ -239,7 +246,12 @@ def _publish_netlify(site_root):
               "Finish from the site machine: git pull && "
               "netlify deploy --prod")
         return
-    if _netlify_repo_connected(exe):
+    if not NETLIFY_SITE_ID:
+        print("netlify republish skipped — no NETLIFY_SITE_ID (set it or "
+              "the default in this script) so the CLI cannot prove which "
+              "site to publish.")
+        return
+    if _netlify_repo_connected(exe, site_root):
         print("netlify publishes via the scoreboard-site GitHub push "
               "(site is repo-connected)")
         return
@@ -250,11 +262,11 @@ def _publish_netlify(site_root):
         deploy_dir = os.path.join(export_dir, "site")
         shutil.copytree(site_root, deploy_dir,
                         ignore=shutil.ignore_patterns(".git", ".netlify"))
-        cmd = [exe, "deploy", "--prod", "--dir", deploy_dir]
-        if NETLIFY_SITE_ID:
-            cmd += ["--site", NETLIFY_SITE_ID]
+        cmd = [exe, "deploy", "--prod", "--dir", deploy_dir,
+               "--site", NETLIFY_SITE_ID]
         dep = subprocess.run(cmd, capture_output=True, text=True,
-                             encoding="utf-8", errors="replace")
+                             encoding="utf-8", errors="replace",
+                             cwd=site_root)
         if dep.returncode == 0:
             tail = (dep.stdout or "").strip().splitlines()
             print("netlify republished: %s" %
