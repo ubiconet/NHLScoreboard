@@ -15,6 +15,14 @@ namespace {
 // can't absorb a multi-KB read buffer alongside the HTTP/TLS frames.
 uint8_t sOtaBuf[4096];
 
+// Manifest staging buffer. Static (not stack) and sized for the FULL
+// manifest: readExactBody() refuses any body larger than the buffer, so
+// the old 512-byte buffer silently failed EVERY check once the manifest
+// grew its flasher-tool fields (factory/bootloader/partitions/boot_app0
+// pairs) — the live manifest is ~775 B (Netlify) to ~950 B (GitHub raw).
+// 2 KB leaves field headroom without touching the tight task stack.
+uint8_t sManifestBuf[2048];
+
 bool sCheckedOnce = false;
 bool sLastCheckOk = false;
 uint32_t sLastCheckAt = 0;
@@ -119,9 +127,10 @@ void serviceOtaUpdates(uint32_t onlineForMs) {
   // Check once, early: the TLS handshake needs the still-pristine boot heap
   // (two ~17 KB contiguous mbedtls buffers; the fragmented post-feed heap's
   // largest block is too small), which is also why the feed fetches wait
-  // for otaBootGateReached(). The periodic recheck below is best-effort.
-  // A portal-requested check bypasses the pacing (the user is watching),
-  // but still runs on the data task with the heap released.
+  // for otaBootGateReached(). A requestOtaCheckNow() call bypasses the
+  // pacing (runs on the data task with the heap released); the portal's
+  // "check now" button was removed in v3.89 — boot checks are the only
+  // user path, so nothing currently sets it.
   bool requested = sCheckRequested;
   sCheckRequested = false;
   if (!requested) {
@@ -130,8 +139,7 @@ void serviceOtaUpdates(uint32_t onlineForMs) {
     // boot attempts below), while the heap is still pristine. No periodic
     // mid-session recheck — on this network the post-feed heap can't
     // reliably fund a TLS handshake, and a display board that wants an
-    // update can simply be power-cycled. The portal's "check now" still
-    // bypasses this pacing on demand.
+    // update can simply be power-cycled.
     if (sCheckedOnce) return;
     uint32_t now = millis();
     if (sBootAttempts > 0 && (now - sLastCheckAt) < 5000) {
@@ -175,9 +183,8 @@ void serviceOtaUpdates(uint32_t onlineForMs) {
   http.setTimeout(10000);
   int httpCode = http.GET();
   DBG_PRINTF("[OTA] manifest -> HTTP %d\n", httpCode);
-  uint8_t manifestBuf[512];
   if (httpCode != HTTP_CODE_OK ||
-      readExactBody(http, manifestBuf, sizeof(manifestBuf)) == 0) {
+      readExactBody(http, sManifestBuf, sizeof(sManifestBuf)) == 0) {
     http.end();
     Update.abort();
     sLastCheckOk = false;
@@ -192,10 +199,10 @@ void serviceOtaUpdates(uint32_t onlineForMs) {
   sCheckedOnce = true;
   // Null-terminate and parse; values are copied out before the buffer is
   // reused (in-memory parses link strings into the buffer).
-  manifestBuf[sizeof(manifestBuf) - 1] = '\0';
+  sManifestBuf[sizeof(sManifestBuf) - 1] = '\0';
   JsonDocument doc;
   DeserializationError error =
-      deserializeJson(doc, (const char*)manifestBuf);
+      deserializeJson(doc, (const char*)sManifestBuf);
   if (error) {
     DBG_PRINTF("[OTA] manifest parse error: %s\n", error.c_str());
     http.end();

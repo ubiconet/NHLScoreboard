@@ -28,7 +28,9 @@ bool otaBootGateReached(uint32_t onlineForMs);
 // bypassing the retry throttle (the setup portal's "Check for update
 // now" button). Mid-session checks run with the feed buffers released to
 // give the TLS handshake the largest contiguous heap available.
-void requestOtaCheckNow();
+void requestOtaCheckNow();  // pacing bypass (unused since the portal
+                            // button was removed in v3.89 — kept for a
+                            // future trigger)
 bool otaCheckRequested();      // true while a request is pending
 bool otaEverChecked();         // at least one check completed
 bool otaLastCheckOk();         // last check reached and parsed the manifest
