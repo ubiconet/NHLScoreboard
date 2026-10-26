@@ -182,12 +182,17 @@ void refreshPenaltyTimes() {
 const int CLOCK_NORMAL_DRIFT = 3;  // s: feed transport-latency allowance
 const int CLOCK_MAX_LEAD = 5;      // s: max display-ahead before a snap
 
+bool gameOverState(const char* state);  // defined below the draw helpers
+
 void syncClockModel(const GameSnapshot& g) {
   uint32_t now = millis();
-  if (g.inIntermission) {
-    // Between periods: display the NEXT period already — its opening
-    // clock (20:00 regulation / 5:00 OT), frozen until puck drop.
-    sClockBasisSec = periodLengthOf((g.period > 0 ? g.period : 3) + 1);
+  if (gameOverState(g.gameState) || g.inIntermission) {
+    // Period or game over: the timer reads 00:00 — never the frozen last
+    // tick (the feed can stop the clock above zero when the winning goal
+    // comes with time remaining) and not the next period's opening clock.
+    // The first running snapshot at the next puck drop re-anchors past
+    // CLOCK_MAX_LEAD, so 20:00 snaps in cleanly.
+    sClockBasisSec = 0;
     sClockSyncedAt = now;
     sClockRunning = false;
     return;
