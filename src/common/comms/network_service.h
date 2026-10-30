@@ -13,6 +13,8 @@ struct NetworkBranding {
   const char* deviceName;  // e.g. "NHL Scoreboard" — portal <title>/heading
   const char* apSsid;      // fallback provisioning AP network name
   const char* hostname;    // base hostname; a per-device suffix is appended
+  const char* soundSettingLabel;  // portal sound-picker heading, e.g.
+                                  // "Goal Horn" ("" hides the section)
 };
 
 // One selectable team in the portal's preferred-team dropdowns.
@@ -26,6 +28,14 @@ struct NetworkBoardOption {
   const char* label;
 };
 
+// One selectable sound in the portal's sound dropdown (e.g. alternate
+// goal horns). The sport supplies the ids/labels and maps ids to its own
+// audio clips; an empty list hides the portal section entirely.
+struct NetworkSoundOption {
+  int id;
+  const char* label;
+};
+
 void startNetworkServices(const NetworkBranding& branding,
                           const NetworkTeamOption* teamOptions,
                           size_t teamOptionCount,
@@ -33,6 +43,9 @@ void startNetworkServices(const NetworkBranding& branding,
                           const NetworkBoardOption* boardOptions,
                           size_t boardOptionCount,
                           int defaultBoardVersion,
+                          const NetworkSoundOption* soundOptions,
+                          size_t soundOptionCount,
+                          int defaultSoundId,
                           String (*statusExtraJson)() = nullptr);
 void startNetworkTask();
 // Runs on the main loop; performs any pending display work owned by that core.
@@ -58,8 +71,15 @@ void setPortalEnabled(bool enabled);
 bool consumeDisplayTestRequest();
 
 // One-shot audio-test trigger from the portal's "Play Test Audio" button
-// (POST /audio/test). Returns true exactly once per request.
-bool consumeAudioTestRequest();
+// (POST /audio/test) or a sound-picker preview (POST /audio/test?id=N).
+// Returns the sound id to play — the request's id, falling back to the
+// saved selection — exactly once per request; -1 when nothing is pending.
+int consumeAudioTestRequest();
+
+// Selected sound id from the portal's sound picker (NVS "sound_id"; the
+// injected option list's default when never saved). The sport layer maps
+// the id to one of its clips.
+int getSelectedSoundId();
 
 // ---- Manual mode (portal "Manual Mode" page) ----
 // Full manual override of the scoreboard outputs: the clock counts down

@@ -284,10 +284,18 @@ void fetchScheduleIfDue(bool online, uint32_t minIntervalMs = 0) {
       char prime[11];
       if (strftime(prime, sizeof(prime), "%Y-%m-%d", &cd) > 0) {
         JsonDocument discard;
-        fetchNhlDayScore(discard, prime);
+        if (fetchNhlDayScore(discard, prime)) {
+          // The response's Date header bootstrapped the clock. The prime
+          // must not count against the cadence: it used to eat a full
+          // 15 s retry cycle at every slow-NTP boot, holding the waiting
+          // screen on "no upcoming games" while standings/news waited on
+          // the same clock. A FAILED prime keeps the cadence so a dead
+          // link doesn't hammer the endpoint every 250 ms.
+          gLastScheduleAt = 0;
+        }
       }
     }
-    return;  // next pass (15 s) runs with the bootstrapped clock
+    return;  // next pass runs with the bootstrapped clock
   }
   localtime_r(&t, &lt);
   if (strftime(date, sizeof(date), "%Y-%m-%d", &lt) == 0) return;
@@ -592,10 +600,19 @@ void nhlDataTaskLoop(void*) {
       continue;
     }
 
+    // Order matters on a cold boot and must respect the ONE-session feed
+    // client (each host switch pays a TLS handshake). Schedule comes first
+    // (live-vs-waiting decision + clock prime, statsapi host). NEWS is
+    // next and first on the ESPN host: it's the waiting screen's biggest
+    // payload and needs no clock, so the carousel gets content soonest.
+    // Landing reuses ESPN's fresh session — it skips entirely while no
+    // active game is known (no live game at boot), and when one IS live
+    // it rides the same handshake. Standings closes the pass back on
+    // statsapi; during a live game it's the least urgent of the four.
     fetchScheduleIfDue(online);
-    fetchStandingsIfDue(online);
-    fetchLandingIfDue(online);
     fetchNewsIfDue(online);
+    fetchLandingIfDue(online);
+    fetchStandingsIfDue(online);
     vTaskDelay(pdMS_TO_TICKS(250));
   }
 }

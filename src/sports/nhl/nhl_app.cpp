@@ -51,6 +51,39 @@ GameSnapshot sDemoGame{};
 uint32_t sDemoStartedAtMs = 0;
 uint32_t sDemoLastSecond = UINT32_MAX;
 
+// Selectable goal horns, id order matching kHornOptions below. Id 0 is the
+// classic clip; 1-4 are CC0 train/ship horns from Wikimedia Commons
+// (AirChime K5LA, a Bremerhaven fog signal, Leslie S-5T, Nathan M5) — the
+// same class of hardware NHL arenas mount as goal horns.
+struct HornClip {
+  const int16_t* pcm;
+  size_t samples;
+  int rate;
+};
+const HornClip kHornClips[] = {
+    {GOAL_PCM, GOAL_SAMPLES, GOAL_RATE},
+    {HORN_K5LA_PCM, HORN_K5LA_SAMPLES, HORN_K5LA_RATE},
+    {HORN_SHIP_PCM, HORN_SHIP_SAMPLES, HORN_SHIP_RATE},
+    {HORN_S5T_PCM, HORN_S5T_SAMPLES, HORN_S5T_RATE},
+    {HORN_M5_PCM, HORN_M5_SAMPLES, HORN_M5_RATE},
+};
+
+// Plays the portal-selected horn (NVS "sound_id"; classic when unset or
+// unrecognized). The isAudioEnabled() gate lives here so every caller —
+// live goal, demo goal, portal preview — obeys the setting.
+void playGoalHorn() {
+  if (!isAudioEnabled()) {
+    return;
+  }
+  int horn = getSelectedSoundId();
+  if (horn < 0 ||
+      horn >= (int)(sizeof(kHornClips) / sizeof(kHornClips[0]))) {
+    horn = 0;
+  }
+  startClip(kHornClips[horn].pcm, kHornClips[horn].samples,
+            kHornClips[horn].rate);
+}
+
 void startGameDemo(uint32_t nowMs) {
   sDemoGame = GameSnapshot{};
   sDemoGame.valid = true;
@@ -164,7 +197,7 @@ bool advanceGameDemo(uint32_t nowMs) {
   renderLiveGame(sDemoGame);
   if (goalScored) {
     startGoalAnnouncement(sDemoGame.latestGoal);
-    if (isAudioEnabled()) startClip(GOAL_PCM, GOAL_SAMPLES, GOAL_RATE);
+    playGoalHorn();
     // Demo goals celebrate like preferred-team goals — bench-visible.
     runGoalCelebration(sDemoGame, homeScored);
   }
@@ -346,7 +379,8 @@ namespace sport {
 const char* name() { return "NHL Scoreboard"; }
 
 NetworkBranding branding() {
-  return NetworkBranding{name(), NETWORK_AP_SSID, NETWORK_HOSTNAME};
+  return NetworkBranding{name(), NETWORK_AP_SSID, NETWORK_HOSTNAME,
+                         "Goal Horn"};
 }
 
 const NetworkTeamOption* teamOptions(size_t& count) {
@@ -369,6 +403,21 @@ const NetworkBoardOption* boardOptions(size_t& count) {
 // assumes the current PCB rev. Older boards opt out once in the portal —
 // the saved NVS value always wins over this default.
 int defaultBoardVersion() { return BOARD_VERSION_V1_1; }
+
+// Portal goal-horn picker: id order matches kHornClips above.
+const NetworkSoundOption* soundOptions(size_t& count) {
+  static const NetworkSoundOption options[] = {
+      {0, "Classic Horn"},
+      {1, "AirChime K5LA"},
+      {2, "Ship Fog Horn"},
+      {3, "Leslie S-5T"},
+      {4, "Nathan M5"},
+  };
+  count = sizeof(options) / sizeof(options[0]);
+  return options;
+}
+
+int defaultSoundId() { return 0; }
 
 TriviaBank triviaBank() {
   static const TriviaBank bank = {
@@ -473,10 +522,20 @@ void tick(const SportTickContext& ctx) {
     return;  // restored screen; next tick resumes normal flow
   }
 
-  if (consumeAudioTestRequest()) {
+  // Portal audio test: -1 = play the saved selection; otherwise the id the
+  // sound picker's Preview button named.
+  int testHornId = consumeAudioTestRequest();
+  if (testHornId != -1) {
     if (isAudioEnabled()) {
-      Serial.println("[AUDIO] goal horn test");
-      startClip(GOAL_PCM, GOAL_SAMPLES, GOAL_RATE);
+      if (testHornId >= 0 &&
+          testHornId < (int)(sizeof(kHornClips) / sizeof(kHornClips[0]))) {
+        Serial.printf("[AUDIO] horn preview id %d\n", testHornId);
+        startClip(kHornClips[testHornId].pcm, kHornClips[testHornId].samples,
+                  kHornClips[testHornId].rate);
+      } else {
+        Serial.println("[AUDIO] goal horn test");
+        playGoalHorn();
+      }
     } else {
       Serial.println("[AUDIO] disabled in settings — test skipped");
     }
@@ -743,7 +802,7 @@ void tick(const SportTickContext& ctx) {
           if (isAudioEnabled()) {
             Serial.printf("[AUDIO] GOAL! %s %d - %s %d\n", game.awayAbbrev,
                           game.awayScore, game.homeAbbrev, game.homeScore);
-            startClip(GOAL_PCM, GOAL_SAMPLES, GOAL_RATE);
+            playGoalHorn();
           }
           // Matrix/LED celebration rides the horn when it plays.
           runGoalCelebration(game, homeScored);

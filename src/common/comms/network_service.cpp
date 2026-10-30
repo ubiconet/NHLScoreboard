@@ -72,13 +72,23 @@ bool hasPending = false;
 bool clockDisplayEnabled = true;
 bool audioEnabled = true;
 bool hibernateEnabled = false;
+// Sound-picker options injected by the sport (may be null/empty — the
+// portal section hides itself) plus the NVS-backed selection.
+const NetworkSoundOption* netSoundOptions = nullptr;
+size_t netSoundOptionCount = 0;
+int netDefaultSoundId = 0;
+int selectedSoundId = 0;
 // Display-test request from the portal (see consumeDisplayTestRequest()).
 // Volatile: set by the network task's web handler, consumed on the render
 // core's tick.
 volatile bool displayTestRequested = false;
 
 // Audio-test request from the portal (see consumeAudioTestRequest()).
+// audioTestSoundId carries the picker's preview id; -1 means "the saved
+// selection". The flag/id pair is written before the bool flips, so the
+// render core only ever sees a complete pair.
 volatile bool audioTestRequested = false;
+volatile int audioTestSoundId = -1;
 
 // ---- Manual mode state (set from the manual web page on this task,
 // read by the render core; small ints/bools, benign races at worst) ----
@@ -434,6 +444,7 @@ void loadSavedNetwork() {
   clockDisplayEnabled = preferences.getBool("show_clock", true);
   audioEnabled = preferences.getBool("audio_en", true);
   hibernateEnabled = preferences.getBool("hibernate", false);
+  selectedSoundId = preferences.getInt("sound_id", netDefaultSoundId);
   tzString = preferences.getString("tz", FACTORY_DEFAULT_TIMEZONE);
   selectedBoardVersion =
       preferences.getInt("board_version", netDefaultBoardVersion);
@@ -635,7 +646,7 @@ void serveNetworks() {
 void servePortal() {
   markPortalActivity();
   server.sendHeader("Cache-Control", "no-store");
-  String page = R"html(<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+  String page = R"html(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>@@NAME@@ Setup</title><style>
 body{margin:0;background:#061b46;color:#fff;font:16px system-ui,sans-serif}
 main{max-width:440px;margin:5vh auto;padding:24px;background:#0b2b62;border:2px solid #dfe9ff;border-radius:8px}
@@ -682,7 +693,32 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <label style="display:flex;align-items:center;gap:10px;margin-top:12px" for="audio-en"><input style="width:auto" id="audio-en" name="audio_en" type="checkbox" value="1")html";
   if (audioEnabled) page += " checked";
   page += R"html(>Enable audio output (game sounds and alerts)</label>
-<label style="display:flex;align-items:center;gap:10px;margin-top:12px" for="hibernate"><input style="width:auto" id="hibernate" name="hibernate" type="checkbox" value="1")html";
+)html";
+  // Sound picker (e.g. alternate goal horns): options, the saved choice,
+  // and a preview button that posts the highlighted option's id — no save
+  // needed to hear it. Hidden when the sport injects no sounds.
+  if (netSoundOptionCount > 0 && netBranding.soundSettingLabel != nullptr &&
+      netBranding.soundSettingLabel[0] != '\0') {
+    page += "<hr><h3>";
+    page += netBranding.soundSettingLabel;
+    page += R"html(</h3>
+<label for="sound-id">Sound played when your team scores</label>
+<div style="display:flex;gap:8px;align-items:stretch">
+<select id="sound-id" name="sound_id" style="flex:1">)html";
+    for (size_t i = 0; i < netSoundOptionCount; ++i) {
+      page += "<option value=\"" + String(netSoundOptions[i].id) + "\"";
+      if (netSoundOptions[i].id == selectedSoundId) {
+        page += " selected";
+      }
+      page += ">" + htmlEscape(netSoundOptions[i].label) + "</option>";
+    }
+    page += R"html(</select>
+<button type="button" style="margin-top:0;width:auto;padding:10px 16px" onclick="fetch('/audio/test?id='+document.getElementById('sound-id').value,{method:'POST'})">Preview</button>
+</div>
+<p class="hint">Preview plays the highlighted sound without saving &mdash; pick each option to compare. Save applies your choice.</p>
+)html";
+  }
+  page += R"html(<label style="display:flex;align-items:center;gap:10px;margin-top:12px" for="hibernate"><input style="width:auto" id="hibernate" name="hibernate" type="checkbox" value="1")html";
   if (hibernateEnabled) page += " checked";
   page += R"html(>Hibernate between games &mdash; display dark and portal offline between 5-min game checks; wake for puck drop. Power-cycle the board to use the portal.</label>
 <button type="submit">Save & Connect Scoreboard</button></form>
@@ -772,7 +808,7 @@ void serveBatteryStatus() {
 void serveDiagnosticsPage() {
   markPortalActivity();
   server.sendHeader("Cache-Control", "no-store");
-  String page = R"html(<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+  String page = R"html(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>@@NAME@@ Diagnostics</title><style>
 body{margin:0;background:#061b46;color:#fff;font:16px system-ui,sans-serif}
 main{max-width:440px;margin:5vh auto;padding:24px;background:#0b2b62;border:2px solid #dfe9ff;border-radius:8px}
@@ -784,6 +820,7 @@ select{box-sizing:border-box;width:100%;padding:10px;border:0;border-radius:4px;
 .readout{font-size:22px;font-weight:700;color:#f5c400;margin:8px 0 4px}
 hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 </style></head><body><main><h1>@@NAME@@ Diagnostics</h1>
+<p class="hint">Firmware )html" + String(FIRMWARE_VERSION) + R"html(</p>
 <h3>Battery</h3>
 <p class="readout" id="battReadout">Reading battery...</p>
 <p class="hint">Live pack voltage and estimated remaining charge for the 3.7 V LiPo (refreshes every 5 s). Voltage-based estimate: honest to roughly &plusmn;15 points through the flat middle of the discharge curve and conservative while the scoreboard is drawing hard. Full is ~4.2 V, empty ~3.4 V.</p>
@@ -842,6 +879,10 @@ void handleDisplayTest() {
 }
 
 void handleAudioTest() {
+  markPortalActivity();
+  // The sound picker's Preview button names a specific option; the
+  // diagnostics "Play Test Audio" plays the saved selection.
+  audioTestSoundId = server.hasArg("id") ? server.arg("id").toInt() : -1;
   audioTestRequested = true;
   server.send(200, "text/plain", "ok");
 }
@@ -871,7 +912,7 @@ void serveManualPage() {
   trivia::exitMode();
   manualMode = true;  // arriving at the page engages manual mode
   server.sendHeader("Cache-Control", "no-store");
-  String page = R"html(<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+  String page = R"html(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>@@NAME@@ Manual</title><style>
 body{margin:0;background:#061b46;color:#fff;font:14px system-ui,sans-serif}
 main{max-width:430px;margin:0 auto;padding:8px}
@@ -1197,6 +1238,17 @@ void saveNetwork() {
   clockDisplayEnabled = server.hasArg("show_clock");
   audioEnabled = server.hasArg("audio_en");
   hibernateEnabled = server.hasArg("hibernate");
+  // Sound selection is validated against the injected option list — never
+  // trust a raw form value.
+  if (server.hasArg("sound_id")) {
+    int requestedSoundId = server.arg("sound_id").toInt();
+    for (size_t i = 0; i < netSoundOptionCount; ++i) {
+      if (netSoundOptions[i].id == requestedSoundId) {
+        selectedSoundId = requestedSoundId;
+        break;
+      }
+    }
+  }
   // Timezone is validated against the option table before it is trusted.
   bool tzChanged = false;
   if (server.hasArg("tz")) {
@@ -1231,6 +1283,7 @@ void saveNetwork() {
   preferences.putBool("show_clock", clockDisplayEnabled);
   preferences.putBool("audio_en", audioEnabled);
   preferences.putBool("hibernate", hibernateEnabled);
+  preferences.putInt("sound_id", selectedSoundId);
   preferences.putString("tz", tzString);
   preferences.putInt("board_version", requestedBoardVersion);
   if (networkChanging) {
@@ -1252,7 +1305,7 @@ void saveNetwork() {
     // Respond BEFORE tearing the link down so the phone actually sees
     // the confirmation; the on-screen AP instructions carry the exact
     // network name and portal address to rejoin on.
-    server.send(200, "text/html", R"html(<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+    server.send(200, "text/html", R"html(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Disconnected</title><style>body{margin:0;background:#061b46;color:#fff;font:16px system-ui,sans-serif}
 main{max-width:420px;margin:8vh auto;padding:28px;background:#0b2b62;border:2px solid #dfe9ff;border-radius:8px;text-align:center}
 </style></head><body><main><h1>Wi-Fi Disconnected</h1>
@@ -1271,7 +1324,7 @@ main{max-width:420px;margin:8vh auto;padding:28px;background:#0b2b62;border:2px 
     Serial.printf("[NET] Preferences-only save: teams=[%d, %d, %d] tz=%s board=%d (network untouched)\n",
                   prefTeam1, prefTeam2, prefTeam3, tzString.c_str(),
                   selectedBoardVersion);
-    String response = R"html(<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+    String response = R"html(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Saved</title><style>body{margin:0;background:#061b46;color:#fff;font:16px system-ui,sans-serif}
 main{max-width:420px;margin:8vh auto;padding:28px;background:#0b2b62;border:2px solid #dfe9ff;border-radius:8px;text-align:center}
 </style></head><body><main><h1>Settings Saved</h1>
@@ -1293,7 +1346,7 @@ main{max-width:420px;margin:8vh auto;padding:28px;background:#0b2b62;border:2px 
   WiFi.begin(pendingSsid.c_str(), pendingPassword.c_str());
   enterConnecting();
 
-  server.send(200, "text/html", R"html(<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+  server.send(200, "text/html", R"html(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Connecting</title><style>body{margin:0;background:#061b46;color:#fff;font:16px system-ui,sans-serif}
 main{max-width:420px;margin:8vh auto;padding:28px;background:#0b2b62;border:2px solid #dfe9ff;border-radius:8px;text-align:center}
 #status{font-size:20px;font-weight:700}</style></head><body><main><h1>Connecting...</h1>
@@ -1355,7 +1408,7 @@ void serveOtaStatus() {
 
 void serveUpdatePage() {
   markPortalActivity();
-  server.send(200, "text/html", R"html(<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+  server.send(200, "text/html", R"html(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Firmware Update</title><style>
 body{margin:0;background:#061b46;color:#fff;font:16px system-ui,sans-serif}
 main{max-width:440px;margin:8vh auto;padding:24px;background:#0b2b62;border:2px solid #dfe9ff;border-radius:8px}
@@ -1523,10 +1576,15 @@ bool consumeDisplayTestRequest() {
   return true;
 }
 
-bool consumeAudioTestRequest() {
-  if (!audioTestRequested) return false;
+int consumeAudioTestRequest() {
+  if (!audioTestRequested) return -1;
   audioTestRequested = false;
-  return true;
+  // -1 = "no specific sound requested" → caller plays the saved selection.
+  return audioTestSoundId;
+}
+
+int getSelectedSoundId() {
+  return selectedSoundId;
 }
 
 bool isManualMode() { return manualMode; }
@@ -1618,6 +1676,9 @@ void startNetworkServices(const NetworkBranding& branding,
                           const NetworkBoardOption* boardOptions,
                           size_t boardOptionCount,
                           int defaultBoardVersion,
+                          const NetworkSoundOption* soundOptions,
+                          size_t soundOptionCount,
+                          int defaultSoundId,
                           String (*statusExtraJson)()) {
   netStatusExtra = statusExtraJson;
   netBranding = branding;
@@ -1629,6 +1690,10 @@ void startNetworkServices(const NetworkBranding& branding,
   netBoardOptions = boardOptions;
   netBoardOptionCount = boardOptionCount;
   netDefaultBoardVersion = defaultBoardVersion;
+  netSoundOptions = soundOptions;
+  netSoundOptionCount = soundOptionCount;
+  netDefaultSoundId = defaultSoundId;
+  selectedSoundId = defaultSoundId;
   deviceHostname = branding.hostname;
   apSsid = branding.apSsid;
   networkTaskStartedAt = millis();

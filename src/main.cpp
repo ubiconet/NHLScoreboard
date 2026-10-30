@@ -47,10 +47,13 @@ void setup() {
     NetworkBranding branding = sport::branding();
     size_t teamOptionCount = 0;
     size_t boardOptionCount = 0;
+    size_t soundOptionCount = 0;
     startNetworkServices(branding, sport::teamOptions(teamOptionCount),
                          teamOptionCount, sport::defaultPreferredTeams(),
                          sport::boardOptions(boardOptionCount),
                          boardOptionCount, sport::defaultBoardVersion(),
+                         sport::soundOptions(soundOptionCount),
+                         soundOptionCount, sport::defaultSoundId(),
                          sport::feedDiagnosticsJson);
     startNetworkTask();
     sport::startDataTask();  // core-0 feed fetches

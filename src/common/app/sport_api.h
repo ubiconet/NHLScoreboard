@@ -53,6 +53,14 @@ const int* defaultPreferredTeams();
 const NetworkBoardOption* boardOptions(size_t& count);
 int defaultBoardVersion();
 
+// ---- Setup-portal sound options ----
+
+// Selectable sounds (e.g. alternate goal horns) for the portal's sound
+// picker; the sport maps each id to one of its audio clips. An empty list
+// hides the picker.
+const NetworkSoundOption* soundOptions(size_t& count);
+int defaultSoundId();
+
 // ---- Trivia mode ----
 
 // The sport's trivia question bank (three difficulty pools). The trivia
