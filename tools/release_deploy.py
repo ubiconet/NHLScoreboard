@@ -354,6 +354,11 @@ def _publish_website(version, releases_dir):
     if push.returncode != 0:
         print("WARNING: site git push FAILED — committed locally only:\n" +
               (push.stdout + push.stderr).strip())
+        # The local tree still carries this release; publish it anyway.
+        # Until the site is repo-connected, _publish_netlify's CLI deploy
+        # IS the Netlify publish — a rejected push must not silently skip
+        # it (v3.92 sat unpublished for exactly this reason).
+        _publish_netlify(SITE_ROOT)
         return
     print("website firmware pushed (firmware/%s %s)"
           % (SITE_SLUG, version))
