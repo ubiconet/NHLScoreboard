@@ -380,6 +380,13 @@ void enterProvisioning() {
     WiFi.softAP(apSsid.c_str(), NETWORK_AP_PASSWORD);
     apUp = true;
     startPortalInfrastructure();
+    // Prime the network list before the first phone connects: the async
+    // scan finishes (~2-3 s) while the user is still joining the AP, so
+    // the setup page's dropdown is populated on first load. Without this
+    // the first scan waits out NETWORK_SCAN_REFRESH_MS since boot.
+    // refreshScanCache() collects the result as usual.
+    WiFi.scanNetworks(true, true);
+    scanActive = true;
   }
   requestSetupRedraw(SETUP_AP_INSTRUCTIONS, WiFi.softAPIP());
   Serial.println("[NET] Provisioning: waiting for portal credentials");
@@ -554,20 +561,40 @@ void renderAccessPointInstructions(const String& portalAddress, bool stationConn
 
     display.setTextSize(1);
     display.setCursor(8, 125);
-    display.print("2. Scan QR or open:");
+    display.print("2. Scan QR to join Wi-Fi");
     display.setCursor(8, 139);
-    display.print(portalAddress);
+    display.print("then open: " + portalAddress);
     display.setCursor(8, 165);
     display.print("3. Enter Wi-Fi settings");
   }
 
-  // QR always links to this screen's portal address (AP portal or device LAN IP).
-  uint8_t qrData[qrcode_getBufferSize(2)];
+  // Online: QR links to the portal (device LAN IP). Setup screen: QR
+  // carries the AP credentials instead — a WIFI: payload that joins the
+  // phone to the provisioning AP, after which the captive-portal popup
+  // opens the setup page (the wildcard DNS server points everything here).
+  // The 41-byte payload (stock SSID + password) needs version 3 — V3-L
+  // holds 53 bytes, V2's 32 is too small. Bump the version if the AP
+  // strings ever grow past that; qrcode_initText silently renders an
+  // empty code when the payload doesn't fit.
+  String qrPayload;
+  const uint8_t qrVersion = stationConnected ? 2 : 3;
+  if (stationConnected) {
+    qrPayload = portalUrl;
+  } else {
+    qrPayload = "WIFI:T:WPA;S:";
+    qrPayload += apSsid;
+    qrPayload += ";P:";
+    qrPayload += NETWORK_AP_PASSWORD;
+    qrPayload += ";;";
+  }
+  uint8_t qrData[qrcode_getBufferSize(3)];
   QRCode qrCode;
-  qrcode_initText(&qrCode, qrData, 2, ECC_LOW, portalUrl.c_str());
+  qrcode_initText(&qrCode, qrData, qrVersion, ECC_LOW, qrPayload.c_str());
 
   const int scale = 4;
-  const int left = 208;
+  // The 29-module V3 code at scale 4 spans 116 px; shift it left so the
+  // quiet-zone border still ends inside the 320-px panel (V2 keeps 208).
+  const int left = stationConnected ? 208 : 200;
   const int top = 65;
   display.fillRect(left - 4, top - 4, (qrCode.size * scale) + 8, (qrCode.size * scale) + 8, ST77XX_WHITE);
   for (uint8_t y = 0; y < qrCode.size; y++) {
@@ -595,6 +622,16 @@ void redirectToPortal() {
   server.send(302, "text/plain", "");
 }
 
+// Options-only fragment for the setup page's network dropdown. The page
+// polls this after load so a scan that finishes post-render still fills
+// the list without reloading. scanOptionsHtml is built in
+// refreshScanCache() on this same task — no cross-core access.
+void serveNetworks() {
+  markPortalActivity();
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "text/html", scanOptionsHtml);
+}
+
 void servePortal() {
   markPortalActivity();
   server.sendHeader("Cache-Control", "no-store");
@@ -610,12 +647,18 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <form method="post" action="/save">
 <label for="network">Nearby Wi-Fi Networks</label>
 <select id="network" onchange="ssid.value=this.value"><option value="">Enter network manually</option>)html";
-  page += scanOptionsHtml;
+  if (scanOptionsHtml.isEmpty()) {
+    // Scan still running at first render; the script below replaces this
+    // placeholder when /networks returns results.
+    page += R"html(<option disabled>Scanning for networks&hellip;</option>)html";
+  } else {
+    page += scanOptionsHtml;
+  }
   page += R"html(</select>
 <label for="ssid">Wi-Fi Network Name</label><input id="ssid" name="ssid" value=")html";
   page += htmlEscape(savedSsid);
   page += R"html(" maxlength="32" autocomplete="off">
-<label for="password">Wi-Fi Password</label><input id="password" name="password" type="password" maxlength="63" autocomplete="off">
+<label for="password">Wi-Fi Password</label><input id="password" name="password" type="text" maxlength="63" autocomplete="off">
 <p class="hint">Leave the password blank and the network unchanged to save team preferences without touching the connection. Clear the network name and save to disconnect the scoreboard — its setup access point comes back.</p>
 <hr>
 <h3>Favorite Team Priorities</h3>
@@ -668,7 +711,20 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <p><a style="color:#f5c400" href="/update">Upload a firmware file manually</a></p>
 <script>
 var netSel=document.getElementById('network');
-if(netSel&&netSel.options.length<2&&location.search.indexOf('rescan')<0){setTimeout(function(){location.href='/?rescan=1'},4000)}
+var netTries=0;
+var netPoll=setInterval(function(){
+  fetch('/networks').then(function(r){return r.text()}).then(function(h){
+    if(h.indexOf('<option')>=0){
+      var cur=netSel.value;
+      netSel.innerHTML='<option value="">Enter network manually</option>'+h;
+      for(var i=0;i<netSel.options.length;i++){if(netSel.options[i].value===cur){netSel.value=cur;break}}
+      clearInterval(netPoll);
+    } else if(++netTries>=10){
+      netSel.innerHTML='<option value="">Enter network manually</option><option disabled>No networks found &mdash; enter name below</option>';
+      clearInterval(netPoll);
+    }
+  }).catch(function(){if(++netTries>=10)clearInterval(netPoll)});
+},2000);
 setInterval(function(){fetch('/ota/status').then(function(r){return r.json()}).then(function(s){var e=document.getElementById('otaStatus');
 if(s.stage==='DOWNLOADING'){e.textContent='Downloading update '+s.progress+'% - watch the scoreboard; do not power off.'}
 else if(s.stage==='REBOOTING'){e.textContent='Update installed - rebooting...'}
@@ -1347,6 +1403,7 @@ void handleUpdateResult() {
 
 void registerPortalRoutes() {
   server.on("/", HTTP_GET, servePortal);
+  server.on("/networks", HTTP_GET, serveNetworks);
   server.on("/status", HTTP_GET, serveStatus);
   server.on("/config", HTTP_GET, serveConfig);
   server.on("/save", HTTP_POST, saveNetwork);
