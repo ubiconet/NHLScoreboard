@@ -52,9 +52,10 @@ uint32_t sDemoStartedAtMs = 0;
 uint32_t sDemoLastSecond = UINT32_MAX;
 
 // Selectable goal horns, id order matching kHornOptions below. Id 0 is the
-// classic clip; 1-4 are CC0 train/ship horns from Wikimedia Commons
-// (AirChime K5LA, a Bremerhaven fog signal, Leslie S-5T, Nathan M5) — the
-// same class of hardware NHL arenas mount as goal horns.
+// classic clip; 1-4 are arena goal-horn recordings from thefaceoff.net's
+// goal-horn archive (Edmonton, Calgary, Ottawa, Boston), cut to 4-4.5 s
+// blasts. NOT openly licensed — thefaceoff.net hosts them for fan use
+// ("personal use only" per their footer), unlike the earlier CC0 set.
 struct HornClip {
   const int16_t* pcm;
   size_t samples;
@@ -62,10 +63,10 @@ struct HornClip {
 };
 const HornClip kHornClips[] = {
     {GOAL_PCM, GOAL_SAMPLES, GOAL_RATE},
-    {HORN_K5LA_PCM, HORN_K5LA_SAMPLES, HORN_K5LA_RATE},
-    {HORN_SHIP_PCM, HORN_SHIP_SAMPLES, HORN_SHIP_RATE},
-    {HORN_S5T_PCM, HORN_S5T_SAMPLES, HORN_S5T_RATE},
-    {HORN_M5_PCM, HORN_M5_SAMPLES, HORN_M5_RATE},
+    {HORN_EDM_PCM, HORN_EDM_SAMPLES, HORN_EDM_RATE},
+    {HORN_CGY_PCM, HORN_CGY_SAMPLES, HORN_CGY_RATE},
+    {HORN_OTT_PCM, HORN_OTT_SAMPLES, HORN_OTT_RATE},
+    {HORN_BOS_PCM, HORN_BOS_SAMPLES, HORN_BOS_RATE},
 };
 
 // Plays the portal-selected horn (NVS "sound_id"; classic when unset or
@@ -408,10 +409,10 @@ int defaultBoardVersion() { return BOARD_VERSION_V1_1; }
 const NetworkSoundOption* soundOptions(size_t& count) {
   static const NetworkSoundOption options[] = {
       {0, "Classic Horn"},
-      {1, "AirChime K5LA"},
-      {2, "Ship Fog Horn"},
-      {3, "Leslie S-5T"},
-      {4, "Nathan M5"},
+      {1, "Edmonton Oilers"},
+      {2, "Calgary Flames"},
+      {3, "Ottawa Senators"},
+      {4, "Boston Bruins"},
   };
   count = sizeof(options) / sizeof(options[0]);
   return options;
