@@ -847,6 +847,10 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
   page += R"html(</select>
 <p class="hint">A board-version change takes effect after reboot.</p>
 <button type="submit">Save Board Version</button></form>
+<hr><h3>Factory Reset</h3>
+<p class="hint">Wipes every saved setting back to factory defaults: Wi-Fi credentials, favorite teams, time zone, goal horn, clock/audio/hibernate options, board version, and the trivia record. The board reboots onto its setup access point, ready to configure from scratch.</p>
+<button type="button" style="background:#b3261e;color:#fff" onclick="frst()">Factory Reset</button>
+<p class="hint" id="frStatus">&nbsp;</p>
 <hr><button type="button" onclick="location.href='/'">Back to Setup</button>
 <script>
 function pollBatt(){fetch('/battery/status').then(function(r){return r.json()}).then(function(s){var e=document.getElementById('battReadout');
@@ -862,6 +866,7 @@ e.textContent='attempts '+(f.schedAttempts!=null?f.schedAttempts:'-')+' · ok '+
 pollFeed();setInterval(pollFeed,5000);
 function dtest(){document.getElementById('dtestStatus').textContent='Running - watch the scoreboard...';fetch('/display/test',{method:'POST'}).then(function(){setTimeout(function(){document.getElementById('dtestStatus').textContent='Done.'},18000)}).catch(function(){document.getElementById('dtestStatus').textContent='Request failed.'})}
 function atest(){fetch('/audio/test',{method:'POST'})}
+function frst(){if(!confirm('Factory reset wipes ALL settings, including Wi-Fi, and reboots the board into setup mode. Continue?'))return;document.getElementById('frStatus').textContent='Resetting \u2014 the board is rebooting. Its setup Wi-Fi hotspot comes back up in a few moments.';fetch('/factory/reset',{method:'POST'}).catch(function(){})}
 function setDemo(running){fetch(running?'/demo/start':'/demo/stop',{method:'POST'}).then(function(r){if(!r.ok)throw new Error('request failed');paintDemo(running)}).catch(function(){document.getElementById('demoStatus').textContent='Demo request failed.'})}
 function paintDemo(running){document.getElementById('demoStart').style.display=running?'none':'block';document.getElementById('demoStop').style.display=running?'block':'none';document.getElementById('demoStatus').textContent=running?'Game demo is running on the scoreboard.':'Demo is stopped.'}
 fetch('/demo/status').then(function(r){return r.json()}).then(function(s){paintDemo(s.running)}).catch(function(){document.getElementById('demoStatus').textContent='Unable to read demo status.'});
@@ -885,6 +890,24 @@ void handleAudioTest() {
   audioTestSoundId = server.hasArg("id") ? server.arg("id").toInt() : -1;
   audioTestRequested = true;
   server.send(200, "text/plain", "ok");
+}
+
+// Factory reset (diagnostics page): wipe every persisted setting — the
+// NVS "network" namespace (Wi-Fi credentials, preferred teams, timezone,
+// goal-horn choice, clock/audio/hibernate switches, board version), the
+// trivia record, and the LittleFS config.json — then reboot. With a blank
+// SSID the board comes back on its setup access point like a fresh unit.
+void handleFactoryReset() {
+  markPortalActivity();
+  preferences.begin("network", false);
+  preferences.clear();
+  preferences.end();
+  trivia::resetHighScore();
+  LittleFS.remove("/config.json");
+  server.send(200, "text/plain", "ok");
+  Serial.println("[NET] factory reset: settings wiped, rebooting");
+  delay(500);  // let the response reach the browser before the restart
+  ESP.restart();
 }
 
 void handleDemoStart() {
@@ -1464,6 +1487,7 @@ void registerPortalRoutes() {
   server.on("/update", HTTP_GET, serveUpdatePage);
   server.on("/display/test", HTTP_POST, handleDisplayTest);
   server.on("/audio/test", HTTP_POST, handleAudioTest);
+  server.on("/factory/reset", HTTP_POST, handleFactoryReset);
   server.on("/demo/start", HTTP_POST, handleDemoStart);
   server.on("/demo/stop", HTTP_POST, handleDemoStop);
   server.on("/demo/status", HTTP_GET, handleDemoStatus);

@@ -162,6 +162,7 @@ void enterMode();                        // /trivia page opened: engage mode
 void exitMode();                         // leave trivia (exit button / other mode)
 uint16_t getHighScore();                 // for the settings menu
 const char* getHighScoreName();
+void resetHighScore();                   // factory reset: wipe the NVS record
 
 // HTTP-facing helpers. The network service owns the WebServer: its route
 // wrappers parse arguments and send these bodies (transport stays out of

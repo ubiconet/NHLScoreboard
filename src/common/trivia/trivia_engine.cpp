@@ -459,6 +459,16 @@ uint16_t getHighScore() { return sHighScore; }
 
 const char* getHighScoreName() { return sHighName; }
 
+void resetHighScore() {
+  sHighScore = 0;
+  sHighName[0] = '\0';
+  Preferences prefs;
+  prefs.begin("trivia", false);
+  prefs.clear();
+  prefs.end();
+  DBG_PRINTF("[TRIVIA] high-score record wiped (factory reset)\n");
+}
+
 // ---- web helpers (called from the network service route wrappers) ----
 
 bool actionStart() {
