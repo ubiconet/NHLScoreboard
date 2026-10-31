@@ -1600,11 +1600,11 @@ bool consumeDisplayTestRequest() {
   return true;
 }
 
-int consumeAudioTestRequest() {
-  if (!audioTestRequested) return -1;
+bool consumeAudioTestRequest(int& outId) {
+  if (!audioTestRequested) return false;
   audioTestRequested = false;
-  // -1 = "no specific sound requested" → caller plays the saved selection.
-  return audioTestSoundId;
+  outId = audioTestSoundId;
+  return true;
 }
 
 int getSelectedSoundId() {

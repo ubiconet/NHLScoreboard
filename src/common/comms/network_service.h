@@ -72,9 +72,12 @@ bool consumeDisplayTestRequest();
 
 // One-shot audio-test trigger from the portal's "Play Test Audio" button
 // (POST /audio/test) or a sound-picker preview (POST /audio/test?id=N).
-// Returns the sound id to play — the request's id, falling back to the
-// saved selection — exactly once per request; -1 when nothing is pending.
-int consumeAudioTestRequest();
+// Returns true exactly once per request; outId receives the requested
+// sound id, or -1 when the request didn't name one (caller plays the
+// saved selection). The no-id case must NOT collide with "no request" —
+// v3.93 returned a bare int and the diag/manual-mode horn buttons (both
+// no-id) were silently eaten by it.
+bool consumeAudioTestRequest(int& outId);
 
 // Selected sound id from the portal's sound picker (NVS "sound_id"; the
 // injected option list's default when never saved). The sport layer maps

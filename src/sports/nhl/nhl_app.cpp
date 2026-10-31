@@ -523,10 +523,11 @@ void tick(const SportTickContext& ctx) {
     return;  // restored screen; next tick resumes normal flow
   }
 
-  // Portal audio test: -1 = play the saved selection; otherwise the id the
-  // sound picker's Preview button named.
-  int testHornId = consumeAudioTestRequest();
-  if (testHornId != -1) {
+  // Portal audio test: true = a request arrived; id -1 means it didn't
+  // name a sound (diag "Play Test Audio", manual-mode Goal Horn button),
+  // so play the saved selection; otherwise the picker's Preview id.
+  int testHornId = -1;
+  if (consumeAudioTestRequest(testHornId)) {
     if (isAudioEnabled()) {
       if (testHornId >= 0 &&
           testHornId < (int)(sizeof(kHornClips) / sizeof(kHornClips[0]))) {
