@@ -18,6 +18,11 @@ namespace power {
 // the V1.1 sense divider.
 void serviceBatteryMonitor();
 
+// Immediate sample that bypasses the pacing interval, for the
+// diagnostics board test (runs on the network task like the paced
+// monitor). Returns the raw volts — 0.0 when the board has no divider.
+float readBatteryNow();
+
 // Last runtime sample. 0.0 when unknown (no divider / no sample yet).
 float batteryVolts();
 

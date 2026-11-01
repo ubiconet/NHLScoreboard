@@ -74,19 +74,13 @@ uint8_t voltsToQuarters(float v) {
 
 }  // namespace
 
-void serviceBatteryMonitor() {
-  if (!batterySenseEnabled(getBoardVersion())) return;  // no divider
-  uint32_t now = millis();
-  if (sLastMonitorAt != 0 && now - sLastMonitorAt < BATTERY_MONITOR_INTERVAL_MS) {
-    return;
-  }
-  sLastMonitorAt = now;
-  sRuntimeVolts = readBatteryVolts();
-  // Plausibility guard: a 1S LiPo never sits above ~4.3 V. A higher
-  // reading means the divider taps the boost output (~5 V rail) or the
-  // pin floats — hide the gauge rather than show a lying "full".
-  // batteryVolts() stays raw so the diagnostics page can display the
-  // real number.
+// Post-read state update shared by the paced monitor and the on-demand
+// board-test read: plausibility guard (a 1S LiPo never sits above ~4.3 V —
+// higher means the divider taps the boost output or the pin floats; hide
+// the gauge rather than show a lying "full") plus the EMA that steadies
+// the charge estimate across samples. batteryVolts() stays raw so the
+// diagnostics page can display the real number.
+void applyRuntimeSample() {
   if (sRuntimeVolts > 0.5f && sRuntimeVolts <= 4.30f) {
     // EMA across the 30 s samples steadies the charge estimate; a fast
     // alpha (0.25) still tracks a real discharge over minutes.
@@ -111,6 +105,29 @@ void serviceBatteryMonitor() {
                  sRuntimeVolts);
     }
   }
+}
+
+void serviceBatteryMonitor() {
+  if (!batterySenseEnabled(getBoardVersion())) return;  // no divider
+  uint32_t now = millis();
+  if (sLastMonitorAt != 0 && now - sLastMonitorAt < BATTERY_MONITOR_INTERVAL_MS) {
+    return;
+  }
+  sLastMonitorAt = now;
+  sRuntimeVolts = readBatteryVolts();
+  applyRuntimeSample();
+}
+
+float readBatteryNow() {
+  // Immediate sample for the diagnostics board test — bypasses the 30 s
+  // pacing so a just-built board can be verified the moment the button
+  // is pressed. Runs on the network task like the paced monitor (the
+  // median-of-5 read takes ~10 ms).
+  if (!batterySenseEnabled(getBoardVersion())) return 0.0f;
+  sLastMonitorAt = millis();
+  sRuntimeVolts = readBatteryVolts();
+  applyRuntimeSample();
+  return sRuntimeVolts;
 }
 
 float batteryVolts() { return sRuntimeVolts; }

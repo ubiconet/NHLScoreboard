@@ -831,6 +831,10 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <p class="hint">Cycles every display once (matrices, clock, penalty LEDs, screen), holds everything on for 2 seconds, then returns to what was showing.</p>
 <button type="button" onclick="dtest()">Run Display Test</button>
 <p class="hint" id="dtestStatus">&nbsp;</p>
+<hr><h3>Full Board Test</h3>
+<p class="hint">Post-build check &mdash; runs with no Wi-Fi. Cycles every display, plays the selected goal horn, and verifies the battery sense circuit against a plausible pack voltage. Watch the board and listen while it runs (~20 s).</p>
+<button type="button" onclick="btest()">Run Full Board Test</button>
+<p class="hint" id="btestStatus">Not run yet.</p>
 <hr><h3>Audio Test</h3>
 <p class="hint">Plays the goal horn over the speaker.</p>
 <button type="button" onclick="atest()">Play Test Audio</button>
@@ -865,6 +869,7 @@ function pollFeed(){fetch('/status').then(function(r){return r.json()}).then(fun
 e.textContent='attempts '+(f.schedAttempts!=null?f.schedAttempts:'-')+' · ok '+(f.schedOk!=null?f.schedOk:'-')+' · code '+(f.schedCode!=null?f.schedCode:'-')+' · '+(f.schedErr||'')+' · game '+(f.activeGameId||0)+' · rssi '+(f.rssi||0)+' dBm · clock '+(f.clock||'?')}).catch(function(){document.getElementById('feedReadout').textContent='Unable to read feed status.'})}
 pollFeed();setInterval(pollFeed,5000);
 function dtest(){document.getElementById('dtestStatus').textContent='Running - watch the scoreboard...';fetch('/display/test',{method:'POST'}).then(function(){setTimeout(function(){document.getElementById('dtestStatus').textContent='Done.'},18000)}).catch(function(){document.getElementById('dtestStatus').textContent='Request failed.'})}
+function btest(){var e=document.getElementById('btestStatus');e.textContent='Running \u2014 watch the displays and listen for the horn...';fetch('/board/test',{method:'POST'}).then(function(r){return r.json()}).then(function(s){var b=s.battery||{};var t;if(!b.equipped){t='Battery sense: not equipped (V1.1 boards only).'}else if(b.ok){t='Battery sense: '+b.volts.toFixed(2)+' V \u2014 OK.'}else{t='Battery sense: CHECK FAILED ('+(b.volts!=null?b.volts.toFixed(2)+' V':'no reading')+') \u2014 pack missing or sense wiring fault.'}e.textContent=t+' Displays and horn: verify by eye and ear.'}).catch(function(){document.getElementById('btestStatus').textContent='Request failed.'})}
 function atest(){fetch('/audio/test',{method:'POST'})}
 function frst(){if(!confirm('Factory reset wipes ALL settings, including Wi-Fi, and reboots the board into setup mode. Continue?'))return;document.getElementById('frStatus').textContent='Resetting \u2014 the board is rebooting. Its setup Wi-Fi hotspot comes back up in a few moments.';fetch('/factory/reset',{method:'POST'}).catch(function(){})}
 function setDemo(running){fetch(running?'/demo/start':'/demo/stop',{method:'POST'}).then(function(r){if(!r.ok)throw new Error('request failed');paintDemo(running)}).catch(function(){document.getElementById('demoStatus').textContent='Demo request failed.'})}
@@ -890,6 +895,36 @@ void handleAudioTest() {
   audioTestSoundId = server.hasArg("id") ? server.arg("id").toInt() : -1;
   audioTestRequested = true;
   server.send(200, "text/plain", "ok");
+}
+
+// Full board test (diagnostics page — the post-build bench check; runs
+// with no Wi-Fi at all): fires the display self-test and the selected
+// goal horn via the existing request flags (the sport's tick runs both,
+// and the display flag engages the offline portal override), and takes a
+// FRESH battery reading right here on the network task. The response
+// reports the battery verdict; displays and horn are verified by the
+// operator watching and listening.
+void handleBoardTest() {
+  markPortalActivity();
+  bool equipped = batterySenseEnabled(getBoardVersion());
+  float volts = equipped ? power::readBatteryNow() : 0.0f;
+  // Verdict: a healthy 1S LiPo pack sits between ~2.9 V (cut-off floor)
+  // and the 4.3 V plausibility ceiling. Below ~0.5 V the divider reads
+  // nothing — pack not installed, or the sense wiring is open; above
+  // 4.3 V the divider taps the 5 V boost rail instead of B+.
+  bool batteryOk = equipped && volts >= 2.9f && volts <= 4.30f;
+  displayTestRequested = true;
+  audioTestSoundId = -1;  // no id: the sport plays the SAVED horn
+  audioTestRequested = true;
+  String j = "{\"battery\":{\"equipped\":";
+  j += equipped ? "true" : "false";
+  j += ",\"volts\":";
+  j += String(volts, 2);
+  j += ",\"ok\":";
+  j += batteryOk ? "true" : "false";
+  j += "}}";
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", j);
 }
 
 // Factory reset (diagnostics page): wipe every persisted setting — the
@@ -1488,6 +1523,7 @@ void registerPortalRoutes() {
   server.on("/display/test", HTTP_POST, handleDisplayTest);
   server.on("/audio/test", HTTP_POST, handleAudioTest);
   server.on("/factory/reset", HTTP_POST, handleFactoryReset);
+  server.on("/board/test", HTTP_POST, handleBoardTest);
   server.on("/demo/start", HTTP_POST, handleDemoStart);
   server.on("/demo/stop", HTTP_POST, handleDemoStop);
   server.on("/demo/status", HTTP_GET, handleDemoStatus);

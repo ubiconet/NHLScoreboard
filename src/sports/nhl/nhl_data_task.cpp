@@ -574,15 +574,20 @@ void nhlDataTaskLoop(void*) {
       vTaskDelay(pdMS_TO_TICKS(100));
       continue;
     }
+
+    // Runtime battery gauge for V1.1 boards (self-pacing, no-op without
+    // the divider) — runs on this core so the ~10 ms median-of-5 sample
+    // never touches the render loop. It sits ABOVE the OTA boot gate on
+    // purpose: offline the gate never opens (onlineFor stays 0 and no OTA
+    // check ever completes), which used to starve the gauge on the setup
+    // AP — the diagnostics battery readout needs it with no Wi-Fi at all
+    // (bench-testing fresh builds). It's a pure ADC read; no network.
+    power::serviceBatteryMonitor();
+
     if (!otaBootGateReached(onlineFor)) {
       vTaskDelay(pdMS_TO_TICKS(50));
       continue;
     }
-
-    // Runtime battery gauge for V1.1 boards (self-pacing, no-op without
-    // the divider) — runs on this core so the ~10 ms median-of-5 sample
-    // never touches the render loop.
-    power::serviceBatteryMonitor();
 
     // Signal-strength sample for the diagnostics surfaces (core-0 radio
     // call; the render core reads the cached value).
