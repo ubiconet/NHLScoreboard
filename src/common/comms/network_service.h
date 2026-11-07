@@ -58,6 +58,12 @@ bool isOnline();
 // the boot UI shows the "connect to the scoreboard" page instead of the
 // status page in that state.
 bool isProvisioning();
+// True while no favorite team is picked (all three slots "None") on a sport
+// that offers teams — there's nothing to follow. Once the board has a
+// network, the setup screen (device IP plus a QR to the portal) keeps the
+// display until the portal saves a team; that includes reconnects, so the
+// carousel never flashes up on a team-less board.
+bool teamSetupPending();
 // True while someone recently used the setup portal: background feed work
 // pauses so the web server gets the core and the radio to itself.
 bool portalEngaged();
@@ -102,8 +108,8 @@ bool isGameDemoMode();
 bool portalDisplayOverrideActive();
 
 // Re-fire the last network boot screen (the AP instructions while
-// provisioning) after such an override releases the display while the
-// board is still offline.
+// provisioning, the team-setup screen while teamSetupPending()) after such
+// an override releases the display.
 void requestNetworkScreenRepaint();
 
 int  getManualClockSec();

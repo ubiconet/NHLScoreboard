@@ -373,6 +373,10 @@ void enterOnline() {
     hasPending = false;
   }
   stopPortalInfrastructure();
+  // The setup AP is gone, so nobody can still be configuring through it:
+  // feeds must start now, not after the activity window the setup pages'
+  // polling kept re-arming until the moment the link came up.
+  portalActiveUntil = 0;
   startArduinoOTA();
   requestSetupRedraw(SETUP_ONLINE_PORTAL, WiFi.localIP());
   Serial.printf("[NET] Online: ip=%s rssi=%d gateway=%s\n",
@@ -557,7 +561,11 @@ void renderAccessPointInstructions(const String& portalAddress, bool stationConn
     display.setCursor(8, 105);
     display.print("2. Scan QR or open URL");
     display.setCursor(8, 120);
-    display.print("to adjust team settings.");
+    display.print("and pick your teams.");
+    display.setCursor(8, 145);
+    display.print("3. Save - the scoreboard");
+    display.setCursor(8, 160);
+    display.print("starts right away.");
   } else {
     display.print("1. Connect to:");
     display.setTextSize(2);
@@ -673,6 +681,7 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <p class="hint">Leave the password blank and the network unchanged to save team preferences without touching the connection. Clear the network name and save to disconnect the scoreboard — its setup access point comes back.</p>
 <hr>
 <h3>Favorite Team Priorities</h3>
+<p class="hint">Pick at least one team &mdash; until you do, the scoreboard stays on its setup screen.</p>
 <label for="team1">Priority 1 Team (Primary)</label><select id="team1" name="team1">)html";
   page += buildTeamOptionsHtml(prefTeam1);
   page += R"html(</select>
@@ -745,6 +754,10 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <p class="hint">Latest binary (for manual updates):<br>
 <a style="color:#f5c400;word-break:break-all" href=")html" + String(OTA_LATEST_BIN_URL) + R"html(">)html" + String(OTA_LATEST_BIN_URL) + R"html(</a></p>
 <p><a style="color:#f5c400" href="/update">Upload a firmware file manually</a></p>
+<hr><h3>Support</h3>
+<p class="hint">Questions, setup help, or a problem with your scoreboard? Get in touch:</p>
+<p><a style="color:#f5c400" href="mailto:)html" + String(SUPPORT_EMAIL) + R"html(">)html" + String(SUPPORT_EMAIL) + R"html(</a></p>
+<p><a style="color:#f5c400" href=")html" + String(SUPPORT_WEBSITE_URL) + R"html(">)html" + String(SUPPORT_WEBSITE_URL) + R"html(</a></p>
 <script>
 var netSel=document.getElementById('network');
 var netTries=0;
@@ -1393,6 +1406,9 @@ main{max-width:420px;margin:8vh auto;padding:28px;background:#0b2b62;border:2px 
     response += prefsForm ? "/" : "/diag";
     response += R"html(">Back</a></p></main></body></html>)html";
     server.send(200, "text/html", response);
+    // A save ends the configuration session: the feeds must act on the new
+    // picks at their next poll, not after the activity window lapses.
+    portalActiveUntil = 0;
     return;
   }
 
@@ -1446,8 +1462,10 @@ void serveConfig() {
   server.send(200, "application/json", readConfig());
 }
 
+// Polled every 2 s by the setup page for as long as it stays open.
+// Deliberately no markPortalActivity() (same policy as /manual/state): an
+// idle setup tab would otherwise hold every feed fetch indefinitely.
 void serveOtaStatus() {
-  markPortalActivity();
   const char* stage = "NONE";
   switch (getOtaStage()) {
     case OtaStage::DOWNLOADING: stage = "DOWNLOADING"; break;
@@ -1580,7 +1598,15 @@ void runNetworkStateMachine() {
         tryReconnectWithSavedNetwork();
       }
     }
-    if (setupScreenVisible && millis() - onlineAt >= NETWORK_SETUP_SCREEN_MS) {
+    // A board with no favorite team has nothing to follow: the setup screen
+    // keeps the display until the portal saves a team, and takes it back if
+    // a later save clears every team.
+    if (teamSetupPending() && !setupScreenVisible) {
+      setupScreenVisible = true;
+      requestSetupRedraw(SETUP_ONLINE_PORTAL, WiFi.localIP());
+    }
+    if (setupScreenVisible && !teamSetupPending() &&
+        millis() - onlineAt >= NETWORK_SETUP_SCREEN_MS) {
       setupScreenVisible = false;
       releasePending = true;
     }
@@ -1599,6 +1625,11 @@ bool isOnline() {
 
 bool isProvisioning() {
   return state == PROVISIONING;
+}
+
+bool teamSetupPending() {
+  return netTeamOptionCount > 0 &&
+         prefTeam1 == 0 && prefTeam2 == 0 && prefTeam3 == 0;
 }
 
 bool portalEngaged() {
@@ -1815,12 +1846,16 @@ void handleNetworkDisplay() {
     IPAddress ip(setupIpV);
     switch (redrawModeV) {
       case SETUP_CONNECTING:
+        // Connecting draws nothing: the boot logo stays on screen while
+        // Wi-Fi connects behind it (loop() also holds the logo for
+        // BOOT_SPLASH_HOLD_MS).
+        break;
       case SETUP_ONLINE_PORTAL:
-        // Connecting and online transitions draw nothing: the boot logo
-        // stays on screen while Wi-Fi connects behind it (loop() also
-        // holds the logo for BOOT_SPLASH_HOLD_MS). Only the AP
-        // provisioning instructions ever replace the logo — they're the
-        // one screen the device can't work without.
+        // Online normally gives the display straight to the scoreboard;
+        // only a board with no favorite team stays on a setup screen.
+        if (teamSetupPending()) {
+          renderAccessPointInstructions(ip.toString(), true);
+        }
         break;
       case SETUP_AP_INSTRUCTIONS:
         renderAccessPointInstructions(ip.toString(), false);

@@ -22,7 +22,7 @@
 // ---- Firmware identity -----------------------------------------------------
 // tools/release_deploy.py reads FIRMWARE_VERSION from THIS file to name the
 // release binary, so the definition must stay here.
-static const char* FIRMWARE_VERSION = "v3.97";
+static const char* FIRMWARE_VERSION = "v3.99";
 
 // ---- Install location (factory default) -------------------------------------
 // POSIX TZ string used ONLY until the user picks a timezone in the setup
@@ -56,6 +56,11 @@ static const char* OTA_MANIFEST_URL =
 // URL above (same folder, deployed by `pio run -t deploy`).
 static const char* OTA_LATEST_BIN_URL =
     "https://sports-miniboards.com/firmware/nhl/nhl_scoreboard_latest.bin";
+
+// ---- Support contact -------------------------------------------------------
+// Linked from the Support section of the setup portal.
+static const char* SUPPORT_EMAIL = "sportsminiboards@gmail.com";
+static const char* SUPPORT_WEBSITE_URL = "https://sports-miniboards.com/";
 
 #include "common/config.h"
 #include "sport_config.h"

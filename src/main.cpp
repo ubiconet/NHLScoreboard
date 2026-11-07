@@ -110,6 +110,20 @@ void loop() {
   if (onlineSinceMs == 0 && isOnline()) {
     onlineSinceMs = bootNow;
   }
+
+  // One-shot NTP sync the moment the network is up — before the boot
+  // status page, which would otherwise hold it back while the data task
+  // (core 0) is already fetching. The display timezone is a portal setting
+  // (NVS "tz"); the factory default in src/config.h only covers the very
+  // first boot, and a mid-session portal change applies itself via
+  // setenv/tzset in the network service.
+  static bool timeSyncRequested = false;
+  if (!timeSyncRequested && isOnline()) {
+    configTzTime(getTzString(), "pool.ntp.org", "time.nist.gov");
+    timeSyncRequested = true;
+    DBG_PRINTF("[TIME] NTP sync requested; timezone=%s\n", getTzString());
+  }
+
   if (!isProvisioning()) {
     if (onlineSinceMs == 0 && bootNow < BOOT_SPLASH_CONNECT_MAX_MS) {
       return;  // still connecting: the splash keeps covering the boot
@@ -123,17 +137,18 @@ void loop() {
 
   handleNetworkDisplay();
 
-  // No usable connection: the network configuration screen owns the
-  // display until a connection exists. Without this gate the waiting
-  // carousel repaints over the provisioning instructions on every dwell,
-  // hiding the one screen the device can't work without. ONE exception:
-  // the portal's display overrides (game demo, manual/trivia mode, the
-  // display/audio tests) run WITHOUT a network so new builds can be
-  // bench-tested offline — while one is active the sport owns the
-  // display, and the provisioning instructions repaint once it releases.
-  // When a connection lands, consumeScoreboardRelease() (inside
-  // sport::tick) repaints the scoreboard.
-  if (isProvisioning()) {
+  // No usable connection — or no favorite team picked yet
+  // (teamSetupPending): the network setup screen owns the display until
+  // the portal fixes that. Without this gate the waiting carousel repaints
+  // over the setup instructions on every dwell. ONE exception: the
+  // portal's display overrides (game demo, manual/trivia mode, the
+  // display/audio tests) still run — offline too, so new builds can be
+  // bench-tested without Wi-Fi. They get the provisioning-shaped context
+  // either way, so the sport's online pipeline can't paint over the setup
+  // screen; it repaints once the override releases. When the gate opens,
+  // consumeScoreboardRelease() (inside sport::tick) repaints the
+  // scoreboard.
+  if (isProvisioning() || teamSetupPending()) {
     static bool sOverrideOwnedDisplay = false;
     if (portalDisplayOverrideActive()) {
       sOverrideOwnedDisplay = true;
@@ -141,20 +156,9 @@ void loop() {
       sport::tick(ctx);
     } else if (sOverrideOwnedDisplay) {
       sOverrideOwnedDisplay = false;
-      requestNetworkScreenRepaint();  // back to the AP instructions
+      requestNetworkScreenRepaint();  // back to the setup screen
     }
     return;
-  }
-
-  // One-shot NTP sync once the network is up. The display timezone is a
-  // portal setting (NVS "tz"); the factory default in src/config.h only
-  // covers the very first boot, and a mid-session portal change applies
-  // itself via setenv/tzset in the network service.
-  static bool timeSyncRequested = false;
-  if (!timeSyncRequested && isOnline()) {
-    configTzTime(getTzString(), "pool.ntp.org", "time.nist.gov");
-    timeSyncRequested = true;
-    DBG_PRINTF("[TIME] NTP sync requested; timezone=%s\n", getTzString());
   }
 
   SportTickContext ctx = {millis(), isOnline(), isProvisioning()};
