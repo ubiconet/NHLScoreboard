@@ -51,8 +51,13 @@ mirrors linked from it. The old `statsapi.web.nhl.com/api/v1` API is **dead**
 
 ### `GET /v1/score/{yyyy-mm-dd}` — day scoreboard *(waiting-mode poll)*
 
-~42 KB. Top-level: `prevDate`, `currentDate`, `nextDate`, `gameWeek[]`
-(per-day `date`/`dayAbbrev`/`numberOfGames` metadata only), `games[]`.
+**20–95 KB** (grows with games and goals; measured 2026-11: 20 KB on a
+3-game night, 85–95 KB at the end of 11–12-game nights — the preseason
+sample below was 42 KB). Top-level: `prevDate`, `currentDate`, `nextDate`,
+`gameWeek[]` (per-day `date`/`dayAbbrev`/`numberOfGames` metadata only),
+`games[]` — the games array is ordered by start time, so the LAST games of
+a busy night sit at the very end of the body (any truncation loses the
+late west-coast starts first).
 
 Each game carries the live essentials in one flat array (this is the smallest
 "everything happening today" payload):
@@ -80,7 +85,8 @@ single schedule fetch.
 
 ### `GET /v1/schedule/{yyyy-mm-dd}` — week schedule *(schedule cache / countdown)*
 
-~85 KB. Returns the **Mon–Sun week containing the date**, plus:
+**~91–96 KB** in-season (the preseason sample was 85 KB). Returns the
+**Mon–Sun week containing the date**, plus:
 `nextStartDate` / `previousStartDate` (for paging), `numberOfGames`, and the
 season boundaries `preSeasonStartDate`, `regularSeasonStartDate`,
 `regularSeasonEndDate`, `playoffEndDate` (useful for "is today in season").
@@ -149,7 +155,8 @@ Use for a stats screen; **not** needed for the live poll.
 
 ### `GET /v1/gamecenter/{id}/play-by-play` — full event stream
 
-~146 KB for a completed regular-season game. `plays[]` (361 events in the
+**~120–146 KB** for a completed game (the `rosterSpots` array sits near the
+END of the body). `plays[]` (361 events in the
 sample): `eventId`, `periodDescriptor`, `timeInPeriod`, `timeRemaining`,
 `situationCode`, `typeCode`/`typeDescKey` (`period-start`, `faceoff`,
 `shot-on-goal`, `goal`, `stoppage`, `game-end`, …), event `details` (players,
@@ -229,11 +236,12 @@ pacing (`NHL_NEWS_RETRY_MS`) — ESPN's edge has a temper.
   while one is alive" still applies and now interacts with feed polling —
   the feed session must close before the OTA updater runs, as the template
   already does via `http_fetch::closeSession()`).
-- **Payload budget.** `score` (42 KB), `landing` (11 KB) and `boxscore`
-  (13.5 KB) fit the template's buffered-parse discipline. `schedule` week
-  (85 KB), `standings` (60 KB) and especially `play-by-play` (146 KB) must
-  be fetched sparsely (schedule cache / carousel TTL) or parsed with a
-  streaming filter on core 0 — never parsed on the render core.
+- **Payload budget.** The body buffer (PSRAM-backed, 384 KB cap —
+  `common/comms/http_fetcher.cpp`) covers every endpoint including
+  `play-by-play`, but bodies over ~64 KB MUST NOT be read into an Arduino
+  `String` (65,535-byte cap without `BOARD_HAS_PSRAM`; concat silently
+  drops the tail). Standings (~58 KB) also fits the buffer; parse on
+  core 0 with a filter as always — never on the render core.
 - **No `fields=` filtering** — filter in the parser.
 - **CDN freshness is 14 s** — a 15–20 s live cadence is the fastest useful
   poll; faster requests just hit Cloudflare cache.

@@ -7,6 +7,7 @@
 #include "common/app/power_monitor.h"
 #include "common/comms/network_service.h"
 #include "common/comms/ota_update.h"
+#include "common/data/psram_json_allocator.h"
 #include "common/data/time_util.h"
 #include "nhl_client.h"
 #include "nhl_renderer.h"
@@ -34,11 +35,12 @@ uint32_t gLastLandingAt  = 0;
 // TWO weeks are cached: the one containing today and the next, so the
 // upcoming horizon is always >= 7 days out — a single Mon-Sun cache
 // collapses to nothing late in the week (the "no upcoming games on
-// Sunday" bug). Filtered slate: gameWeek[] {date, games[]}.
-JsonDocument gWeekDoc;        // week containing today
+// Sunday" bug). Filtered slate: gameWeek[] {date, games[]}. Both live in
+// PSRAM: they hold ~100 games for hours at a time.
+JsonDocument gWeekDoc(psramJsonAllocator());      // week containing today
 char     gWeekDate[11] = "";  // Monday this cache covers; "" = no cache
 uint32_t gWeekFetchAt = 0;    // last refresh ATTEMPT (success or failure)
-JsonDocument gWeekNextDoc;    // the following week
+JsonDocument gWeekNextDoc(psramJsonAllocator());  // the following week
 char     gWeekNextDate[11] = "";
 uint32_t gWeekNextFetchAt = 0;
 
@@ -327,13 +329,31 @@ void fetchScheduleIfDue(bool online, uint32_t minIntervalMs = 0) {
     }
   };
 
+  // After local midnight the API's "today" no longer contains the previous
+  // date's late games — some still in progress. Merge yesterday's slate
+  // during the overlap window so live selection never drops a game (and a
+  // followed game stays visible through its postgame grace). It goes in
+  // FIRST: the look-ahead below fills the 26-game snapshot, so anything
+  // appended after it is cut. With at most 16 games a day, the cap can then
+  // only trim today's latest starts, which are hours away at this hour.
+  if (lt.tm_hour < 8) {
+    time_t yst = t - 24 * 60 * 60;
+    tm yd = {};
+    localtime_r(&yst, &yd);
+    char ydate[11];
+    if (strftime(ydate, sizeof(ydate), "%Y-%m-%d", &yd) > 0) {
+      JsonDocument ydoc;
+      if (fetchNhlDayScore(ydoc, ydate)) appendGames(ydoc.as<JsonObjectConst>());
+    }
+  }
+
   // The upcoming-games cache the waiting screen walks. Today's games come
   // from the fresh day fetch; every LATER day of the two cached weeks
   // follows, so the carousel's per-team cards span at least a week ahead.
   // A failed day fetch no longer aborts the publish: the week cache's
   // today entry stands in (coarser, but scores/states still land), and a
   // bad first fetch no longer blanks the upcoming list.
-  JsonDocument upcomingDoc;
+  JsonDocument upcomingDoc(psramJsonAllocator());
   JsonArray merged = upcomingDoc["games"].to<JsonArray>();
   if (dayOk) {
     appendGames(doc.as<JsonObjectConst>());
@@ -404,21 +424,6 @@ void fetchScheduleIfDue(bool online, uint32_t minIntervalMs = 0) {
           }
         }
       }
-    }
-  }
-
-  // After local midnight the API's "today" no longer contains the previous
-  // date's late games — some still in progress. Merge yesterday's slate
-  // during the overlap window so live selection never drops a game (and a
-  // followed game stays visible through its postgame grace).
-  if (lt.tm_hour < 8) {
-    time_t yst = t - 24 * 60 * 60;
-    tm yd = {};
-    localtime_r(&yst, &yd);
-    char ydate[11];
-    if (strftime(ydate, sizeof(ydate), "%Y-%m-%d", &yd) > 0) {
-      JsonDocument ydoc;
-      if (fetchNhlDayScore(ydoc, ydate)) appendGames(ydoc.as<JsonObjectConst>());
     }
   }
 

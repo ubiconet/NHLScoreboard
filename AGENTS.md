@@ -12,7 +12,10 @@ without surprises.
 
 - **Target hardware:** ESP32-S3 DevKit-1 (YD-ESP32-S3-family 44-pin
   DevKitC-1 clone), **N8R8** module — 8 MB flash, 8 MB octal PSRAM
-  (permanently reserves GPIO 35–37; PSRAM not yet enabled in firmware).
+  (permanently reserves GPIO 35–37; PSRAM is initialized at boot by the
+  qio_opi SDK libs and sits in the main heap, but `BOARD_HAS_PSRAM` is
+  NOT defined, so an Arduino `String` still caps at 65,535 bytes — feed
+  bodies go through http_fetch's PSRAM-backed buffer instead).
   Build env stays `esp32-s3-devkitc-1`; OTA app slots are 3.375 MB each.
   The logical GPIO numbers are scrambled across the physical headers —
   pin assignments are chosen for physical sequence, see

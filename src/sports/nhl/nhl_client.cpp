@@ -137,16 +137,12 @@ bool fetchNhlDayScore(JsonDocument& doc, const char* dateStr) {
     if (len > 170) DBG_PRINTF("[NHL] tail: %.160s\n", b + len - 160);
   }
   http_fetch::releaseBodyBuffer();
-  if (err && !(err == DeserializationError::IncompleteInput && gameCount > 0)) {
+  if (err) {
+    // Never use a partial slate: games[] runs in start-time order, so a
+    // cut body silently drops the night's LATE games.
     setScheduleLastError("parse");
     DBG_PRINTF("[NHL] day-score parse error: %s\n", err.c_str());
     return false;
-  }
-  if (err) {
-    // Tail truncated past the filtered keys (games array's kept fields all
-    // precede the skipped bulk) — the snapshot is usable as-is.
-    DBG_PRINTF("[NHL] day-score tail truncated; using %u games\n",
-               (unsigned)gameCount);
   }
   bumpScheduleFetchSuccess();
   setScheduleLastError("ok");
@@ -173,22 +169,13 @@ bool fetchNhlWeekSchedule(JsonDocument& doc, const char* dateStr) {
   DeserializationError err = http_fetch::parseBody(doc, &filter);
   http_fetch::releaseBodyBuffer();
   size_t days = doc["gameWeek"].as<JsonArrayConst>().size();
-  // Tail tolerance (same discipline as the day-score parse): the raw week
-  // body is the largest payload we fetch (~85-115 KB with per-game media
-  // URLs); a truncated tail past the last kept field still yields all
-  // seven day objects. Anything short of a full week, or a structural
-  // error, rejects the fetch so the data task falls back.
-  bool tailOnly = err == DeserializationError::IncompleteInput ||
-                  err == DeserializationError::InvalidInput;
-  if ((!tailOnly && err) || days < 7) {
+  // Any parse error OR a short week rejects the fetch (the data task falls
+  // back to the day look-ahead): a cut body loses the week's last days.
+  if (err || days < 7) {
     setScheduleLastError("parse");
     DBG_PRINTF("[NHL] week-schedule parse error: %s days=%u\n", err.c_str(),
                (unsigned)days);
     return false;
-  }
-  if (err) {
-    DBG_PRINTF("[NHL] week-schedule tail truncated; using %u days\n",
-               (unsigned)days);
   }
   bumpScheduleFetchSuccess();
   setScheduleLastError("ok");

@@ -1,4 +1,5 @@
 #include "config.h"
+#include "common/data/psram_json_allocator.h"
 #include "common/data/snapshot_channel.h"
 #include "nhl_state.h"
 
@@ -10,8 +11,9 @@ SnapshotChannel<GameSnapshot>     gGameChannel;
 SnapshotChannel<ScheduleSnapshot> gScheduleChannel;
 
 // Day-score JSON cache (the ONE JsonDocument allowed on the render core —
-// see AGENTS.md). Feeds the waiting screen's upcoming-game cards.
-JsonDocument gUpcomingScheduleDoc;
+// see AGENTS.md). Feeds the waiting screen's upcoming-game cards. Kept in
+// PSRAM: it carries the two-week look-ahead (~100 games).
+JsonDocument gUpcomingScheduleDoc(psramJsonAllocator());
 uint32_t     gUpcomingSchedulePublishedAt = 0;
 
 // Cross-task counters + error tag for the day-score fetch. The data task
