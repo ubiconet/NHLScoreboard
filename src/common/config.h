@@ -24,6 +24,10 @@ static const uint32_t SERIAL_BAUD_RATE = 115200;
 #define DBG_PRINTF(fmt, ...) do {} while (0)
 #endif
 
+// SB_DEBUG builds: heap + per-task stack heartbeat on Serial (see
+// common/app/health.h) — the soak-test trend line for leaks/overflows.
+static const uint32_t HEALTH_HEARTBEAT_MS = 60000;
+
 // Boot sequence: the scoreboard logo splash holds the screen for at least
 // BOOT_SPLASH_HOLD_MS while Wi-Fi connects behind it. A handshake still in
 // flight at the end of that window EXTENDS the splash up to

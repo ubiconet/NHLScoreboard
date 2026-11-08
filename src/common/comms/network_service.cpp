@@ -14,6 +14,7 @@
 #include <time.h>
 
 #include "config.h"
+#include "common/app/health.h"
 #include "common/app/power_monitor.h"
 #include "common/ui/ota_screen.h"
 #include "ota_update.h"
@@ -789,7 +790,9 @@ void serveStatus() {
   markPortalActivity();
   const char* name = state == ONLINE ? "online" : (state == CONNECTING ? "connecting" : "provisioning");
   String j = String("{\"state\":\"") + name + "\",\"uptimeSec\":" +
-             (unsigned)(millis() / 1000) + ",\"portal\":" +
+             (unsigned)(millis() / 1000) + ",\"resetReason\":\"" +
+             health::resetReasonName() + "\",\"lastCrash\":" +
+             health::lastCrashJson() + ",\"portal\":" +
              (portalServerEnabled ? "true" : "false");
   if (netStatusExtra != nullptr) {
     j += ",\"feeds\":{" + netStatusExtra() + "}";
@@ -840,6 +843,9 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <hr><h3>Feed Diagnostics</h3>
 <p class="readout" id="feedReadout" style="font-size:16px">Reading feeds...</p>
 <p class="hint">Live NHL feed state (refreshes every 5 s): schedule fetch attempts and successes, the last error and HTTP code, the followed game, Wi-Fi signal, and the device clock &mdash; an unsynced clock blocks schedule fetches entirely. code -1 means the fetch failed before any HTTP response (DNS/TLS/radio).</p>
+<hr><h3>Stability</h3>
+<p class="readout" id="healthReadout" style="font-size:16px">Reading...</p>
+<p class="hint">How long the board has been running and why it last restarted: power-on and software (updates) are normal; panic, watchdog or brownout mean it rebooted on its own. The last stored crash (kept until the next one) is shown with its code addresses &mdash; send that line to support. "this firmware" means it happened on the version running now.</p>
 <hr><h3>Screen Self-Test</h3>
 <p class="hint">Cycles every display once (matrices, clock, penalty LEDs, screen), holds everything on for 2 seconds, then returns to what was showing.</p>
 <button type="button" onclick="dtest()">Run Display Test</button>
@@ -879,7 +885,8 @@ e.textContent=s.volts.toFixed(2)+' V \u2014 '+pct+' ('+q+')';
 }).catch(function(){document.getElementById('battReadout').textContent='Unable to read battery.'})}
 pollBatt();setInterval(pollBatt,5000);
 function pollFeed(){fetch('/status').then(function(r){return r.json()}).then(function(s){var e=document.getElementById('feedReadout');var f=s.feeds||{};
-e.textContent='attempts '+(f.schedAttempts!=null?f.schedAttempts:'-')+' · ok '+(f.schedOk!=null?f.schedOk:'-')+' · code '+(f.schedCode!=null?f.schedCode:'-')+' · '+(f.schedErr||'')+' · game '+(f.activeGameId||0)+' · rssi '+(f.rssi||0)+' dBm · clock '+(f.clock||'?')}).catch(function(){document.getElementById('feedReadout').textContent='Unable to read feed status.'})}
+e.textContent='attempts '+(f.schedAttempts!=null?f.schedAttempts:'-')+' · ok '+(f.schedOk!=null?f.schedOk:'-')+' · code '+(f.schedCode!=null?f.schedCode:'-')+' · '+(f.schedErr||'')+' · game '+(f.activeGameId||0)+' · rssi '+(f.rssi||0)+' dBm · clock '+(f.clock||'?');
+var u=s.uptimeSec||0,c=s.lastCrash;document.getElementById('healthReadout').textContent='up '+Math.floor(u/3600)+'h '+Math.floor(u%3600/60)+'m · last restart: '+(s.resetReason||'?')+' · last crash: '+(c?(c.task+' @ '+c.pc+(c.thisFirmware?' (this firmware)':' (older firmware)')+' · bt '+c.bt+' · elf '+c.elf):'none stored')}).catch(function(){document.getElementById('feedReadout').textContent='Unable to read feed status.'})}
 pollFeed();setInterval(pollFeed,5000);
 function dtest(){document.getElementById('dtestStatus').textContent='Running - watch the scoreboard...';fetch('/display/test',{method:'POST'}).then(function(){setTimeout(function(){document.getElementById('dtestStatus').textContent='Done.'},18000)}).catch(function(){document.getElementById('dtestStatus').textContent='Request failed.'})}
 function btest(){var e=document.getElementById('btestStatus');e.textContent='Running \u2014 watch the displays and listen for the horn...';fetch('/board/test',{method:'POST'}).then(function(r){return r.json()}).then(function(s){var b=s.battery||{};var t;if(!b.equipped){t='Battery sense: not equipped (V1.1 boards only).'}else if(b.ok){t='Battery sense: '+b.volts.toFixed(2)+' V \u2014 OK.'}else{t='Battery sense: CHECK FAILED ('+(b.volts!=null?b.volts.toFixed(2)+' V':'no reading')+') \u2014 pack missing or sense wiring fault.'}e.textContent=t+' Displays and horn: verify by eye and ear.'}).catch(function(){document.getElementById('btestStatus').textContent='Request failed.'})}

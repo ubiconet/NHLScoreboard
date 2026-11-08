@@ -4,6 +4,7 @@
 #include <time.h>
 
 #include "config.h"
+#include "common/app/health.h"
 #include "common/app/power_monitor.h"
 #include "common/comms/network_service.h"
 #include "common/comms/ota_update.h"
@@ -588,6 +589,7 @@ void nhlDataTaskLoop(void*) {
     // AP — the diagnostics battery readout needs it with no Wi-Fi at all
     // (bench-testing fresh builds). It's a pure ADC read; no network.
     power::serviceBatteryMonitor();
+    health::serviceHealthHeartbeat();  // SB_DEBUG builds only
 
     if (!otaBootGateReached(onlineFor)) {
       vTaskDelay(pdMS_TO_TICKS(50));

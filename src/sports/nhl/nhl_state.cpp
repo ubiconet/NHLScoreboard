@@ -12,8 +12,13 @@ SnapshotChannel<ScheduleSnapshot> gScheduleChannel;
 
 // Day-score JSON cache (the ONE JsonDocument allowed on the render core —
 // see AGENTS.md). Feeds the waiting screen's upcoming-game cards. Kept in
-// PSRAM: it carries the two-week look-ahead (~100 games).
+// PSRAM: it carries the two-week look-ahead (~100 games). The data task
+// rebuilds it on core 0 while the render core walks it on core 1, so every
+// access holds gUpcomingScheduleLock (see UpcomingScheduleReader). Created
+// in a static initializer like HardwareSerial's lock: it must exist before
+// either task first touches the doc.
 JsonDocument gUpcomingScheduleDoc(psramJsonAllocator());
+SemaphoreHandle_t gUpcomingScheduleLock = xSemaphoreCreateMutex();
 uint32_t     gUpcomingSchedulePublishedAt = 0;
 
 // Cross-task counters + error tag for the day-score fetch. The data task
@@ -60,23 +65,31 @@ int getLastRssi() { return gLastRssi; }
 void setLastRssi(int dbm) { gLastRssi = dbm; }
 
 void publishUpcomingScheduleJson(JsonObjectConst src) {
-  if (src.isNull()) {
-    gUpcomingScheduleDoc.clear();
-    gUpcomingSchedulePublishedAt = millis();
-    return;
-  }
+  xSemaphoreTake(gUpcomingScheduleLock, portMAX_DELAY);
   gUpcomingScheduleDoc.clear();
-  if (!gUpcomingScheduleDoc.set(src)) {
+  if (!src.isNull() && !gUpcomingScheduleDoc.set(src)) {
     DBG_PRINTF("[SCHED] republish copy failed\n");
     gUpcomingScheduleDoc.clear();
   }
+  xSemaphoreGive(gUpcomingScheduleLock);
   gUpcomingSchedulePublishedAt = millis();
   DBG_PRINTF("[SCHED] republished: %u games\n",
              (unsigned)src["games"].as<JsonArrayConst>().size());
 }
-JsonObjectConst getUpcomingScheduleJson() {
-  return gUpcomingScheduleDoc.as<JsonObjectConst>();
+
+UpcomingScheduleReader::UpcomingScheduleReader(uint32_t timeoutMs)
+    : locked_(xSemaphoreTake(gUpcomingScheduleLock,
+                             pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {}
+
+UpcomingScheduleReader::~UpcomingScheduleReader() {
+  if (locked_) xSemaphoreGive(gUpcomingScheduleLock);
 }
+
+JsonObjectConst UpcomingScheduleReader::json() const {
+  return locked_ ? gUpcomingScheduleDoc.as<JsonObjectConst>()
+                 : JsonObjectConst();
+}
+
 uint32_t getUpcomingSchedulePublishedAt() { return gUpcomingSchedulePublishedAt; }
 
 uint32_t getScheduleFetchAttempts()  { return gScheduleFetchAttempts; }

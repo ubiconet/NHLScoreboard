@@ -12,6 +12,7 @@
 #include <time.h>
 
 #include "config.h"
+#include "common/app/health.h"
 #include "common/app/sport_api.h"
 #include "common/comms/network_service.h"
 #include "common/trivia/trivia_engine.h"
@@ -38,6 +39,10 @@ void setup() {
   // (bench test) this is also the LAST shell step — no network, no boot
   // UI; the sport's tick owns the display from the first loop pass.
   sport::setup();
+
+  // Read the stored crash summary now, while only this task runs — every
+  // later caller (/status on the network task) gets the cached copy.
+  health::lastCrashJson();
 
   if (!sport::skipBootUi()) {
     // No blocking hold here: network services start immediately and connect
@@ -69,10 +74,13 @@ void setup() {
   }
 
   // Boot banner — visible over Serial whenever SB_DEBUG=1 so a freshly
-  // uploaded firmware can be confirmed at a glance.
+  // uploaded firmware can be confirmed at a glance. The reset reason tells
+  // a power-on apart from a crash reboot ("panic", "task-watchdog").
   Serial.println();
-  Serial.printf("[BOOT] FW=%s build=%s %s\n",
-                FIRMWARE_VERSION, __DATE__, __TIME__);
+  Serial.printf("[BOOT] FW=%s build=%s %s reset=%s\n",
+                FIRMWARE_VERSION, __DATE__, __TIME__,
+                health::resetReasonName());
+  Serial.printf("[BOOT] last crash: %s\n", health::lastCrashJson().c_str());
   Serial.printf("[BOOT] heap_free=%u heap_min=%u\n",
                 (unsigned)ESP.getFreeHeap(),
                 (unsigned)ESP.getMinFreeHeap());

@@ -307,8 +307,7 @@ void runDisplayTestCycle() {
   } else if (scoreboardState == ScoreboardState::LIVE_GAME && sLastGame.valid) {
     forceLiveRepaint(sLastGame);
   } else {
-    JsonObjectConst sched = getUpcomingScheduleJson();
-    renderWaiting(sched, preferred);
+    renderWaiting(preferred);
     invalidateMax7219Clock();
     invalidateTm1637WallClock();
   }
@@ -565,8 +564,7 @@ void tick(const SportTickContext& ctx) {
     if (scoreboardState == ScoreboardState::LIVE_GAME && sLastGame.valid) {
       forceLiveRepaint(sLastGame);
     } else {
-      JsonObjectConst sched = getUpcomingScheduleJson();
-      renderWaiting(sched, preferred);
+      renderWaiting(preferred);
       invalidateMax7219Clock();
       invalidateTm1637WallClock();
     }
@@ -593,8 +591,7 @@ void tick(const SportTickContext& ctx) {
     if (scoreboardState == ScoreboardState::LIVE_GAME && sLastGame.valid) {
       forceLiveRepaint(sLastGame);
     } else {
-      JsonObjectConst sched = getUpcomingScheduleJson();
-      renderWaiting(sched, preferred);
+      renderWaiting(preferred);
       invalidateMax7219Clock();
       invalidateTm1637WallClock();
     }
@@ -618,8 +615,7 @@ void tick(const SportTickContext& ctx) {
     if (scoreboardState == ScoreboardState::LIVE_GAME && sLastGame.valid) {
       forceLiveRepaint(sLastGame);
     } else {
-      JsonObjectConst sched = getUpcomingScheduleJson();
-      renderWaiting(sched, preferred);
+      renderWaiting(preferred);
       invalidateMax7219Clock();
       invalidateTm1637WallClock();
     }
@@ -668,8 +664,7 @@ void tick(const SportTickContext& ctx) {
         } else {
           int preferred[3];
           getPreferredTeamIds(preferred);
-          JsonObjectConst sched = getUpcomingScheduleJson();
-          renderWaiting(sched, preferred);  // placeholder until the first landing snapshot
+          renderWaiting(preferred);  // placeholder until the first landing snapshot
           sLastScheduleRenderAt = ctx.nowMs;
         }
       } else {
@@ -718,8 +713,7 @@ void tick(const SportTickContext& ctx) {
     scoreboardState = ScoreboardState::WAITING;
     setActiveGameId(0);
     postgameGraceStartedAt = 0;
-    JsonObjectConst sched = getUpcomingScheduleJson();
-    renderWaiting(sched, preferredTeams);
+    renderWaiting(preferredTeams);
   }
 
   if (!ctx.isOnline) {
@@ -757,8 +751,7 @@ void tick(const SportTickContext& ctx) {
   if (scoreboardState == ScoreboardState::WAITING) {
     if (sLastScheduleRenderAt == 0 || newSchedule) {
       sLastScheduleRenderAt = now;
-      JsonObjectConst sched = getUpcomingScheduleJson();
-      renderWaiting(sched, preferredTeams);
+      renderWaiting(preferredTeams);
     }
   } else {
     if (newGame && game.valid) {
@@ -819,8 +812,7 @@ void tick(const SportTickContext& ctx) {
           scoreboardState = ScoreboardState::WAITING;
           setActiveGameId(0);
           postgameGraceStartedAt = 0;
-          JsonObjectConst sched = getUpcomingScheduleJson();
-          renderWaiting(sched, preferredTeams);
+          renderWaiting(preferredTeams);
           sLastScheduleRenderAt = now;
         }
       } else {

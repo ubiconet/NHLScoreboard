@@ -76,9 +76,9 @@ void invalidateManualScreen();
 // plus upcoming-game cards — one per upcoming game in the week look-ahead,
 // away @ home with logos, abbrevs, date/time and a countdown — interleaved
 // with NHL news stories (rotated by rotateCarousel()); clears
-// matrices/LEDs on entry.
-void renderWaiting(JsonObjectConst dayScoreJson,
-                   const int preferredTeamIds[3]);
+// matrices/LEDs on entry. Cards are rebuilt from nhl_state's schedule
+// cache under its read lock.
+void renderWaiting(const int preferredTeamIds[3]);
 
 // Rotates the waiting-mode carousel (and the live ticker) when its dwell
 // time has elapsed.

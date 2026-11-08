@@ -45,8 +45,6 @@ NewsStory sNews[MAX_NEWS_STORIES];
 size_t sNewsCount = 0;
 size_t sNewsIndex = 0;
 
-JsonObjectConst sSched;      // view into nhl_state's cached day-score doc
-
 bool isLiveish(const char* state) {
   return strcmp(state, "LIVE") == 0 || strcmp(state, "CRIT") == 0;
 }
@@ -547,10 +545,16 @@ const NewsStory& getNewsStory(size_t index) {
   return sNews[index % MAX_NEWS_STORIES];
 }
 
-void renderWaiting(JsonObjectConst dayScoreJson, const int preferredTeamIds[3]) {
+void renderWaiting(const int preferredTeamIds[3]) {
   nhl_render::hasCurrentLiveGame = false;
-  sSched = dayScoreJson;
-  buildUpcomingCards(sSched, preferredTeamIds);
+  {
+    // A rebuild on core 0 holds the lock for a few ms. If it can't be had
+    // in time, keep the previous cards rather than stall the render loop.
+    UpcomingScheduleReader schedule(200);
+    if (schedule.locked()) {
+      buildUpcomingCards(schedule.json(), preferredTeamIds);
+    }
+  }
   setMax7219Scores(MAX7219_SCORE_BLANK, MAX7219_SCORE_BLANK);
   setCountLeds(0, 0, 0);
   invalidateTm1637WallClock();  // wall clock repaints on the next tick

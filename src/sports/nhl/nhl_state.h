@@ -42,9 +42,27 @@ void setLastRssi(int dbm);
 
 // Schedule JSON cache used by the renderer's waiting carousel (the raw
 // day-score document, so upcoming cards can walk games/startTime fields).
+// The data task rebuilds it every schedule poll on core 0; walking it from
+// the render core while a rebuild runs follows freed pool memory and
+// crashes (LoadProhibited). Read it ONLY through an UpcomingScheduleReader,
+// and never keep a JsonObjectConst from it past the reader's lifetime.
 void publishUpcomingScheduleJson(JsonObjectConst src);
-JsonObjectConst getUpcomingScheduleJson();
 uint32_t getUpcomingSchedulePublishedAt();   // millis() of last publish, 0 = never
+
+// Scoped read lock on the schedule JSON cache. A rebuild holds the lock for
+// a few ms; the timeout bounds how long the render loop may wait for it.
+class UpcomingScheduleReader {
+ public:
+  explicit UpcomingScheduleReader(uint32_t timeoutMs);
+  ~UpcomingScheduleReader();
+  UpcomingScheduleReader(const UpcomingScheduleReader&) = delete;
+  UpcomingScheduleReader& operator=(const UpcomingScheduleReader&) = delete;
+  bool locked() const { return locked_; }
+  JsonObjectConst json() const;  // null when the lock wasn't acquired
+
+ private:
+  bool locked_;
+};
 
 // Diagnostic helpers for the "no upcoming games" screen.
 uint32_t getScheduleFetchAttempts();
