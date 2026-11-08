@@ -14,8 +14,19 @@
 
 void initCountLeds(const int pins[7]);
 // Lights the first `countA/countB/countC` lamps of each counter; values are
-// clamped by construction (>= comparisons), extra lamps stay dark.
+// clamped by construction (>= comparisons), extra lamps stay dark. Safe to
+// call from either core.
 void setCountLeds(uint8_t countA, uint8_t countB, uint8_t countC);
+
+// Blink mode (the shell's network-down indicator): while on, the lamps that
+// setCountLeds(blinkA, blinkB, blinkC) would light flash together, on for
+// periodMs then off for periodMs. A hardware timer drives the toggling, so a
+// blocking full-screen push on the render core can't stall the cadence.
+// setCountLeds() calls made meanwhile are remembered and shown the moment
+// blink mode ends. Repeated calls with an unchanged `on` are free; call
+// from one task only (the shell's loop).
+void setCountLedsBlink(bool on, uint8_t blinkA, uint8_t blinkB,
+                       uint8_t blinkC, uint32_t periodMs);
 
 // TEST ONLY: cycles each LED on for 0.5 s, one at a time, then clears.
 void runCountLedTestLoop();

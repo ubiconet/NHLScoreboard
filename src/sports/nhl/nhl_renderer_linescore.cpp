@@ -793,6 +793,11 @@ void forceLiveRepaint(const GameSnapshot& g) {
   renderLiveGame(g);
 }
 
+void nhl_render::invalidateLiveScreen() {
+  sGoalDisplayPhase = GoalDisplayPhase::NONE;
+  d = Drawn{};
+}
+
 void tickLiveClock() {
   // Called every loop pass during a live game: advances the displayed
   // clock one second at a time between the 5 s landing polls (frozen

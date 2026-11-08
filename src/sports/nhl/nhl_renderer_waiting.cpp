@@ -547,6 +547,7 @@ const NewsStory& getNewsStory(size_t index) {
 
 void renderWaiting(const int preferredTeamIds[3]) {
   nhl_render::hasCurrentLiveGame = false;
+  nhl_render::invalidateLiveScreen();  // this paints over the live screen
   {
     // A rebuild on core 0 holds the lock for a few ms. If it can't be had
     // in time, keep the previous cards rather than stall the render loop.

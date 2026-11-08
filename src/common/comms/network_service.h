@@ -58,6 +58,36 @@ bool isOnline();
 // the boot UI shows the "connect to the scoreboard" page instead of the
 // status page in that state.
 bool isProvisioning();
+// True while a connection attempt is in flight: joining the saved or newly
+// entered Wi-Fi, for up to NETWORK_CONNECT_AND_PROBE_TIMEOUT_MS before the
+// board falls back to setup mode. The shell shows the connecting screen.
+bool isConnecting();
+// True only while the board actually has its network link (online AND
+// associated). False while connecting, in setup mode, and during a dropped
+// link's reconnect grace — exactly what the network-down LEDs cover.
+bool networkLinkUp();
+
+// Why the current connection attempt started (the connecting screen's
+// headline).
+enum class ConnectReason : uint8_t {
+  STARTUP,      // power-on with saved Wi-Fi
+  LINK_LOST,    // the link dropped and stayed down past the grace window
+  SETUP_RETRY,  // setup mode's periodic retry of the saved network
+  NEW_NETWORK,  // credentials just saved in the portal
+};
+
+// Snapshot of the attempt in flight, for the connecting screen.
+struct ConnectProgress {
+  uint32_t attemptId;   // changes with every new attempt
+  ConnectReason reason;
+  char ssid[33];
+  int wifiStatus;       // wl_status_t right now
+  uint16_t retries;     // reconnects issued so far in this attempt
+  uint32_t elapsedMs;
+  uint32_t budgetMs;    // setup mode takes over when elapsed reaches it
+};
+// Fills `out` and returns true while connecting; false otherwise.
+bool getConnectProgress(ConnectProgress& out);
 // True while no favorite team is picked (all three slots "None") on a sport
 // that offers teams — there's nothing to follow. Once the board has a
 // network, the setup screen (device IP plus a QR to the portal) keeps the

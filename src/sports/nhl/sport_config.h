@@ -84,6 +84,13 @@ static inline int awayPenalty2Pin(int boardVersion) {
                                             : PENALTY_AWAY2_PIN;
 }
 
+// Network-down indicator (driven by the shell, see NETWORK_DOWN_BLINK_MS):
+// the count_leds lamps that flash while the board has no network
+// connection. 2/2/0 = all four penalty LEDs; the fill slots stay dark.
+static const uint8_t NETWORK_DOWN_BLINK_COUNT_A = 2;
+static const uint8_t NETWORK_DOWN_BLINK_COUNT_B = 2;
+static const uint8_t NETWORK_DOWN_BLINK_COUNT_C = 0;
+
 // ---- MAX98357 I2S audio amp (goal horn) ------------------------------------
 // Target physical map: right header pos 4-6.
 static const int I2S_BCLK_PIN = 1;

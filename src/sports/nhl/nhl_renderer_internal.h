@@ -37,4 +37,9 @@ const size_t MAX_OTHER_GAMES = 16;
 extern OtherGameInfo otherGames[MAX_OTHER_GAMES];
 extern size_t otherGameCount;
 
+// The live screen's dirty-rect cache no longer matches the panel (another
+// screen painted over it): the next renderLiveGame() repaints in full, even
+// for the same game.
+void invalidateLiveScreen();
+
 }  // namespace nhl_render

@@ -15,8 +15,10 @@
 #include "common/app/health.h"
 #include "common/app/sport_api.h"
 #include "common/comms/network_service.h"
+#include "common/hal/count_leds.h"
 #include "common/trivia/trivia_engine.h"
 #include "common/ui/boot_status.h"
+#include "common/ui/connect_screen.h"
 #include "common/ui/ota_screen.h"
 
 void setup() {
@@ -93,14 +95,23 @@ void loop() {
     return;
   }
 
+  // Network-down indicator: the sport's chosen LEDs (the penalty LEDs on
+  // the NHL board) flash together until the connection is up — from
+  // power-on, through a dropped link's reconnect, and in setup mode. The
+  // portal's overrides (demo, manual, trivia, display/audio tests) drive
+  // those LEDs themselves, so it yields to them. Decided here every pass,
+  // ahead of the splash hold, so it starts with the boot.
+  setCountLedsBlink(!networkLinkUp() && !portalDisplayOverrideActive(),
+                    NETWORK_DOWN_BLINK_COUNT_A, NETWORK_DOWN_BLINK_COUNT_B,
+                    NETWORK_DOWN_BLINK_COUNT_C, NETWORK_DOWN_BLINK_MS);
+
   // Boot sequence: (1) the logo splash holds BOOT_SPLASH_HOLD_MS while
-  // the network task connects Wi-Fi behind it — a handshake still in
-  // flight at the end of the window EXTENDS the splash (capped by
-  // BOOT_SPLASH_CONNECT_MAX_MS, which matches the network service's own
-  // connect budget) so the next screen shows the outcome, never a
-  // half-state; (2) an in-progress firmware update owns the screen
-  // whenever it runs; (3) once the connection is made, the status/setup
-  // page shows for BOOT_SETUP_PAGE_MS; (4) if the connection cannot be
+  // the network task connects Wi-Fi behind it; (2) a connection still in
+  // flight after that shows the connecting screen (network name, current
+  // step, time left before setup mode) — the same screen any later
+  // reconnect gets; (3) an in-progress firmware update owns the screen
+  // whenever it runs; (4) once the connection is made, the status/setup
+  // page shows for BOOT_SETUP_PAGE_MS; (5) if the connection cannot be
   // made, the AP provisioning page ("connect to the scoreboard") shows
   // instead and holds until the portal establishes the connection — then
   // the status page runs its window. The sport UI owns every frame after
@@ -132,39 +143,41 @@ void loop() {
     DBG_PRINTF("[TIME] NTP sync requested; timezone=%s\n", getTzString());
   }
 
-  if (!isProvisioning()) {
-    if (onlineSinceMs == 0 && bootNow < BOOT_SPLASH_CONNECT_MAX_MS) {
-      return;  // still connecting: the splash keeps covering the boot
-    }
-    if (onlineSinceMs != 0 &&
-        bootNow - onlineSinceMs < BOOT_SETUP_PAGE_MS) {
-      renderBootStatusPage(sport::name());
-      return;
-    }
+  if (!isProvisioning() && onlineSinceMs != 0 &&
+      bootNow - onlineSinceMs < BOOT_SETUP_PAGE_MS) {
+    renderBootStatusPage(sport::name());
+    return;
   }
 
   handleNetworkDisplay();
 
-  // No usable connection — or no favorite team picked yet
-  // (teamSetupPending): the network setup screen owns the display until
-  // the portal fixes that. Without this gate the waiting carousel repaints
-  // over the setup instructions on every dwell. ONE exception: the
-  // portal's display overrides (game demo, manual/trivia mode, the
-  // display/audio tests) still run — offline too, so new builds can be
-  // bench-tested without Wi-Fi. They get the provisioning-shaped context
-  // either way, so the sport's online pipeline can't paint over the setup
-  // screen; it repaints once the override releases. When the gate opens,
-  // consumeScoreboardRelease() (inside sport::tick) repaints the
-  // scoreboard.
-  if (isProvisioning() || teamSetupPending()) {
+  // Connecting, no usable connection, or no favorite team picked yet
+  // (teamSetupPending): the network screens own the display until that's
+  // resolved — the connecting screen while an attempt runs, the setup
+  // screen otherwise. Without this gate the waiting carousel repaints over
+  // them on every dwell. ONE exception: the portal's display overrides
+  // (game demo, manual/trivia mode, the display/audio tests) still run —
+  // offline too, so new builds can be bench-tested without Wi-Fi. They get
+  // the provisioning-shaped context either way, so the sport's online
+  // pipeline can't paint over the network screen; it repaints once the
+  // override releases. When the gate opens, consumeScoreboardRelease()
+  // (inside sport::tick) repaints the scoreboard.
+  bool connecting = isConnecting();
+  if (connecting || isProvisioning() || teamSetupPending()) {
     static bool sOverrideOwnedDisplay = false;
     if (portalDisplayOverrideActive()) {
       sOverrideOwnedDisplay = true;
       SportTickContext ctx = {millis(), false, true};
       sport::tick(ctx);
-    } else if (sOverrideOwnedDisplay) {
+      return;
+    }
+    if (sOverrideOwnedDisplay) {
       sOverrideOwnedDisplay = false;
+      invalidateConnectScreen();
       requestNetworkScreenRepaint();  // back to the setup screen
+    }
+    if (connecting) {
+      renderConnectScreen();
     }
     return;
   }

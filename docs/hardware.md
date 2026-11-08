@@ -67,7 +67,7 @@ V0.1 retains the original behavior.
 | 11 | GPIO18 | — gap — | spare |
 | 12 | GPIO8 | TFT SCL (SCK) | PCB rev v3.44 |
 | 13 | GPIO3 | TFT SDA (MOSI) | strapping pin (JTAG source) — output OK after boot |
-| 14 | GPIO46 | TFT RESET | strapping pin — output OK after boot; reset state only gates ROM log |
+| 14 | GPIO46 | TFT RESET | strapping pin — output OK after boot; held high at reset, so the CH343 port can't enter download mode (flash via native USB or OTA) |
 | 15 | GPIO9 | TFT DC | |
 | 16 | GPIO10 | TFT CS | |
 | 17 | GPIO11 | Guest penalty LED 1 | |
@@ -123,8 +123,12 @@ V0.1 retains the original behavior.
    as outputs once firmware drives them.
 4. **Avoided by design:** GPIO 35–37 (octal PSRAM on N8R8), 0/45
    (straps), 48 (onboard RGB), 19/20 (native USB), 43/44 (debug UART).
-   46 (strap) is now the TFT reset — tolerated because its reset-time
-   state only gates ROM log output. When adding parts prefer GPIO 14/15/18
+   46 (strap) is now the TFT reset — fine for normal boots, but the TFT
+   side holds it high at reset, and ESP32-S3 strap download mode needs it
+   low: esptool over the CH343 port fails with "Wrong boot mode detected
+   (0x26)". Flash these boards over the native USB port or OTA; the CH343
+   still carries UART0 logs (panic dumps included) and RTS reset. When
+   adding parts prefer GPIO 14/15/18
    (left) or 41/47/21 (right); GPIO 7 is earmarked for the optional
    battery-sense divider (left pos 7, ADC1_CH6 — ADC1 stays readable with
    Wi-Fi up, which the runtime battery gauge needs; GPIO 21 has no ADC

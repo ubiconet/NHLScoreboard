@@ -249,6 +249,15 @@ uint32_t lastReconnectAt = 0;
 uint32_t lastDebugAt = 0;
 wl_status_t lastLoggedWiFiStatus = WL_NO_SHIELD;
 bool setupScreenVisible = false;
+
+// The connection attempt in flight, written here on the network task and
+// read by the connecting screen on the render core (getConnectProgress).
+portMUX_TYPE connectLock = portMUX_INITIALIZER_UNLOCKED;
+uint32_t connectAttemptId = 0;
+ConnectReason connectReason = ConnectReason::STARTUP;
+char connectSsid[33] = "";
+uint16_t connectRetries = 0;
+uint32_t connectStartedAt = 0;
 // Portal priority mode: while someone is actively using the setup pages,
 // background work pauses so the web server gets the core and the radio to
 // itself (page loads over this device's marginal Wi-Fi stall otherwise).
@@ -411,16 +420,24 @@ void enterProvisioning() {
                 WiFi.softAPIP().toString().c_str());
 }
 
-void enterConnecting() {
-  state = CONNECTING;
-  stateStartedAt = millis();
+void enterConnecting(const String& ssid, ConnectReason reason) {
+  uint32_t now = millis();
+  portENTER_CRITICAL(&connectLock);
+  ++connectAttemptId;
+  connectReason = reason;
+  strlcpy(connectSsid, ssid.c_str(), sizeof(connectSsid));
+  connectRetries = 0;
+  connectStartedAt = now;
+  portEXIT_CRITICAL(&connectLock);
+  stateStartedAt = now;
   lastProbeAt = 0;
-  lastReconnectAt = millis();
-  Serial.printf("[NET] Connecting to SSID '%s'\n", savedSsid.c_str());
+  lastReconnectAt = now;
+  state = CONNECTING;
+  Serial.printf("[NET] Connecting to SSID '%s'\n", ssid.c_str());
   requestSetupRedraw(SETUP_CONNECTING, WiFi.softAPIP());
 }
 
-void tryReconnectWithSavedNetwork() {
+void tryReconnectWithSavedNetwork(ConnectReason reason) {
   if (savedSsid.isEmpty()) {
     enterProvisioning();
     return;
@@ -432,7 +449,7 @@ void tryReconnectWithSavedNetwork() {
   // the extra ~40 mA is irrelevant.
   WiFi.setSleep(false);
   WiFi.begin(savedSsid.c_str(), savedPassword.c_str());
-  enterConnecting();
+  enterConnecting(savedSsid, reason);
 }
 
 int prefTeam1 = 0; // populated from netDefaultTeams in loadSavedNetwork()
@@ -586,6 +603,16 @@ void renderAccessPointInstructions(const String& portalAddress, bool stationConn
     display.print("then open: " + portalAddress);
     display.setCursor(8, 165);
     display.print("3. Enter Wi-Fi settings");
+    if (!savedSsid.isEmpty()) {
+      // A board with saved Wi-Fi only lands here when that network can't
+      // be reached; it keeps retrying (NETWORK_PROVISIONING_RETRY_MS).
+      display.setTextColor(0xFD20); // Gold
+      display.setCursor(8, 198);
+      display.print("Saved Wi-Fi: " + savedSsid);
+      display.setTextColor(ST77XX_WHITE);
+      display.setCursor(8, 212);
+      display.print("Not reachable - retrying it every minute");
+    }
   }
 
   // Online: QR links to the portal (device LAN IP). Setup screen: QR
@@ -1425,7 +1452,7 @@ main{max-width:420px;margin:8vh auto;padding:28px;background:#0b2b62;border:2px 
 
   WiFi.disconnect();
   WiFi.begin(pendingSsid.c_str(), pendingPassword.c_str());
-  enterConnecting();
+  enterConnecting(pendingSsid, ConnectReason::NEW_NETWORK);
 
   server.send(200, "text/html", R"html(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Connecting</title><style>body{margin:0;background:#061b46;color:#fff;font:16px system-ui,sans-serif}
@@ -1584,6 +1611,9 @@ void runNetworkStateMachine() {
       lastReconnectAt = millis();
       Serial.println("[NET] Retrying saved Wi-Fi connection");
       WiFi.reconnect();
+      portENTER_CRITICAL(&connectLock);
+      ++connectRetries;
+      portEXIT_CRITICAL(&connectLock);
     }
     bool holdForFirstBoot = firstBootConnectHeld &&
                             millis() - networkTaskStartedAt < NETWORK_FIRST_CONNECT_MIN_MS;
@@ -1602,7 +1632,7 @@ void runNetworkStateMachine() {
       } else if (millis() - disconnectStartedAt >= NETWORK_RECONNECT_GRACE_MS) {
         Serial.println("[NET] Connection lost; retrying saved network");
         setupScreenVisible = true;
-        tryReconnectWithSavedNetwork();
+        tryReconnectWithSavedNetwork(ConnectReason::LINK_LOST);
       }
     }
     // A board with no favorite team has nothing to follow: the setup screen
@@ -1620,7 +1650,7 @@ void runNetworkStateMachine() {
   } else if (state == PROVISIONING) {
     if (!savedSsid.isEmpty() && millis() - stateStartedAt >= NETWORK_PROVISIONING_RETRY_MS) {
       Serial.println("[NET] Retrying saved Wi-Fi after provisioning timeout");
-      tryReconnectWithSavedNetwork();
+      tryReconnectWithSavedNetwork(ConnectReason::SETUP_RETRY);
     }
   }
 }
@@ -1632,6 +1662,30 @@ bool isOnline() {
 
 bool isProvisioning() {
   return state == PROVISIONING;
+}
+
+bool isConnecting() {
+  return state == CONNECTING;
+}
+
+bool networkLinkUp() {
+  return state == ONLINE && WiFi.status() == WL_CONNECTED;
+}
+
+bool getConnectProgress(ConnectProgress& out) {
+  if (state != CONNECTING) return false;
+  portENTER_CRITICAL(&connectLock);
+  out.attemptId = connectAttemptId;
+  out.reason = connectReason;
+  memcpy(out.ssid, connectSsid, sizeof(out.ssid));
+  out.retries = connectRetries;
+  uint32_t startedAt = connectStartedAt;
+  portEXIT_CRITICAL(&connectLock);
+  out.ssid[sizeof(out.ssid) - 1] = '\0';
+  out.wifiStatus = WiFi.status();
+  out.elapsedMs = millis() - startedAt;
+  out.budgetMs = NETWORK_CONNECT_AND_PROBE_TIMEOUT_MS;
+  return true;
 }
 
 bool teamSetupPending() {
@@ -1830,7 +1884,7 @@ void startNetworkServices(const NetworkBranding& branding,
     enterProvisioning();
   } else {
     WiFi.begin(savedSsid.c_str(), savedPassword.c_str());
-    enterConnecting();
+    enterConnecting(savedSsid, ConnectReason::STARTUP);
   }
 }
 
@@ -1853,9 +1907,8 @@ void handleNetworkDisplay() {
     IPAddress ip(setupIpV);
     switch (redrawModeV) {
       case SETUP_CONNECTING:
-        // Connecting draws nothing: the boot logo stays on screen while
-        // Wi-Fi connects behind it (loop() also holds the logo for
-        // BOOT_SPLASH_HOLD_MS).
+        // Nothing to draw here: the shell's connecting screen
+        // (common/ui/connect_screen) owns the display while connecting.
         break;
       case SETUP_ONLINE_PORTAL:
         // Online normally gives the display straight to the scoreboard;
