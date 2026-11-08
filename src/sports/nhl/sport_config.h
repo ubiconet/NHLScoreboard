@@ -193,7 +193,7 @@ static const uint32_t NHL_GOAL_CELEBRATION_MIN_MS = 1500; // flash floor
 static const uint32_t NHL_GOAL_CELEBRATION_MAX_MS = 6000; // flash ceiling (horn ~3.7 s)
 static const uint32_t NHL_BOTTOM_VIEW_FLIP_MS = 8000; // Penalty-free bottom strip: linescore <-> league scores
 static const uint32_t NHL_CAROUSEL_ROTATE_MS = 5000;      // Rotate live-game stat ticker every 5s
-static const uint32_t NHL_UPCOMING_GAMES_ROTATE_MS = 8000;  // Show each upcoming-game card for 8s
+static const uint32_t NHL_UPCOMING_GAMES_ROTATE_MS = 16000; // Show each upcoming-game card / standings page for 16s
 // Goal blink: a score increase flashes that team's NEW score INVERTED
 // (reverse video) on its matrix alone this many times, each flash
 // NHL_SCORE_BLINK_HALF_MS inverted and NHL_SCORE_BLINK_HALF_MS normal,
