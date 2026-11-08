@@ -22,3 +22,6 @@ debug.log
 # Python + Netlify CLI local artifacts
 __pycache__/
 .netlify/
+
+# Local crash-hunting captures (serial logs, saved firmware ELFs)
+.crashlogs/
