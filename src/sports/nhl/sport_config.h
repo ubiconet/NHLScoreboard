@@ -99,7 +99,7 @@ static const int I2S_DIN_PIN = 42;
 
 // ---- Branding (AP network name, hostname, portal title) ---------------------
 static const char* NETWORK_AP_SSID = "NHL_SCOREBOARD";
-static const char* NETWORK_HOSTNAME = "nhl-scoreboard";
+static const char* NETWORK_HOSTNAME = "miniboard";
 
 // ---- Battery power (LiPo + boost converter supply) --------------------------
 // The board runs off a 3.7 V LiPo through a 5 V boost converter. There

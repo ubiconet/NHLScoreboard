@@ -1853,14 +1853,13 @@ void startNetworkServices(const NetworkBranding& branding,
     Serial.println("LittleFS unavailable; runtime settings disabled");
   }
   registerPortalRoutes();
-  WiFi.mode(WIFI_AP_STA);
-  // Keep the modem awake from the very first connection (previously only
-  // reconnects did this): default power save makes the radio sleep between
-  // beacons, which stalls inbound portal page loads from phones.
-  WiFi.setSleep(false);
   // Unique per-board hostname built on the sport's branding base
-  // ("nhl-scoreboard-a68d0") so mDNS/OTA targets and router client lists
-  // name the right device; the suffix disambiguates multiple boards.
+  // ("miniboard-a68d0") so mDNS/OTA targets and router client lists name
+  // the right device; the suffix (last 5 hex digits of the station MAC)
+  // disambiguates multiple boards. Must be set BEFORE WiFi.mode(): the
+  // core copies the name onto the station interface only inside a mode
+  // change, so a later setHostname() never reaches DHCP and routers list
+  // the board under the core's default name ("esp32s3-XXXXXX").
   String macAddress = WiFi.macAddress();
   macAddress.replace(":", "");
   if (macAddress.length() >= 5) {
@@ -1870,6 +1869,11 @@ void startNetworkServices(const NetworkBranding& branding,
   }
   WiFi.setHostname(deviceHostname.c_str());
   Serial.printf("[NET] Device hostname: %s\n", deviceHostname.c_str());
+  WiFi.mode(WIFI_AP_STA);
+  // Keep the modem awake from the very first connection (previously only
+  // reconnects did this): default power save makes the radio sleep between
+  // beacons, which stalls inbound portal page loads from phones.
+  WiFi.setSleep(false);
   // The web server starts now and serves over whichever interface is up,
   // but the setup AP only comes up in enterProvisioning() — i.e. when
   // there's genuinely no saved network or connecting failed. Starting it
