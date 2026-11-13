@@ -49,7 +49,13 @@ bool isLiveish(const char* state) {
   return strcmp(state, "LIVE") == 0 || strcmp(state, "CRIT") == 0;
 }
 bool isUpcoming(const char* state) {
-  return strcmp(state, "FUT") == 0 || strcmp(state, "PREVIEW") == 0;
+  // "PRE" is what api-web's score/schedule feeds actually send for a
+  // game-day pre-start game (verified live 2026-11-12); "PREVIEW" stays
+  // for the community-documented spelling. Missing "PRE" made every
+  // same-day game fail this filter, so the cards skipped tonight's game
+  // and showed the next day's slate instead.
+  return strcmp(state, "FUT") == 0 || strcmp(state, "PRE") == 0 ||
+         strcmp(state, "PREVIEW") == 0;
 }
 
 // ---- Upcoming-game cards (one per followed team, MLB-style) ----

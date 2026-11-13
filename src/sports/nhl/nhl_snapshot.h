@@ -47,7 +47,7 @@ struct NhlThreeStar {
 struct GameSnapshot {
   bool  valid;
   long  gameId;
-  char  gameState[8];        // FUT/PREVIEW/LIVE/CRIT/FINAL/OFF
+  char  gameState[8];        // FUT/PRE/LIVE/CRIT/FINAL/OFF
   int   homeTeamId, awayTeamId;
   char  homeAbbrev[4], awayAbbrev[4];
   int   homeScore, awayScore;

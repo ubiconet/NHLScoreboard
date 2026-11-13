@@ -37,10 +37,14 @@ mirrors linked from it. The old `statsapi.web.nhl.com/api/v1` API is **dead**
 - **Game id** (e.g. `2026010016`): `YYYY` + 2-digit `gameType` + 4-digit
   sequence. `gameType`: `1` preseason, `2` regular season, `3` playoffs.
   The `season` field is the two years joined: `20262027`.
-- **`gameState`** (observed: `FUT`, `FINAL`, `OFF`; community also documents
-  `PREVIEW`, `LIVE`, `CRIT`):
-  - `FUT` — scheduled, future
-  - `PREVIEW` — game day, before start
+- **`gameState`** (observed: `FUT`, `PRE`, `FINAL`, `OFF`, `LIVE`, `CRIT`;
+  community docs also list `PREVIEW`):
+  - `FUT` — scheduled, future (also seen on same-day games hours before
+    start — the feed flips them to `PRE` at some point on game day)
+  - `PRE` — game day, before start (observed live 2026-11-12 on
+    `/v1/score/now`: the evening slate carried `PRE`, later games still
+    `FUT`; `PREVIEW` has never been observed on api-web — the upcoming-card
+    filter must accept `PRE` or same-day games are skipped)
   - `LIVE` — in progress
   - `CRIT` — critical/late (final minutes, OT)
   - `FINAL` / `OFF` — completed (`OFF` = official/finalized)
