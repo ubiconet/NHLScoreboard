@@ -38,18 +38,23 @@ const uint8_t FONT_3X8[10][8] = {
   {0b111, 0b101, 0b101, 0b111, 0b001, 0b001, 0b001, 0b111}  // 9
 };
 
-// 5x7 font digits for 1-digit centered scores (0-9)
-const uint8_t FONT_5X7[10][7] = {
-  {0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110}, // 0
-  {0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110}, // 1
-  {0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111}, // 2
-  {0b11111, 0b00010, 0b00100, 0b00010, 0b00001, 0b10001, 0b01110}, // 3
-  {0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010}, // 4
-  {0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110}, // 5
-  {0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110}, // 6
-  {0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000}, // 7
-  {0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110}, // 8
-  {0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100}  // 9
+// Bold 6x8 font digits for 1-digit centered scores (0-9) — the same
+// glyph set as the MLB scoreboard's matrices (v4.5): strokes are 2 px
+// wide (and the horizontal bars 2 rows thick) so single-digit scores
+// read chunky and far more visible than the thin 5x7 it replaced; two
+// digits cannot fit this weight in 8 columns, so values >= 10 keep the
+// 3x8 pair layout above.
+const uint8_t FONT_6X8_BOLD[10][8] = {
+  {0b011110, 0b110011, 0b110011, 0b110011, 0b110011, 0b110011, 0b110011, 0b011110}, // 0
+  {0b001100, 0b011100, 0b111100, 0b001100, 0b001100, 0b001100, 0b001100, 0b111111}, // 1
+  {0b011110, 0b110011, 0b000011, 0b000110, 0b001100, 0b011000, 0b110000, 0b111111}, // 2
+  {0b011110, 0b110011, 0b000011, 0b001110, 0b001110, 0b000011, 0b110011, 0b011110}, // 3
+  {0b000011, 0b001111, 0b011011, 0b110011, 0b111111, 0b000011, 0b000011, 0b000011}, // 4
+  {0b111111, 0b110000, 0b110000, 0b111110, 0b000011, 0b000011, 0b110011, 0b011110}, // 5
+  {0b011110, 0b110011, 0b110000, 0b111110, 0b110011, 0b110011, 0b110011, 0b011110}, // 6
+  {0b111111, 0b110011, 0b000011, 0b000110, 0b001100, 0b001100, 0b001100, 0b001100}, // 7
+  {0b011110, 0b110011, 0b110011, 0b011110, 0b011110, 0b110011, 0b110011, 0b011110}, // 8
+  {0b011110, 0b110011, 0b110011, 0b110011, 0b011111, 0b000011, 0b000011, 0b011110}  // 9
 };
 
 // 3x8 letters for the shootout indicator on the period module ("SO")
@@ -161,14 +166,14 @@ void scoreToMatrixRows(int score, uint8_t rows[8], bool compactSingleDigit = fal
   if (score < 0) return;
   if (score > 99) score = 99;
 
-  // Render a single digit with the larger, centered 5x7 font whenever we're
+  // Render a single digit with the bold, centered 6x8 font whenever we're
   // allowed to collapse it. Game mode (compactSingleDigit=false) always uses
   // this; clock mode uses it whenever leadingZero is off so e.g. hour "1".."9"
   // is centered rather than jammed into the right half of the matrix.
   bool useSingleDigit = score < 10 && (!compactSingleDigit || !leadingZero);
   if (useSingleDigit) {
-    for (int r = 0; r < 7; r++) {
-      rows[r] = (FONT_5X7[score][r] & 0x1F) << 1; // Center 5 bits in 8 cols
+    for (int r = 0; r < 8; r++) {
+      rows[r] = (FONT_6X8_BOLD[score][r] & 0x3F) << 1; // Center 6 bits in 8 cols
     }
   } else {
     // Two 3x8 digits side by side: tens at cols 7..5, ones at cols 3..1,
