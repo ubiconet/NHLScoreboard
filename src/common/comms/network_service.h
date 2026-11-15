@@ -2,8 +2,6 @@
 
 #include <Arduino.h>
 
-#include "config.h"  // SB_MAX_PREFERRED_TEAMS
-
 // Network service — Wi-Fi provisioning state machine, captive setup portal,
 // NVS-backed preferences, and development (Arduino)OTA. Fully generic: the
 // sport layer injects its branding and team-option list at
@@ -41,7 +39,7 @@ struct NetworkSoundOption {
 void startNetworkServices(const NetworkBranding& branding,
                           const NetworkTeamOption* teamOptions,
                           size_t teamOptionCount,
-                          const int defaultPreferredTeams[SB_MAX_PREFERRED_TEAMS],
+                          const int defaultPreferredTeams[3],
                           const NetworkBoardOption* boardOptions,
                           size_t boardOptionCount,
                           int defaultBoardVersion,
@@ -90,7 +88,7 @@ struct ConnectProgress {
 };
 // Fills `out` and returns true while connecting; false otherwise.
 bool getConnectProgress(ConnectProgress& out);
-// True while no favorite team is picked (every slot "None") on a sport
+// True while no favorite team is picked (all three slots "None") on a sport
 // that offers teams — there's nothing to follow. Once the board has a
 // network, the setup screen (device IP plus a QR to the portal) keeps the
 // display until the portal saves a team; that includes reconnects, so the
@@ -160,9 +158,8 @@ bool consumeManualPeriodEndBuzzer();
 // not online) — read by the boot status page.
 const char* getSavedWifiSsid();
 String getDeviceIp();
-// The preferred-team ids, priority order (NVS "team1".."teamN"; 0 = slot
-// unused). Always SB_MAX_PREFERRED_TEAMS long.
-void getPreferredTeamIds(int outTeamIds[SB_MAX_PREFERRED_TEAMS]);
+// The three preferred-team ids (NVS "team1..3"; 0 = slot unused).
+void getPreferredTeamIds(int outTeamIds[3]);
 // User preference: show the idle clock on the score matrices (NVS "show_clock").
 bool isClockDisplayEnabled();
 // User preference: enable the audio output — sounds and alerts (NVS

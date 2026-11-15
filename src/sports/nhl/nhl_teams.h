@@ -21,7 +21,7 @@ extern const size_t NHL_TEAM_TABLE_COUNT;
 
 // Preferred-team ids preloaded when NVS has none saved yet — all unused
 // (0) on a fresh install; the user picks priorities in the setup portal.
-extern const int NHL_DEFAULT_PREFERRED_TEAMS[SB_MAX_PREFERRED_TEAMS];
+extern const int NHL_DEFAULT_PREFERRED_TEAMS[3];
 
 // Canonical abbreviation for a team id, or `fallback` (defaults to "NHL")
 // when the id is unknown and no fallback string is supplied.

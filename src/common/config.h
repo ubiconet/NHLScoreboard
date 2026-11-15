@@ -57,11 +57,8 @@ static const uint32_t NETWORK_RECONNECT_GRACE_MS = 15000; // sustained drop befo
 static const uint32_t NETWORK_RECONNECT_RETRY_MS = 5000;
 static const uint32_t NETWORK_DEBUG_INTERVAL_MS = 10000;
 static const uint32_t NETWORK_SETUP_SCREEN_MS = 0;         // release the scoreboard as soon as online (unless no team is picked — see teamSetupPending)
+static const uint32_t NETWORK_SCAN_REFRESH_MS = 30000;    // portal scan-list cache age
 static const uint32_t NETWORK_PROVISIONING_RETRY_MS = 60000; // retry saved Wi-Fi after this long in AP mode
-// Preferred-team priority slots the setup portal offers (dropdowns
-// "team1".."teamN", NVS keys of the same names). Caps every array that
-// carries the list through the framework and the sport layer.
-static const int SB_MAX_PREFERRED_TEAMS = 5;
 // While anyone is using the setup portal (any HTTP request refreshes this
 // window), feed fetching pauses entirely so the portal loads fast even on
 // this device's marginal Wi-Fi.
