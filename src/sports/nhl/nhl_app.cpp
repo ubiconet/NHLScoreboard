@@ -209,8 +209,8 @@ bool advanceGameDemo(uint32_t nowMs) {
 // progress (LIVE/CRIT). Selection deliberately reads only the day-slate
 // snapshot: the data task polls a landing feed only after we set the
 // followed-game id here, so selection must never depend on that feed.
-long selectLiveGameId(const ScheduleSnapshot& sch, const int preferred[3]) {
-  for (int p = 0; p < 3; ++p) {
+long selectLiveGameId(const ScheduleSnapshot& sch, const int preferred[SB_MAX_PREFERRED_TEAMS]) {
+  for (int p = 0; p < SB_MAX_PREFERRED_TEAMS; ++p) {
     int teamId = preferred[p];
     if (teamId == 0) continue;
     for (size_t i = 0; i < sch.count; ++i) {
@@ -258,7 +258,7 @@ void restoreDisplaysFromHibernate() {
 // definition; feeds keep publishing on core 0 and land right after).
 void runDisplayTestCycle() {
   Serial.println("[TEST] display test cycle (portal)");
-  int preferred[3];
+  int preferred[SB_MAX_PREFERRED_TEAMS];
   getPreferredTeamIds(preferred);
 
   // Screen banner
@@ -559,7 +559,7 @@ void tick(const SportTickContext& ctx) {
   }
   if (sInDemo) {
     sInDemo = false;
-    int preferred[3];
+    int preferred[SB_MAX_PREFERRED_TEAMS];
     getPreferredTeamIds(preferred);
     if (scoreboardState == ScoreboardState::LIVE_GAME && sLastGame.valid) {
       forceLiveRepaint(sLastGame);
@@ -586,7 +586,7 @@ void tick(const SportTickContext& ctx) {
   if (sInManual) {
     sInManual = false;
     // Manual mode handed the display back — repaint whatever was showing.
-    int preferred[3];
+    int preferred[SB_MAX_PREFERRED_TEAMS];
     getPreferredTeamIds(preferred);
     if (scoreboardState == ScoreboardState::LIVE_GAME && sLastGame.valid) {
       forceLiveRepaint(sLastGame);
@@ -610,7 +610,7 @@ void tick(const SportTickContext& ctx) {
   if (sInTrivia) {
     sInTrivia = false;
     // Trivia mode handed the display back — repaint whatever was showing.
-    int preferred[3];
+    int preferred[SB_MAX_PREFERRED_TEAMS];
     getPreferredTeamIds(preferred);
     if (scoreboardState == ScoreboardState::LIVE_GAME && sLastGame.valid) {
       forceLiveRepaint(sLastGame);
@@ -637,7 +637,7 @@ void tick(const SportTickContext& ctx) {
     long wakeGameId = 0;
     ScheduleSnapshot sch{};
     if (takeScheduleSnapshot(sch, sLastScheduleGen) && sch.valid) {
-      int preferred[3];
+      int preferred[SB_MAX_PREFERRED_TEAMS];
       getPreferredTeamIds(preferred);
       wakeGameId = selectLiveGameId(sch, preferred);
     }
@@ -662,7 +662,7 @@ void tick(const SportTickContext& ctx) {
         if (sLastGame.valid && sLastGame.gameId == wakeGameId) {
           forceLiveRepaint(sLastGame);
         } else {
-          int preferred[3];
+          int preferred[SB_MAX_PREFERRED_TEAMS];
           getPreferredTeamIds(preferred);
           renderWaiting(preferred);  // placeholder until the first landing snapshot
           sLastScheduleRenderAt = ctx.nowMs;
@@ -708,7 +708,7 @@ void tick(const SportTickContext& ctx) {
   tickLiveClock();  // game clock counts down between the 5 s polls
 
   if (consumeScoreboardRelease()) {
-    int preferredTeams[3];
+    int preferredTeams[SB_MAX_PREFERRED_TEAMS];
     getPreferredTeamIds(preferredTeams);
     scoreboardState = ScoreboardState::WAITING;
     setActiveGameId(0);
@@ -721,7 +721,7 @@ void tick(const SportTickContext& ctx) {
   }
 
   uint32_t now = ctx.nowMs;
-  int preferredTeams[3];
+  int preferredTeams[SB_MAX_PREFERRED_TEAMS];
   getPreferredTeamIds(preferredTeams);
 
   // Idle clock lives on the TM1637 only — the score matrices stay dark
@@ -788,7 +788,7 @@ void tick(const SportTickContext& ctx) {
         // Goal horn fires only when one of the user's own teams scored
         // (the matrix score blink fires for either side).
         bool favorite = false;
-        for (int i = 0; i < 3 && !favorite; ++i) {
+          for (int i = 0; i < SB_MAX_PREFERRED_TEAMS && !favorite; ++i) {
           if (preferredTeams[i] == 0) continue;
           if (homeScored && game.homeTeamId == preferredTeams[i]) favorite = true;
           if (awayScored && game.awayTeamId == preferredTeams[i]) favorite = true;

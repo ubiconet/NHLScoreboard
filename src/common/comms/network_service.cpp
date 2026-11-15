@@ -280,11 +280,6 @@ volatile SetupDisplayMode redrawModeV = SETUP_CONNECTING;
 volatile uint32_t setupIpV = 0;
 volatile bool releasePending = false;
 
-// Async scan cache, only touched from the network task (server handlers run there).
-String scanOptionsHtml;
-bool scanActive = false;
-uint32_t lastScanAt = 0;
-
 void requestSetupRedraw(SetupDisplayMode mode, IPAddress ip) {
   redrawModeV = mode;
   setupIpV = ip;
@@ -404,13 +399,6 @@ void enterProvisioning() {
     WiFi.softAP(apSsid.c_str(), NETWORK_AP_PASSWORD);
     apUp = true;
     startPortalInfrastructure();
-    // Prime the network list before the first phone connects: the async
-    // scan finishes (~2-3 s) while the user is still joining the AP, so
-    // the setup page's dropdown is populated on first load. Without this
-    // the first scan waits out NETWORK_SCAN_REFRESH_MS since boot.
-    // refreshScanCache() collects the result as usual.
-    WiFi.scanNetworks(true, true);
-    scanActive = true;
   }
   requestSetupRedraw(SETUP_AP_INSTRUCTIONS, WiFi.softAPIP());
   Serial.println("[NET] Provisioning: waiting for portal credentials");
@@ -452,17 +440,19 @@ void tryReconnectWithSavedNetwork(ConnectReason reason) {
   enterConnecting(savedSsid, reason);
 }
 
-int prefTeam1 = 0; // populated from netDefaultTeams in loadSavedNetwork()
-int prefTeam2 = 0;
-int prefTeam3 = 0;
+// Preferred-team ids in priority order; populated from netDefaultTeams in
+// loadSavedNetwork(). Slot value 0 = "None".
+int prefTeams[SB_MAX_PREFERRED_TEAMS] = {0};
 
 void loadSavedNetwork() {
   preferences.begin("network", true);
   savedSsid = preferences.getString("ssid", "");
   savedPassword = preferences.getString("password", "");
-  prefTeam1 = preferences.getInt("team1", netDefaultTeams[0]);
-  prefTeam2 = preferences.getInt("team2", netDefaultTeams[1]);
-  prefTeam3 = preferences.getInt("team3", netDefaultTeams[2]);
+  char teamKey[8];
+  for (int i = 0; i < SB_MAX_PREFERRED_TEAMS; ++i) {
+    snprintf(teamKey, sizeof(teamKey), "team%d", i + 1);
+    prefTeams[i] = preferences.getInt(teamKey, netDefaultTeams[i]);
+  }
   clockDisplayEnabled = preferences.getBool("show_clock", true);
   audioEnabled = preferences.getBool("audio_en", true);
   hibernateEnabled = preferences.getBool("hibernate", false);
@@ -515,40 +505,6 @@ String htmlEscape(const String& text) {
     else out += c;
   }
   return out;
-}
-
-void refreshScanCache() {
-  int8_t result = WiFi.scanComplete();
-  if (scanActive && result >= 0) {
-    scanOptionsHtml = "";
-    for (int index = 0; index < result; ++index) {
-      String ssid = WiFi.SSID(index);
-      if (!ssid.isEmpty()) {
-        String escaped = htmlEscape(ssid);
-        scanOptionsHtml += "<option value=\"" + escaped + "\">" + escaped + " (" +
-                           String(WiFi.RSSI(index)) + " dBm)</option>";
-      }
-    }
-    WiFi.scanDelete();
-    scanActive = false;
-    lastScanAt = millis();
-  } else if (result == WIFI_SCAN_FAILED) {
-    scanActive = false;
-    lastScanAt = millis();
-  }
-  // Scans run freely while the board isn't connected. Once ONLINE they
-  // run only while someone is using the portal: the scan hops the radio
-  // across channels for ~2-3 s, which starves the link — acceptable
-  // during configuration (feeds already pause for the portal window),
-  // never in the background, and never mid-OTA-download. Trivia mode is
-  // excluded too: the player phones keep the portal window alive for the
-  // whole party, and a scan stall mid-question would hit every player.
-  if (!scanActive && !otaUpdateInProgress() &&
-      millis() - lastScanAt > NETWORK_SCAN_REFRESH_MS &&
-      (state != ONLINE || portalEngaged()) && !trivia::isModeActive()) {
-    WiFi.scanNetworks(true, true);
-    scanActive = true;
-  }
 }
 
 void renderAccessPointInstructions(const String& portalAddress, bool stationConnected) {
@@ -669,16 +625,6 @@ void redirectToPortal() {
   server.send(302, "text/plain", "");
 }
 
-// Options-only fragment for the setup page's network dropdown. The page
-// polls this after load so a scan that finishes post-render still fills
-// the list without reloading. scanOptionsHtml is built in
-// refreshScanCache() on this same task — no cross-core access.
-void serveNetworks() {
-  markPortalActivity();
-  server.sendHeader("Cache-Control", "no-store");
-  server.send(200, "text/html", scanOptionsHtml);
-}
-
 void servePortal() {
   markPortalActivity();
   server.sendHeader("Cache-Control", "no-store");
@@ -692,16 +638,6 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 </style></head><body><main><h1>@@NAME@@ Setup</h1>
 <p class="hint">Configure Wi-Fi connection and select your favorite teams in order of priority.</p>
 <form method="post" action="/save">
-<label for="network">Nearby Wi-Fi Networks</label>
-<select id="network" onchange="ssid.value=this.value"><option value="">Enter network manually</option>)html";
-  if (scanOptionsHtml.isEmpty()) {
-    // Scan still running at first render; the script below replaces this
-    // placeholder when /networks returns results.
-    page += R"html(<option disabled>Scanning for networks&hellip;</option>)html";
-  } else {
-    page += scanOptionsHtml;
-  }
-  page += R"html(</select>
 <label for="ssid">Wi-Fi Network Name</label><input id="ssid" name="ssid" value=")html";
   page += htmlEscape(savedSsid);
   page += R"html(" maxlength="32" autocomplete="off">
@@ -710,16 +646,16 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <hr>
 <h3>Favorite Team Priorities</h3>
 <p class="hint">Pick at least one team &mdash; until you do, the scoreboard stays on its setup screen.</p>
-<label for="team1">Priority 1 Team (Primary)</label><select id="team1" name="team1">)html";
-  page += buildTeamOptionsHtml(prefTeam1);
-  page += R"html(</select>
-<label for="team2">Priority 2 Team</label><select id="team2" name="team2">)html";
-  page += buildTeamOptionsHtml(prefTeam2);
-  page += R"html(</select>
-<label for="team3">Priority 3 Team</label><select id="team3" name="team3">)html";
-  page += buildTeamOptionsHtml(prefTeam3);
-  page += R"html(</select>
-<hr><h3>Display Time Zone</h3>
+)html";
+  for (int i = 0; i < SB_MAX_PREFERRED_TEAMS; ++i) {
+    page += "<label for=\"team" + String(i + 1) + "\">Priority " +
+            String(i + 1) + " Team" + (i == 0 ? " (Primary)" : "") +
+            "</label><select id=\"team" + String(i + 1) + "\" name=\"team" +
+            String(i + 1) + "\">";
+    page += buildTeamOptionsHtml(prefTeams[i]);
+    page += "</select>";
+  }
+  page += R"html(<hr><h3>Display Time Zone</h3>
 <label for="tz">Used for game times, countdowns, and the idle clock</label>
 <select id="tz" name="tz">)html";
   page += buildTzOptionsHtml(tzString.c_str());
@@ -773,8 +709,13 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <hr><h3>Manual Mode</h3>
 <p class="hint">Full manual control: clock countdown, scores, period, penalty LEDs, shots — from a dedicated page.</p>
 <button type="button" onclick="location.href='/manual'">Open Manual Mode</button>
+<hr><h3>Demo Mode</h3>
+<p class="hint">Show a simulated live game on the scoreboard, including the game clock, scores, shots, penalties, and goal display.</p>
+<button id="demoStart" type="button" style="margin-top:8px" onclick="setDemo(true)">Start Game Demo</button>
+<button id="demoStop" type="button" style="margin-top:8px;background:#2a5daf;color:#fff;display:none" onclick="setDemo(false)">Stop Game Demo</button>
+<p class="hint" id="demoStatus">Demo is stopped.</p>
 <hr><h3>Diagnostics</h3>
-<p class="hint">Battery voltage and remaining charge, the screen self-test, the audio test, and the game demo.</p>
+<p class="hint">Battery voltage and remaining charge, the screen self-test, and the audio test.</p>
 <button type="button" style="margin-top:8px" onclick="location.href='/diag'">Open Diagnostics</button>
 <hr><h3>Firmware Update</h3>
 <p class="hint">Installed: )html" + String(FIRMWARE_VERSION) + R"html(. Update checks run automatically at boot — power-cycle the board to check and install.</p>
@@ -787,21 +728,9 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <p><a style="color:#f5c400" href="mailto:)html" + String(SUPPORT_EMAIL) + R"html(">)html" + String(SUPPORT_EMAIL) + R"html(</a></p>
 <p><a style="color:#f5c400" href=")html" + String(SUPPORT_WEBSITE_URL) + R"html(">)html" + String(SUPPORT_WEBSITE_URL) + R"html(</a></p>
 <script>
-var netSel=document.getElementById('network');
-var netTries=0;
-var netPoll=setInterval(function(){
-  fetch('/networks').then(function(r){return r.text()}).then(function(h){
-    if(h.indexOf('<option')>=0){
-      var cur=netSel.value;
-      netSel.innerHTML='<option value="">Enter network manually</option>'+h;
-      for(var i=0;i<netSel.options.length;i++){if(netSel.options[i].value===cur){netSel.value=cur;break}}
-      clearInterval(netPoll);
-    } else if(++netTries>=10){
-      netSel.innerHTML='<option value="">Enter network manually</option><option disabled>No networks found &mdash; enter name below</option>';
-      clearInterval(netPoll);
-    }
-  }).catch(function(){if(++netTries>=10)clearInterval(netPoll)});
-},2000);
+function setDemo(running){fetch(running?'/demo/start':'/demo/stop',{method:'POST'}).then(function(r){if(!r.ok)throw new Error('request failed');paintDemo(running)}).catch(function(){document.getElementById('demoStatus').textContent='Demo request failed.'})}
+function paintDemo(running){document.getElementById('demoStart').style.display=running?'none':'block';document.getElementById('demoStop').style.display=running?'block':'none';document.getElementById('demoStatus').textContent=running?'Game demo is running on the scoreboard.':'Demo is stopped.'}
+fetch('/demo/status').then(function(r){return r.json()}).then(function(s){paintDemo(s.running)}).catch(function(){document.getElementById('demoStatus').textContent='Unable to read demo status.'});
 setInterval(function(){fetch('/ota/status').then(function(r){return r.json()}).then(function(s){var e=document.getElementById('otaStatus');
 if(s.stage==='DOWNLOADING'){e.textContent='Downloading update '+s.progress+'% - watch the scoreboard; do not power off.'}
 else if(s.stage==='REBOOTING'){e.textContent='Update installed - rebooting...'}
@@ -884,11 +813,6 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <hr><h3>Audio Test</h3>
 <p class="hint">Plays the goal horn over the speaker.</p>
 <button type="button" onclick="atest()">Play Test Audio</button>
-<hr><h3>Game Demo</h3>
-<p class="hint">Show a simulated live game on the scoreboard, including the game clock, scores, shots, penalties, and goal display.</p>
-<button id="demoStart" type="button" style="margin-top:8px" onclick="setDemo(true)">Start Game Demo</button>
-<button id="demoStop" type="button" style="margin-top:8px;background:#2a5daf;color:#fff;display:none" onclick="setDemo(false)">Stop Game Demo</button>
-<p class="hint" id="demoStatus">Demo is stopped.</p>
 <hr><h3>Board Version</h3>
 <form method="post" action="/save">
 <label for="board-version">Select the wiring used by this scoreboard</label>
@@ -919,9 +843,6 @@ function dtest(){document.getElementById('dtestStatus').textContent='Running - w
 function btest(){var e=document.getElementById('btestStatus');e.textContent='Running \u2014 watch the displays and listen for the horn...';fetch('/board/test',{method:'POST'}).then(function(r){return r.json()}).then(function(s){var b=s.battery||{};var t;if(!b.equipped){t='Battery sense: not equipped (V1.1 boards only).'}else if(b.ok){t='Battery sense: '+b.volts.toFixed(2)+' V \u2014 OK.'}else{t='Battery sense: CHECK FAILED ('+(b.volts!=null?b.volts.toFixed(2)+' V':'no reading')+') \u2014 pack missing or sense wiring fault.'}e.textContent=t+' Displays and horn: verify by eye and ear.'}).catch(function(){document.getElementById('btestStatus').textContent='Request failed.'})}
 function atest(){fetch('/audio/test',{method:'POST'})}
 function frst(){if(!confirm('Factory reset wipes ALL settings, including Wi-Fi, and reboots the board into setup mode. Continue?'))return;document.getElementById('frStatus').textContent='Resetting \u2014 the board is rebooting. Its setup Wi-Fi hotspot comes back up in a few moments.';fetch('/factory/reset',{method:'POST'}).catch(function(){})}
-function setDemo(running){fetch(running?'/demo/start':'/demo/stop',{method:'POST'}).then(function(r){if(!r.ok)throw new Error('request failed');paintDemo(running)}).catch(function(){document.getElementById('demoStatus').textContent='Demo request failed.'})}
-function paintDemo(running){document.getElementById('demoStart').style.display=running?'none':'block';document.getElementById('demoStop').style.display=running?'block':'none';document.getElementById('demoStatus').textContent=running?'Game demo is running on the scoreboard.':'Demo is stopped.'}
-fetch('/demo/status').then(function(r){return r.json()}).then(function(s){paintDemo(s.running)}).catch(function(){document.getElementById('demoStatus').textContent='Unable to read demo status.'});
 </script>
 </main></body></html>)html";
   page.replace("@@NAME@@", netBranding.deviceName);
@@ -1229,9 +1150,7 @@ void handleTriviaExit() {
 // ---- Multiplayer trivia ----
 // Player traffic marks portal activity on purpose (opposite of the solo
 // controller policy): a full party of polling phones wants the feeds
-// paused and the radio free. refreshScanCache() is gated off during
-// trivia mode, so the always-fresh activity window can't kick a
-// channel-hopping scan mid-question.
+// paused and the radio to itself.
 
 // The join page served to players' phones (short path — this URL gets
 // SMS'd around).
@@ -1337,9 +1256,16 @@ void saveNetwork() {
   }
   pendingSsid = server.arg("ssid");
   pendingPassword = server.arg("password");
-  if (server.hasArg("team1")) prefTeam1 = server.arg("team1").toInt();
-  if (server.hasArg("team2")) prefTeam2 = server.arg("team2").toInt();
-  if (server.hasArg("team3")) prefTeam3 = server.arg("team3").toInt();
+  char teamKey[8];
+  for (int i = 0; i < SB_MAX_PREFERRED_TEAMS; ++i) {
+    snprintf(teamKey, sizeof(teamKey), "team%d", i + 1);
+    if (server.hasArg(teamKey)) prefTeams[i] = server.arg(teamKey).toInt();
+  }
+  String teamList;
+  for (int i = 0; i < SB_MAX_PREFERRED_TEAMS; ++i) {
+    if (i) teamList += ',';
+    teamList += String(prefTeams[i]);
+  }
   clockDisplayEnabled = server.hasArg("show_clock");
   audioEnabled = server.hasArg("audio_en");
   hibernateEnabled = server.hasArg("hibernate");
@@ -1382,9 +1308,10 @@ void saveNetwork() {
 
   // Team/timezone preferences always persist; credentials only when they changed.
   preferences.begin("network", false);
-  preferences.putInt("team1", prefTeam1);
-  preferences.putInt("team2", prefTeam2);
-  preferences.putInt("team3", prefTeam3);
+  for (int i = 0; i < SB_MAX_PREFERRED_TEAMS; ++i) {
+    snprintf(teamKey, sizeof(teamKey), "team%d", i + 1);
+    preferences.putInt(teamKey, prefTeams[i]);
+  }
   preferences.putBool("show_clock", clockDisplayEnabled);
   preferences.putBool("audio_en", audioEnabled);
   preferences.putBool("hibernate", hibernateEnabled);
@@ -1426,8 +1353,8 @@ main{max-width:420px;margin:8vh auto;padding:28px;background:#0b2b62;border:2px 
   }
 
   if (!networkChanging) {
-    Serial.printf("[NET] Preferences-only save: teams=[%d, %d, %d] tz=%s board=%d (network untouched)\n",
-                  prefTeam1, prefTeam2, prefTeam3, tzString.c_str(),
+    Serial.printf("[NET] Preferences-only save: teams=[%s] tz=%s board=%d (network untouched)\n",
+                  teamList.c_str(), tzString.c_str(),
                   selectedBoardVersion);
     String response = R"html(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Saved</title><style>body{margin:0;background:#061b46;color:#fff;font:16px system-ui,sans-serif}
@@ -1464,7 +1391,7 @@ main{max-width:420px;margin:8vh auto;padding:28px;background:#0b2b62;border:2px 
 if(s.state==='online'){document.getElementById('status').textContent='Connected! The scoreboard is going online.'}
 else if(s.state==='provisioning'){document.getElementById('status').textContent='Could not connect or no internet. Check the password and try again.'}
 })},2000)</script></main></body></html>)html");
-  Serial.printf("Saved network '%s' and Teams [%d, %d, %d]\n", pendingSsid.c_str(), prefTeam1, prefTeam2, prefTeam3);
+  Serial.printf("Saved network '%s' and Teams [%s]\n", pendingSsid.c_str(), teamList.c_str());
 }
 
 
@@ -1566,7 +1493,6 @@ void handleUpdateResult() {
 
 void registerPortalRoutes() {
   server.on("/", HTTP_GET, servePortal);
-  server.on("/networks", HTTP_GET, serveNetworks);
   server.on("/status", HTTP_GET, serveStatus);
   server.on("/config", HTTP_GET, serveConfig);
   server.on("/save", HTTP_POST, saveNetwork);
@@ -1689,8 +1615,11 @@ bool getConnectProgress(ConnectProgress& out) {
 }
 
 bool teamSetupPending() {
-  return netTeamOptionCount > 0 &&
-         prefTeam1 == 0 && prefTeam2 == 0 && prefTeam3 == 0;
+  if (netTeamOptionCount == 0) return false;
+  for (int i = 0; i < SB_MAX_PREFERRED_TEAMS; ++i) {
+    if (prefTeams[i] != 0) return false;
+  }
+  return true;
 }
 
 bool portalEngaged() {
@@ -1814,10 +1743,10 @@ const char* getTzString() {
   return tzString.c_str();
 }
 
-void getPreferredTeamIds(int outTeamIds[3]) {
-  outTeamIds[0] = prefTeam1;
-  outTeamIds[1] = prefTeam2;
-  outTeamIds[2] = prefTeam3;
+void getPreferredTeamIds(int outTeamIds[SB_MAX_PREFERRED_TEAMS]) {
+  for (int i = 0; i < SB_MAX_PREFERRED_TEAMS; ++i) {
+    outTeamIds[i] = prefTeams[i];
+  }
 }
 
 
@@ -1901,7 +1830,6 @@ void handleNetworkServices() {
   if (otaStarted) {
     ArduinoOTA.handle();
   }
-  refreshScanCache();
   runNetworkStateMachine();
 }
 
