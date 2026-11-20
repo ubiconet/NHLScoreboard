@@ -98,6 +98,6 @@ is a folder under `src/sports/` that implements the `sport::` contract
 5. Build, USB-flash, walk through the setup portal, and run a live-game
    session against your feed.
 
-Notes for the port: NVS keys (`ssid`, `team1..3`, `show_clock`) are shared
+Notes for the port: NVS keys (`ssid`, `team1..5`, `show_clock`) are shared
 by design so a re-purposed board keeps its Wi-Fi; team ids are league-local,
 so clear/re-pick teams in the portal after re-flashing a board.

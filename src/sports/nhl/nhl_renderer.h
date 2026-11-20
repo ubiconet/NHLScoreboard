@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
+#include "config.h"  // SB_MAX_PREFERRED_TEAMS
 #include "nhl_snapshot.h"
 
 // NHL renderer API (split across nhl_renderer_linescore.cpp and
@@ -78,7 +79,7 @@ void invalidateManualScreen();
 // with NHL news stories (rotated by rotateCarousel()); clears
 // matrices/LEDs on entry. Cards are rebuilt from nhl_state's schedule
 // cache under its read lock.
-void renderWaiting(const int preferredTeamIds[3]);
+void renderWaiting(const int preferredTeamIds[SB_MAX_PREFERRED_TEAMS]);
 
 // Rotates the waiting-mode carousel (and the live ticker) when its dwell
 // time has elapsed.

@@ -44,7 +44,7 @@ const size_t NHL_TEAM_TABLE_COUNT = sizeof(NHL_TEAM_TABLE) / sizeof(NHL_TEAM_TAB
 // Fresh installs start with no preferred teams (id 0 = slot unused); the
 // setup portal is the first thing a new board shows, so the user picks
 // their own priorities rather than inheriting ours.
-const int NHL_DEFAULT_PREFERRED_TEAMS[3] = {0, 0, 0};
+const int NHL_DEFAULT_PREFERRED_TEAMS[SB_MAX_PREFERRED_TEAMS] = {0};
 
 const char* nhlTeamAbbrev(int id, const char* fallbackStr) {
   for (size_t i = 0; i < NHL_TEAM_TABLE_COUNT; ++i) {

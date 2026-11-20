@@ -141,7 +141,25 @@ The same pass counts goals per `teamAbbrev` per period group (the group's
 `periodDescriptor` is part of the filter) to build the per-period
 linescore strip, and `summary.threeStars[]` (name, sweater number, team,
 G/A) feeds the postgame three-stars screen — that array is only populated
-at or near game end.
+at or near game end. Each goal's `timeInPeriod` (elapsed `MM:SS`),
+`strength` (`ev`/`pp`/`sh`) and `goalModifier` (`none`, `empty-net`,
+`penalty-shot`) are kept too: they build the scoring-summary pages shown
+between periods and after the final.
+
+During an intermission `periodDescriptor.number` stays on the period just
+played and `clock` carries the break countdown (`inIntermission: true`);
+the board shows 0:00 and holds that period on the period matrix.
+
+### `GET /v1/gamecenter/{id}/right-rail` — team comparison *(break-time stats)*
+
+~4.5 KB. `teamGameStats[]` is a list of `{category, awayValue, homeValue}`
+rows: `sog`, `faceoffWinningPctg` (fraction, e.g. `0.585714`),
+`faceoffWins` (`"41/70"`), `powerPlay` (`"1/2"`), `powerPlayPctg`, `pim`,
+`hits`, `blockedShots`, `giveaways`, `takeaways` — values are numbers or
+strings depending on the category. Also carries `linescore`,
+`shotsByPeriod`, `seasonSeries`, `gameInfo`. The data task requests it
+**once per intermission and once at the final** (not on the 5 s poll) for
+the team-stats page; a failed fetch retries after 30 s.
 
 `situationCode` encodes strength as four digits —
 `[awayGoalies][awaySkaters][homeSkaters][homeGoalies]`, e.g. `"1551"` = 5v5

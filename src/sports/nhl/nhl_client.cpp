@@ -91,6 +91,9 @@ void buildLandingFilter(JsonDocument& filter) {
   goal["sweaterNumber"] = true;
   goal["homeScore"] = true;
   goal["awayScore"] = true;
+  goal["timeInPeriod"] = true;   // scoring-summary pages
+  goal["strength"] = true;
+  goal["goalModifier"] = true;
   JsonArray assists = goal["assists"].to<JsonArray>();
   JsonObject assist = assists.add<JsonObject>();
   assist["playerId"] = true;
@@ -101,7 +104,7 @@ void buildLandingFilter(JsonDocument& filter) {
   JsonObject star = stars.add<JsonObject>();
   star["sweaterNo"] = true;
   star["name"]["default"] = true;
-  star["teamAbbrev"]["default"] = true;
+  star["teamAbbrev"] = true;  // plain string here (not a {default} object)
   star["goals"] = true;
   star["assists"] = true;
 }
@@ -237,6 +240,31 @@ bool fetchNhlGameLanding(JsonDocument& doc, long gameId) {
   http_fetch::releaseBodyBuffer();
   if (err) {
     DBG_PRINTF("[NHL] landing parse error: %s\n", err.c_str());
+    return false;
+  }
+  return true;
+}
+
+bool fetchNhlGameTeamStats(JsonDocument& doc, long gameId) {
+  String url = String(NHL_API_BASE) + "/gamecenter/" + String(gameId) +
+               "/right-rail";
+  doc.clear();
+  http_fetch::releaseBodyBuffer();
+
+  int code = http_fetch::getSecure(url, 8000);
+  http_fetch::logCall("nhl_team_stats", code);
+  if (code != HTTP_CODE_OK) return false;
+
+  JsonDocument filter;
+  JsonArray stats = filter["teamGameStats"].to<JsonArray>();
+  JsonObject row = stats.add<JsonObject>();
+  row["category"] = true;
+  row["awayValue"] = true;
+  row["homeValue"] = true;
+  DeserializationError err = http_fetch::parseBody(doc, &filter);
+  http_fetch::releaseBodyBuffer();
+  if (err) {
+    DBG_PRINTF("[NHL] team stats parse error: %s\n", err.c_str());
     return false;
   }
   return true;

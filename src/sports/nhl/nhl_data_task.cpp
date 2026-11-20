@@ -131,6 +131,22 @@ GameSnapshot landingToSnapshot(JsonObjectConst d, long gameId) {
         if (strcmp(team, s.homeAbbrev) == 0) ++s.homePeriodGoals[col];
         else if (strcmp(team, s.awayAbbrev) == 0) ++s.awayPeriodGoals[col];
       }
+      NhlGoalLine line{};
+      line.period = (uint8_t)pNum;
+      strlcpy(line.periodType, pType[0] != '\0' ? pType : "REG",
+              sizeof(line.periodType));
+      strlcpy(line.time, goal["timeInPeriod"] | "", sizeof(line.time));
+      strlcpy(line.teamAbbrev, team, sizeof(line.teamAbbrev));
+      strlcpy(line.name, goal["name"]["default"] | "", sizeof(line.name));
+      const char* modifier = goal["goalModifier"] | "";
+      const char* strength = goal["strength"] | "";
+      const char* tag = "";
+      if (strcmp(modifier, "empty-net") == 0) tag = "EN";
+      else if (strcmp(modifier, "penalty-shot") == 0) tag = "PS";
+      else if (strcmp(strength, "pp") == 0) tag = "PP";
+      else if (strcmp(strength, "sh") == 0) tag = "SH";
+      strlcpy(line.tag, tag, sizeof(line.tag));
+      if (line.name[0] != '\0') appendGoalLine(s, line);
       if ((goal["homeScore"] | -1) != s.homeScore ||
           (goal["awayScore"] | -1) != s.awayScore) {
         continue;
@@ -172,7 +188,12 @@ GameSnapshot landingToSnapshot(JsonObjectConst d, long gameId) {
     if (stars >= 3) break;
     NhlThreeStar& t = s.threeStars[stars++];
     strlcpy(t.name, star["name"]["default"] | "", sizeof(t.name));
-    strlcpy(t.teamAbbrev, star["teamAbbrev"]["default"] | "",
+    // teamAbbrev is a plain string on three-stars entries, unlike the
+    // {default} objects everywhere else in this feed.
+    JsonVariantConst starTeam = star["teamAbbrev"];
+    strlcpy(t.teamAbbrev,
+            starTeam.is<const char*>() ? starTeam.as<const char*>()
+                                       : (starTeam["default"] | ""),
             sizeof(t.teamAbbrev));
     t.number = star["sweaterNo"] | 0;
     t.goals = star["goals"] | 0;
@@ -500,6 +521,63 @@ void fetchStandingsIfDue(bool online) {
 // ADR-0002). Doubles per consecutive failure, capped, reset on success.
 uint32_t gLandingRetryInterval = NHL_LIVE_POLL_INTERVAL_MS;
 
+// ---- Break-time team stats (right-rail) ----
+// One fetch per break: the key is the period an intermission follows, or
+// kStatsKeyFinal once the game is over. The cached stats ride every
+// landing snapshot of the same game until the next break replaces them.
+const int kStatsKeyFinal = 100;
+NhlTeamStats gTeamStats{};
+long     gTeamStatsGameId = 0;
+int      gTeamStatsKey = -1;
+uint32_t gTeamStatsAttemptAt = 0;
+
+bool gameIsOver(const char* state) {
+  return strcmp(state, "FINAL") == 0 || strcmp(state, "OFF") == 0 ||
+         strcmp(state, "OVER") == 0;
+}
+
+// Returns true when fresh stats were fetched into the cache.
+bool refreshTeamStatsIfDue(JsonDocument& doc, const GameSnapshot& game) {
+  bool over = gameIsOver(game.gameState);
+  if (!over && !game.inIntermission) return false;
+  int key = over ? kStatsKeyFinal : game.period;
+  if (key == gTeamStatsKey) return false;
+  uint32_t now = millis();
+  if (gTeamStatsAttemptAt != 0 &&
+      (now - gTeamStatsAttemptAt) < NHL_TEAM_STATS_RETRY_MS) {
+    return false;
+  }
+  gTeamStatsAttemptAt = now;
+  if (!fetchNhlGameTeamStats(doc, game.gameId)) return false;
+
+  NhlTeamStats st{};
+  for (JsonObjectConst row : doc["teamGameStats"].as<JsonArrayConst>()) {
+    const char* cat = row["category"] | "";
+    if (strcmp(cat, "powerPlay") == 0) {
+      strlcpy(st.homePowerPlay, row["homeValue"] | "",
+              sizeof(st.homePowerPlay));
+      strlcpy(st.awayPowerPlay, row["awayValue"] | "",
+              sizeof(st.awayPowerPlay));
+      st.valid = true;
+    } else if (strcmp(cat, "faceoffWinningPctg") == 0) {
+      st.homeFaceoffPct = (int16_t)lroundf((row["homeValue"] | 0.0f) * 100);
+      st.awayFaceoffPct = (int16_t)lroundf((row["awayValue"] | 0.0f) * 100);
+    } else if (strcmp(cat, "hits") == 0) {
+      st.homeHits = row["homeValue"] | 0;
+      st.awayHits = row["awayValue"] | 0;
+      st.valid = true;
+    } else if (strcmp(cat, "blockedShots") == 0) {
+      st.homeBlocks = row["homeValue"] | 0;
+      st.awayBlocks = row["awayValue"] | 0;
+    }
+  }
+  if (!st.valid) return false;
+  gTeamStats = st;
+  gTeamStatsKey = key;
+  gTeamStatsAttemptAt = 0;
+  return true;
+}
+
 void fetchLandingIfDue(bool online) {
   static long lastGameId = 0;
   static int lastHomeScore = -1;
@@ -522,6 +600,13 @@ void fetchLandingIfDue(bool online) {
   }
   gLandingRetryInterval = NHL_LIVE_POLL_INTERVAL_MS;
   GameSnapshot game = landingToSnapshot(doc.as<JsonObjectConst>(), id);
+  if (id != gTeamStatsGameId) {
+    gTeamStatsGameId = id;
+    gTeamStats = NhlTeamStats{};
+    gTeamStatsKey = -1;
+    gTeamStatsAttemptAt = 0;
+  }
+  game.teamStats = gTeamStats;
   bool scoreIncreased = id == lastGameId &&
       (game.homeScore > lastHomeScore || game.awayScore > lastAwayScore);
   lastGameId = id;
@@ -553,6 +638,12 @@ void fetchLandingIfDue(bool online) {
     }
   }
   nhl_data::publishGame(game);
+  // The break snapshot goes out first (buzzer, 0:00, scoring pages); the
+  // stats fetch follows and republishes once it lands.
+  if (refreshTeamStatsIfDue(doc, game)) {
+    game.teamStats = gTeamStats;
+    nhl_data::publishGame(game);
+  }
 }
 
 void nhlDataTaskLoop(void*) {

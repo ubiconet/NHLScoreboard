@@ -24,8 +24,14 @@ bool fetchNhlWeekSchedule(JsonDocument& doc, const char* dateStr);
 bool fetchNhlStandings(JsonDocument& doc, const char* dateStr);
 
 // Live-game summary from /v1/gamecenter/{id}/landing (~11 KB, filtered):
-// gameState, periodDescriptor, clock, team score/sog, penalty summary.
+// gameState, periodDescriptor, clock, team score/sog, penalty summary,
+// scoring summary (scorer, time, strength) and three stars.
 bool fetchNhlGameLanding(JsonDocument& doc, long gameId);
+
+// Team comparison stats from /v1/gamecenter/{id}/right-rail (~4.5 KB):
+// teamGameStats[] {category, awayValue, homeValue}. Requested once per
+// intermission and once at the final for the break-time stats page.
+bool fetchNhlGameTeamStats(JsonDocument& doc, long gameId);
 
 // Filtered roster jersey numbers from /v1/gamecenter/{id}/play-by-play.
 // Requested only when a live-game score increases and the landing goal

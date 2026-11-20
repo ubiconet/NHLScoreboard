@@ -62,7 +62,9 @@ bool isUpcoming(const char* state) {
 // Only the teams selected in the portal get cards — each shows that
 // team's next game within the week look-ahead. With no teams selected
 // the carousel falls back to the league's next few games.
-const size_t MAX_UPCOMING_CARDS = 3;
+const size_t MAX_UPCOMING_CARDS = SB_MAX_PREFERRED_TEAMS;
+// League fallback (no teams selected): the next few games only.
+const size_t LEAGUE_FALLBACK_CARDS = 3;
 
 struct UpcomingCard {
   char awayAbbrev[4];
@@ -76,16 +78,19 @@ size_t sCardCount = 0;
 
 // Rebuilds the card list from the cached upcoming doc. Games without a
 // parseable start time are skipped.
-void buildUpcomingCards(JsonObjectConst sched, const int preferred[3]) {
+void buildUpcomingCards(JsonObjectConst sched, const int preferred[SB_MAX_PREFERRED_TEAMS]) {
   sCardCount = 0;
   JsonArrayConst games = sched["games"].as<JsonArrayConst>();
   if (games.isNull()) return;
-  bool anyPreferred = preferred[0] != 0 || preferred[1] != 0 ||
-                      preferred[2] != 0;
+  bool anyPreferred = false;
+  for (int p = 0; p < SB_MAX_PREFERRED_TEAMS; ++p) {
+    if (preferred[p] != 0) anyPreferred = true;
+  }
   if (anyPreferred) {
     // One card per followed team: its first upcoming game of the week,
     // in the doc's chronological order.
-    for (int p = 0; p < 3 && sCardCount < MAX_UPCOMING_CARDS; ++p) {
+    for (int p = 0;
+         p < SB_MAX_PREFERRED_TEAMS && sCardCount < MAX_UPCOMING_CARDS; ++p) {
       if (preferred[p] == 0) continue;
       for (JsonObjectConst g : games) {
         if (!isUpcoming(g["gameState"] | "")) continue;
@@ -110,7 +115,7 @@ void buildUpcomingCards(JsonObjectConst sched, const int preferred[3]) {
     return;
   }
   for (JsonObjectConst g : games) {
-    if (sCardCount >= MAX_UPCOMING_CARDS) break;
+    if (sCardCount >= LEAGUE_FALLBACK_CARDS) break;
     if (!isUpcoming(g["gameState"] | "")) continue;
     time_t start = 0;
     if (!isoDateToEpoch(g["startTimeUTC"] | "", start) || start == 0) continue;
@@ -551,7 +556,7 @@ const NewsStory& getNewsStory(size_t index) {
   return sNews[index % MAX_NEWS_STORIES];
 }
 
-void renderWaiting(const int preferredTeamIds[3]) {
+void renderWaiting(const int preferredTeamIds[SB_MAX_PREFERRED_TEAMS]) {
   nhl_render::hasCurrentLiveGame = false;
   nhl_render::invalidateLiveScreen();  // this paints over the live screen
   {

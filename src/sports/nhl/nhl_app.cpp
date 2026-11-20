@@ -37,8 +37,10 @@ enum class ScoreboardState {
 };
 ScoreboardState scoreboardState = ScoreboardState::WAITING;
 
-// Postgame grace: keep the final score on screen for a few minutes before
-// falling back to waiting mode.
+// Postgame grace: keep the final score and the postgame pages on screen
+// for NHL_POSTGAME_GRACE_MS before falling back to waiting mode (another
+// preferred team's live game takes over sooner — see the selection in
+// tick()).
 uint32_t postgameGraceStartedAt = 0;
 
 uint32_t sLastGameGen     = 0;
@@ -50,6 +52,24 @@ GameSnapshot sLastGame{};
 GameSnapshot sDemoGame{};
 uint32_t sDemoStartedAtMs = 0;
 uint32_t sDemoLastSecond = UINT32_MAX;
+
+// Demo timeline: the rest of period 2, a short intermission (so the
+// break pages are bench-visible), then period 3 and looping overtime.
+const uint32_t kDemoPeriod2Sec = 12 * 60 + 34;
+const uint32_t kDemoBreakSec = 90;
+
+void addDemoGoalLine(int period, const char* periodType, int elapsedInPeriod,
+                     const char* team, const char* name, const char* tag) {
+  NhlGoalLine line{};
+  line.period = (uint8_t)period;
+  strlcpy(line.periodType, periodType, sizeof(line.periodType));
+  snprintf(line.time, sizeof(line.time), "%02d:%02d",
+           (elapsedInPeriod / 60) % 100, elapsedInPeriod % 60);
+  strlcpy(line.teamAbbrev, team, sizeof(line.teamAbbrev));
+  strlcpy(line.name, name, sizeof(line.name));
+  strlcpy(line.tag, tag, sizeof(line.tag));
+  appendGoalLine(sDemoGame, line);
+}
 
 // Selectable goal horns, id order matching kHornOptions below. Id 0 is the
 // classic clip; 1-4 are arena goal-horn recordings from thefaceoff.net's
@@ -117,6 +137,22 @@ void startGameDemo(uint32_t nowMs) {
   sDemoGame.homePeriodGoals[1] = 1;
   sDemoGame.awayPeriodGoals[0] = 2;
   sDemoGame.awayPeriodGoals[1] = 1;
+  addDemoGoalLine(1, "REG", 4 * 60 + 12, "EDM", "C. McDavid", "");
+  addDemoGoalLine(1, "REG", 9 * 60 + 47, "TOR", "A. Matthews", "PP");
+  addDemoGoalLine(1, "REG", 16 * 60 + 5, "EDM", "L. Draisaitl", "");
+  addDemoGoalLine(2, "REG", 2 * 60 + 31, "TOR", "W. Nylander", "");
+  addDemoGoalLine(2, "REG", 6 * 60 + 18, "EDM", "Z. Hyman", "PP");
+  sDemoGame.teamStats.valid = true;
+  strlcpy(sDemoGame.teamStats.homePowerPlay, "1/2",
+          sizeof(sDemoGame.teamStats.homePowerPlay));
+  strlcpy(sDemoGame.teamStats.awayPowerPlay, "1/3",
+          sizeof(sDemoGame.teamStats.awayPowerPlay));
+  sDemoGame.teamStats.homeFaceoffPct = 53;
+  sDemoGame.teamStats.awayFaceoffPct = 47;
+  sDemoGame.teamStats.homeHits = 18;
+  sDemoGame.teamStats.awayHits = 21;
+  sDemoGame.teamStats.homeBlocks = 9;
+  sDemoGame.teamStats.awayBlocks = 12;
   sDemoStartedAtMs = nowMs;
   sDemoLastSecond = 0;
   forceLiveRepaint(sDemoGame);
@@ -127,11 +163,16 @@ bool advanceGameDemo(uint32_t nowMs) {
   if (elapsedSec == sDemoLastSecond) return false;
   sDemoLastSecond = elapsedSec;
 
-  if (elapsedSec < 12 * 60 + 34) {
+  bool intermission = false;
+  if (elapsedSec < kDemoPeriod2Sec) {
     sDemoGame.period = 2;
-    sDemoGame.clockSec = 12 * 60 + 34 - elapsedSec;
+    sDemoGame.clockSec = kDemoPeriod2Sec - elapsedSec;
+  } else if (elapsedSec < kDemoPeriod2Sec + kDemoBreakSec) {
+    intermission = true;
+    sDemoGame.period = 2;
+    sDemoGame.clockSec = 0;
   } else {
-    uint32_t afterPeriod = elapsedSec - (12 * 60 + 34);
+    uint32_t afterPeriod = elapsedSec - kDemoPeriod2Sec - kDemoBreakSec;
     uint32_t completedPeriods = afterPeriod / 1200;
     if (completedPeriods == 0) {
       sDemoGame.period = 3;
@@ -144,13 +185,16 @@ bool advanceGameDemo(uint32_t nowMs) {
     }
   }
 
+  sDemoGame.inIntermission = intermission;
+  sDemoGame.clockRunning = !intermission;
+
   sDemoGame.homeSog = 20 + (elapsedSec / 8);
   sDemoGame.awaySog = 23 + (elapsedSec / 7);
   if (sDemoGame.homeSog > 99) sDemoGame.homeSog = 99;
   if (sDemoGame.awaySog > 99) sDemoGame.awaySog = 99;
 
   uint32_t penaltyCycle = elapsedSec / 24;
-  bool penaltyActive = (penaltyCycle % 2) != 0;
+  bool penaltyActive = !intermission && (penaltyCycle % 2) != 0;
   sDemoGame.penaltyCount = penaltyActive ? 1 : 0;
   sDemoGame.homePenaltyCount = 0;
   sDemoGame.awayPenaltyCount = 0;
@@ -169,7 +213,7 @@ bool advanceGameDemo(uint32_t nowMs) {
     penalty.durMin = 2;
   }
 
-  bool goalScored = elapsedSec != 0 && elapsedSec % 20 == 0;
+  bool goalScored = !intermission && elapsedSec != 0 && elapsedSec % 20 == 0;
   bool homeScored = false;
   if (goalScored) {
     homeScored = ((elapsedSec / 20) % 2) == 0;
@@ -193,6 +237,10 @@ bool advanceGameDemo(uint32_t nowMs) {
     strlcpy(goal.scorer.name, homeScored ? "AUSTON MATTHEWS"
                                          : "CONNOR MCDAVID",
             sizeof(goal.scorer.name));
+    addDemoGoalLine(sDemoGame.period, sDemoGame.periodType,
+                    (sDemoGame.period <= 3 ? 1200 : 300) - sDemoGame.clockSec,
+                    homeScored ? "TOR" : "EDM",
+                    homeScored ? "A. Matthews" : "C. McDavid", "");
   }
 
   renderLiveGame(sDemoGame);
@@ -209,8 +257,8 @@ bool advanceGameDemo(uint32_t nowMs) {
 // progress (LIVE/CRIT). Selection deliberately reads only the day-slate
 // snapshot: the data task polls a landing feed only after we set the
 // followed-game id here, so selection must never depend on that feed.
-long selectLiveGameId(const ScheduleSnapshot& sch, const int preferred[3]) {
-  for (int p = 0; p < 3; ++p) {
+long selectLiveGameId(const ScheduleSnapshot& sch, const int preferred[SB_MAX_PREFERRED_TEAMS]) {
+  for (int p = 0; p < SB_MAX_PREFERRED_TEAMS; ++p) {
     int teamId = preferred[p];
     if (teamId == 0) continue;
     for (size_t i = 0; i < sch.count; ++i) {
@@ -258,7 +306,7 @@ void restoreDisplaysFromHibernate() {
 // definition; feeds keep publishing on core 0 and land right after).
 void runDisplayTestCycle() {
   Serial.println("[TEST] display test cycle (portal)");
-  int preferred[3];
+  int preferred[SB_MAX_PREFERRED_TEAMS];
   getPreferredTeamIds(preferred);
 
   // Screen banner
@@ -559,7 +607,7 @@ void tick(const SportTickContext& ctx) {
   }
   if (sInDemo) {
     sInDemo = false;
-    int preferred[3];
+    int preferred[SB_MAX_PREFERRED_TEAMS];
     getPreferredTeamIds(preferred);
     if (scoreboardState == ScoreboardState::LIVE_GAME && sLastGame.valid) {
       forceLiveRepaint(sLastGame);
@@ -586,7 +634,7 @@ void tick(const SportTickContext& ctx) {
   if (sInManual) {
     sInManual = false;
     // Manual mode handed the display back — repaint whatever was showing.
-    int preferred[3];
+    int preferred[SB_MAX_PREFERRED_TEAMS];
     getPreferredTeamIds(preferred);
     if (scoreboardState == ScoreboardState::LIVE_GAME && sLastGame.valid) {
       forceLiveRepaint(sLastGame);
@@ -610,7 +658,7 @@ void tick(const SportTickContext& ctx) {
   if (sInTrivia) {
     sInTrivia = false;
     // Trivia mode handed the display back — repaint whatever was showing.
-    int preferred[3];
+    int preferred[SB_MAX_PREFERRED_TEAMS];
     getPreferredTeamIds(preferred);
     if (scoreboardState == ScoreboardState::LIVE_GAME && sLastGame.valid) {
       forceLiveRepaint(sLastGame);
@@ -637,7 +685,7 @@ void tick(const SportTickContext& ctx) {
     long wakeGameId = 0;
     ScheduleSnapshot sch{};
     if (takeScheduleSnapshot(sch, sLastScheduleGen) && sch.valid) {
-      int preferred[3];
+      int preferred[SB_MAX_PREFERRED_TEAMS];
       getPreferredTeamIds(preferred);
       wakeGameId = selectLiveGameId(sch, preferred);
     }
@@ -662,7 +710,7 @@ void tick(const SportTickContext& ctx) {
         if (sLastGame.valid && sLastGame.gameId == wakeGameId) {
           forceLiveRepaint(sLastGame);
         } else {
-          int preferred[3];
+          int preferred[SB_MAX_PREFERRED_TEAMS];
           getPreferredTeamIds(preferred);
           renderWaiting(preferred);  // placeholder until the first landing snapshot
           sLastScheduleRenderAt = ctx.nowMs;
@@ -708,7 +756,7 @@ void tick(const SportTickContext& ctx) {
   tickLiveClock();  // game clock counts down between the 5 s polls
 
   if (consumeScoreboardRelease()) {
-    int preferredTeams[3];
+    int preferredTeams[SB_MAX_PREFERRED_TEAMS];
     getPreferredTeamIds(preferredTeams);
     scoreboardState = ScoreboardState::WAITING;
     setActiveGameId(0);
@@ -721,7 +769,7 @@ void tick(const SportTickContext& ctx) {
   }
 
   uint32_t now = ctx.nowMs;
-  int preferredTeams[3];
+  int preferredTeams[SB_MAX_PREFERRED_TEAMS];
   getPreferredTeamIds(preferredTeams);
 
   // Idle clock lives on the TM1637 only — the score matrices stay dark
@@ -788,7 +836,7 @@ void tick(const SportTickContext& ctx) {
         // Goal horn fires only when one of the user's own teams scored
         // (the matrix score blink fires for either side).
         bool favorite = false;
-        for (int i = 0; i < 3 && !favorite; ++i) {
+        for (int i = 0; i < SB_MAX_PREFERRED_TEAMS && !favorite; ++i) {
           if (preferredTeams[i] == 0) continue;
           if (homeScored && game.homeTeamId == preferredTeams[i]) favorite = true;
           if (awayScored && game.awayTeamId == preferredTeams[i]) favorite = true;

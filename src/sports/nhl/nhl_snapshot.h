@@ -43,6 +43,28 @@ struct NhlThreeStar {
   int  goals, assists;
 };
 
+// One goal of the followed game (landing summary.scoring), in game order —
+// the intermission/postgame scoring pages list these.
+struct NhlGoalLine {
+  uint8_t period;      // periodDescriptor.number
+  char periodType[4];  // REG/OT/SO
+  char time[6];        // "MM:SS" elapsed in the period
+  char teamAbbrev[4];
+  char name[20];       // "F. Nazar"
+  char tag[3];         // "PP"/"SH"/"EN"/"PS", "" at even strength
+};
+static const size_t NHL_MAX_GOAL_LINES = 18;
+
+// Team comparison from /v1/gamecenter/{id}/right-rail teamGameStats —
+// fetched once per intermission and once at the final, not on the 5 s poll.
+struct NhlTeamStats {
+  bool valid;
+  char homePowerPlay[6], awayPowerPlay[6];  // "1/2" goals/opportunities
+  int16_t homeFaceoffPct, awayFaceoffPct;   // whole percent
+  int16_t homeHits, awayHits;
+  int16_t homeBlocks, awayBlocks;
+};
+
 // Live-game state from /v1/gamecenter/{id}/landing (5 s poll).
 struct GameSnapshot {
   bool  valid;
@@ -68,7 +90,21 @@ struct GameSnapshot {
   bool  otColumn, soColumn;
   NhlThreeStar threeStars[3];
   uint8_t threeStarCount;
+  NhlGoalLine goals[NHL_MAX_GOAL_LINES];  // game order, oldest first
+  uint8_t goalCount;
+  NhlTeamStats teamStats;
 };
+
+// Appends a goal line; a full list drops its oldest entry so the most
+// recent goals always survive.
+static inline void appendGoalLine(GameSnapshot& s, const NhlGoalLine& line) {
+  if (s.goalCount >= NHL_MAX_GOAL_LINES) {
+    memmove(&s.goals[0], &s.goals[1],
+            (NHL_MAX_GOAL_LINES - 1) * sizeof(NhlGoalLine));
+    s.goalCount = NHL_MAX_GOAL_LINES - 1;
+  }
+  s.goals[s.goalCount++] = line;
+}
 
 // One game from the day slate (/v1/score/{date}).
 struct NhlDayGame {

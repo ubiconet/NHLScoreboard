@@ -11,6 +11,12 @@
 // Serial
 static const uint32_t SERIAL_BAUD_RATE = 115200;
 
+// Preferred-team priority slots the setup portal offers (dropdowns
+// "team1".."teamN", NVS keys of the same names). EVERY array of team ids
+// crossing the framework/sport boundary is this long — including the
+// sport's default list.
+static const int SB_MAX_PREFERRED_TEAMS = 5;
+
 // Compile-time debug log gate. Set to 0 in production builds to drop the
 // per-tick [DISPLAY]/[API CALL] printf noise (a Serial.printf at 115200 baud
 // stalls the loop ~25 ms — measurable against the 5s poll cadence). Enable by

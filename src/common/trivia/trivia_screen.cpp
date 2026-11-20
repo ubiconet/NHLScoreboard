@@ -286,20 +286,20 @@ void drawLobby(const TriviaView& v) {
   c.fillScreen(COLOR_BG);
   drawHeader(v);
   if (v.mp) {
+    // Party lobby: the join QR is the point of the screen — big, on the
+    // right, under the call to action; sign-ups tally on the left.
     c.setTextColor(COLOR_GOLD);
     c.setTextSize(3);
-    drawCenteredText(c, "TRIVIA NIGHT", 160, 36);
+    drawCenteredText(c, "JOIN THE GAME!", 160, 28);
     c.setTextSize(2);
-    c.setTextColor(COLOR_MUTED);
-    drawWrappedText(c, "Players: join with the link your host "
-                       "shared, or scan the code.",
-                    8, 76, 190, 12, 17, 4);
+    c.setTextColor(ST77XX_WHITE);
+    drawWrappedText(c, "Scan with your phone to play", 8, 66, 158, 12, 17, 3);
     // Live sign-up count + the names so far.
     char count[20];
     snprintf(count, sizeof(count), "%u PLAYER%s IN", v.playerCount,
              v.playerCount == 1 ? "" : "S");
     c.setTextColor(v.playerCount > 0 ? COLOR_GOLD : COLOR_MUTED);
-    c.setCursor(8, 148);
+    c.setCursor(8, 128);
     c.print(count);
     if (v.playerCount > 0) {
       char names[96] = {};
@@ -314,11 +314,11 @@ void drawLobby(const TriviaView& v) {
       }
       c.setTextSize(1);
       c.setTextColor(COLOR_MUTED);
-      drawWrappedText(c, names, 8, 170, 190, 6, 12, 3);
+      drawWrappedText(c, names, 8, 150, 158, 6, 12, 4);
     }
     c.setTextSize(2);
     c.setTextColor(COLOR_MUTED);
-    drawCenteredText(c, "waiting for the host...", 160, 206);
+    drawCenteredText(c, "waiting for the host...", 160, 212);
   } else {
     c.setTextColor(COLOR_GOLD);
     c.setTextSize(3);
@@ -330,11 +330,15 @@ void drawLobby(const TriviaView& v) {
                     8, 84, 190, 12, 17, 6);
   }
   if (v.portalUrl[0] != '\0') {
-    int modules = drawQr(c, v.portalUrl, 214, 96, 3, 6);
-    c.setTextSize(1);
-    c.setTextColor(COLOR_MUTED);
-    drawCenteredText(c, v.mp ? "scan to join" : "scan for controller",
-                     214 + (modules * 3) / 2, 96 + modules * 3 + 10);
+    if (v.mp) {
+      drawQr(c, v.portalUrl, 180, 68, 5, 6);
+    } else {
+      int modules = drawQr(c, v.portalUrl, 214, 96, 3, 6);
+      c.setTextSize(1);
+      c.setTextColor(COLOR_MUTED);
+      drawCenteredText(c, "scan for controller", 214 + (modules * 3) / 2,
+                       96 + modules * 3 + 10);
+    }
   }
   if (!v.mp && v.highScore > 0) {
     char best[24];

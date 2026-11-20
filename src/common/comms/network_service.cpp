@@ -53,7 +53,7 @@ bool portalServerEnabled = true;
 NetworkBranding netBranding = {"Scoreboard", "SCOREBOARD", "scoreboard"};
 const NetworkTeamOption* netTeamOptions = nullptr;
 size_t netTeamOptionCount = 0;
-int netDefaultTeams[3] = {0, 0, 0};
+int netDefaultTeams[SB_MAX_PREFERRED_TEAMS] = {0};
 const NetworkBoardOption* netBoardOptions = nullptr;
 size_t netBoardOptionCount = 0;
 int netDefaultBoardVersion = 0;
@@ -452,17 +452,31 @@ void tryReconnectWithSavedNetwork(ConnectReason reason) {
   enterConnecting(savedSsid, reason);
 }
 
-int prefTeam1 = 0; // populated from netDefaultTeams in loadSavedNetwork()
-int prefTeam2 = 0;
-int prefTeam3 = 0;
+// Preferred-team ids in priority order; populated from netDefaultTeams in
+// loadSavedNetwork().
+int prefTeams[SB_MAX_PREFERRED_TEAMS] = {0};
+
+// Team ids are only trusted when the sport's option list knows them: an
+// unknown id (stale NVS from another build, a hand-crafted form post)
+// becomes 0 = unused slot. Sports that inject no teams keep raw values.
+int sanitizeTeamId(int teamId) {
+  if (netTeamOptionCount == 0) return teamId;
+  for (size_t i = 0; i < netTeamOptionCount; ++i) {
+    if (netTeamOptions[i].id == teamId) return teamId;
+  }
+  return 0;
+}
 
 void loadSavedNetwork() {
   preferences.begin("network", true);
   savedSsid = preferences.getString("ssid", "");
   savedPassword = preferences.getString("password", "");
-  prefTeam1 = preferences.getInt("team1", netDefaultTeams[0]);
-  prefTeam2 = preferences.getInt("team2", netDefaultTeams[1]);
-  prefTeam3 = preferences.getInt("team3", netDefaultTeams[2]);
+  char teamKey[8];
+  for (int i = 0; i < SB_MAX_PREFERRED_TEAMS; ++i) {
+    snprintf(teamKey, sizeof(teamKey), "team%d", i + 1);
+    prefTeams[i] =
+        sanitizeTeamId(preferences.getInt(teamKey, netDefaultTeams[i]));
+  }
   clockDisplayEnabled = preferences.getBool("show_clock", true);
   audioEnabled = preferences.getBool("audio_en", true);
   hibernateEnabled = preferences.getBool("hibernate", false);
@@ -710,16 +724,16 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <hr>
 <h3>Favorite Team Priorities</h3>
 <p class="hint">Pick at least one team &mdash; until you do, the scoreboard stays on its setup screen.</p>
-<label for="team1">Priority 1 Team (Primary)</label><select id="team1" name="team1">)html";
-  page += buildTeamOptionsHtml(prefTeam1);
-  page += R"html(</select>
-<label for="team2">Priority 2 Team</label><select id="team2" name="team2">)html";
-  page += buildTeamOptionsHtml(prefTeam2);
-  page += R"html(</select>
-<label for="team3">Priority 3 Team</label><select id="team3" name="team3">)html";
-  page += buildTeamOptionsHtml(prefTeam3);
-  page += R"html(</select>
-<hr><h3>Display Time Zone</h3>
+)html";
+  for (int i = 0; i < SB_MAX_PREFERRED_TEAMS; ++i) {
+    String slot = String(i + 1);
+    page += "<label for=\"team" + slot + "\">Priority " + slot + " Team" +
+            (i == 0 ? " (Primary)" : "") + "</label><select id=\"team" +
+            slot + "\" name=\"team" + slot + "\">";
+    page += buildTeamOptionsHtml(prefTeams[i]);
+    page += "</select>\n";
+  }
+  page += R"html(<hr><h3>Display Time Zone</h3>
 <label for="tz">Used for game times, countdowns, and the idle clock</label>
 <select id="tz" name="tz">)html";
   page += buildTzOptionsHtml(tzString.c_str());
@@ -774,8 +788,13 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <p class="hint">Full manual control: clock countdown, scores, period, penalty LEDs, shots — from a dedicated page.</p>
 <button type="button" onclick="location.href='/manual'">Open Manual Mode</button>
 <hr><h3>Diagnostics</h3>
-<p class="hint">Battery voltage and remaining charge, the screen self-test, the audio test, and the game demo.</p>
+<p class="hint">Battery voltage and remaining charge, the screen self-test, and the audio test.</p>
 <button type="button" style="margin-top:8px" onclick="location.href='/diag'">Open Diagnostics</button>
+<hr><h3>Game Demo</h3>
+<p class="hint">Show a simulated live game on the scoreboard, including the game clock, scores, shots, penalties, goal display, and an intermission.</p>
+<button id="demoStart" type="button" style="margin-top:8px" onclick="setDemo(true)">Start Game Demo</button>
+<button id="demoStop" type="button" style="margin-top:8px;background:#2a5daf;color:#fff;display:none" onclick="setDemo(false)">Stop Game Demo</button>
+<p class="hint" id="demoStatus">Demo is stopped.</p>
 <hr><h3>Firmware Update</h3>
 <p class="hint">Installed: )html" + String(FIRMWARE_VERSION) + R"html(. Update checks run automatically at boot — power-cycle the board to check and install.</p>
 <p class="hint" id="otaStatus">&nbsp;</p>
@@ -807,6 +826,9 @@ if(s.stage==='DOWNLOADING'){e.textContent='Downloading update '+s.progress+'% - 
 else if(s.stage==='REBOOTING'){e.textContent='Update installed - rebooting...'}
 else if(s.stage==='FAILED'){e.textContent='Update failed - power-cycle the board to retry.'}
 })},2000);
+function setDemo(running){fetch(running?'/demo/start':'/demo/stop',{method:'POST'}).then(function(r){if(!r.ok)throw new Error('request failed');paintDemo(running)}).catch(function(){document.getElementById('demoStatus').textContent='Demo request failed.'})}
+function paintDemo(running){document.getElementById('demoStart').style.display=running?'none':'block';document.getElementById('demoStop').style.display=running?'block':'none';document.getElementById('demoStatus').textContent=running?'Game demo is running on the scoreboard.':'Demo is stopped.'}
+fetch('/demo/status').then(function(r){return r.json()}).then(function(s){paintDemo(s.running)}).catch(function(){document.getElementById('demoStatus').textContent='Unable to read demo status.'});
 </script>
 </main></body></html>)html";
   page.replace("@@NAME@@", netBranding.deviceName);
@@ -884,11 +906,6 @@ hr{border:0;border-top:1px solid #1c4587;margin:20px 0}
 <hr><h3>Audio Test</h3>
 <p class="hint">Plays the goal horn over the speaker.</p>
 <button type="button" onclick="atest()">Play Test Audio</button>
-<hr><h3>Game Demo</h3>
-<p class="hint">Show a simulated live game on the scoreboard, including the game clock, scores, shots, penalties, and goal display.</p>
-<button id="demoStart" type="button" style="margin-top:8px" onclick="setDemo(true)">Start Game Demo</button>
-<button id="demoStop" type="button" style="margin-top:8px;background:#2a5daf;color:#fff;display:none" onclick="setDemo(false)">Stop Game Demo</button>
-<p class="hint" id="demoStatus">Demo is stopped.</p>
 <hr><h3>Board Version</h3>
 <form method="post" action="/save">
 <label for="board-version">Select the wiring used by this scoreboard</label>
@@ -919,9 +936,6 @@ function dtest(){document.getElementById('dtestStatus').textContent='Running - w
 function btest(){var e=document.getElementById('btestStatus');e.textContent='Running \u2014 watch the displays and listen for the horn...';fetch('/board/test',{method:'POST'}).then(function(r){return r.json()}).then(function(s){var b=s.battery||{};var t;if(!b.equipped){t='Battery sense: not equipped (V1.1 boards only).'}else if(b.ok){t='Battery sense: '+b.volts.toFixed(2)+' V \u2014 OK.'}else{t='Battery sense: CHECK FAILED ('+(b.volts!=null?b.volts.toFixed(2)+' V':'no reading')+') \u2014 pack missing or sense wiring fault.'}e.textContent=t+' Displays and horn: verify by eye and ear.'}).catch(function(){document.getElementById('btestStatus').textContent='Request failed.'})}
 function atest(){fetch('/audio/test',{method:'POST'})}
 function frst(){if(!confirm('Factory reset wipes ALL settings, including Wi-Fi, and reboots the board into setup mode. Continue?'))return;document.getElementById('frStatus').textContent='Resetting \u2014 the board is rebooting. Its setup Wi-Fi hotspot comes back up in a few moments.';fetch('/factory/reset',{method:'POST'}).catch(function(){})}
-function setDemo(running){fetch(running?'/demo/start':'/demo/stop',{method:'POST'}).then(function(r){if(!r.ok)throw new Error('request failed');paintDemo(running)}).catch(function(){document.getElementById('demoStatus').textContent='Demo request failed.'})}
-function paintDemo(running){document.getElementById('demoStart').style.display=running?'none':'block';document.getElementById('demoStop').style.display=running?'block':'none';document.getElementById('demoStatus').textContent=running?'Game demo is running on the scoreboard.':'Demo is stopped.'}
-fetch('/demo/status').then(function(r){return r.json()}).then(function(s){paintDemo(s.running)}).catch(function(){document.getElementById('demoStatus').textContent='Unable to read demo status.'});
 </script>
 </main></body></html>)html";
   page.replace("@@NAME@@", netBranding.deviceName);
@@ -1337,9 +1351,18 @@ void saveNetwork() {
   }
   pendingSsid = server.arg("ssid");
   pendingPassword = server.arg("password");
-  if (server.hasArg("team1")) prefTeam1 = server.arg("team1").toInt();
-  if (server.hasArg("team2")) prefTeam2 = server.arg("team2").toInt();
-  if (server.hasArg("team3")) prefTeam3 = server.arg("team3").toInt();
+  char teamKey[8];
+  for (int i = 0; i < SB_MAX_PREFERRED_TEAMS; ++i) {
+    snprintf(teamKey, sizeof(teamKey), "team%d", i + 1);
+    if (server.hasArg(teamKey)) {
+      prefTeams[i] = sanitizeTeamId(server.arg(teamKey).toInt());
+    }
+  }
+  String teamList;
+  for (int i = 0; i < SB_MAX_PREFERRED_TEAMS; ++i) {
+    if (i) teamList += ", ";
+    teamList += String(prefTeams[i]);
+  }
   clockDisplayEnabled = server.hasArg("show_clock");
   audioEnabled = server.hasArg("audio_en");
   hibernateEnabled = server.hasArg("hibernate");
@@ -1382,9 +1405,10 @@ void saveNetwork() {
 
   // Team/timezone preferences always persist; credentials only when they changed.
   preferences.begin("network", false);
-  preferences.putInt("team1", prefTeam1);
-  preferences.putInt("team2", prefTeam2);
-  preferences.putInt("team3", prefTeam3);
+  for (int i = 0; i < SB_MAX_PREFERRED_TEAMS; ++i) {
+    snprintf(teamKey, sizeof(teamKey), "team%d", i + 1);
+    preferences.putInt(teamKey, prefTeams[i]);
+  }
   preferences.putBool("show_clock", clockDisplayEnabled);
   preferences.putBool("audio_en", audioEnabled);
   preferences.putBool("hibernate", hibernateEnabled);
@@ -1426,8 +1450,8 @@ main{max-width:420px;margin:8vh auto;padding:28px;background:#0b2b62;border:2px 
   }
 
   if (!networkChanging) {
-    Serial.printf("[NET] Preferences-only save: teams=[%d, %d, %d] tz=%s board=%d (network untouched)\n",
-                  prefTeam1, prefTeam2, prefTeam3, tzString.c_str(),
+    Serial.printf("[NET] Preferences-only save: teams=[%s] tz=%s board=%d (network untouched)\n",
+                  teamList.c_str(), tzString.c_str(),
                   selectedBoardVersion);
     String response = R"html(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Saved</title><style>body{margin:0;background:#061b46;color:#fff;font:16px system-ui,sans-serif}
@@ -1464,7 +1488,7 @@ main{max-width:420px;margin:8vh auto;padding:28px;background:#0b2b62;border:2px 
 if(s.state==='online'){document.getElementById('status').textContent='Connected! The scoreboard is going online.'}
 else if(s.state==='provisioning'){document.getElementById('status').textContent='Could not connect or no internet. Check the password and try again.'}
 })},2000)</script></main></body></html>)html");
-  Serial.printf("Saved network '%s' and Teams [%d, %d, %d]\n", pendingSsid.c_str(), prefTeam1, prefTeam2, prefTeam3);
+  Serial.printf("Saved network '%s' and Teams [%s]\n", pendingSsid.c_str(), teamList.c_str());
 }
 
 
@@ -1689,8 +1713,11 @@ bool getConnectProgress(ConnectProgress& out) {
 }
 
 bool teamSetupPending() {
-  return netTeamOptionCount > 0 &&
-         prefTeam1 == 0 && prefTeam2 == 0 && prefTeam3 == 0;
+  if (netTeamOptionCount == 0) return false;
+  for (int i = 0; i < SB_MAX_PREFERRED_TEAMS; ++i) {
+    if (prefTeams[i] != 0) return false;
+  }
+  return true;
 }
 
 bool portalEngaged() {
@@ -1814,17 +1841,15 @@ const char* getTzString() {
   return tzString.c_str();
 }
 
-void getPreferredTeamIds(int outTeamIds[3]) {
-  outTeamIds[0] = prefTeam1;
-  outTeamIds[1] = prefTeam2;
-  outTeamIds[2] = prefTeam3;
+void getPreferredTeamIds(int outTeamIds[SB_MAX_PREFERRED_TEAMS]) {
+  for (int i = 0; i < SB_MAX_PREFERRED_TEAMS; ++i) outTeamIds[i] = prefTeams[i];
 }
 
 
 void startNetworkServices(const NetworkBranding& branding,
                           const NetworkTeamOption* teamOptions,
                           size_t teamOptionCount,
-                          const int defaultPreferredTeams[3],
+                          const int defaultPreferredTeams[SB_MAX_PREFERRED_TEAMS],
                           const NetworkBoardOption* boardOptions,
                           size_t boardOptionCount,
                           int defaultBoardVersion,
@@ -1836,9 +1861,9 @@ void startNetworkServices(const NetworkBranding& branding,
   netBranding = branding;
   netTeamOptions = teamOptions;
   netTeamOptionCount = teamOptionCount;
-  netDefaultTeams[0] = defaultPreferredTeams[0];
-  netDefaultTeams[1] = defaultPreferredTeams[1];
-  netDefaultTeams[2] = defaultPreferredTeams[2];
+  for (int i = 0; i < SB_MAX_PREFERRED_TEAMS; ++i) {
+    netDefaultTeams[i] = defaultPreferredTeams[i];
+  }
   netBoardOptions = boardOptions;
   netBoardOptionCount = boardOptionCount;
   netDefaultBoardVersion = defaultBoardVersion;

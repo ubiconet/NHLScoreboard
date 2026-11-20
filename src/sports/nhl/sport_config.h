@@ -189,7 +189,12 @@ static const int ONBOARD_RGB_LED_PIN = 48;
 // and/or leaked lwIP PCBs from failed handshakes. Backing off exponentially
 // (per ADR-0002) instead of retrying every 15 s lets those windows expire.
 static const uint32_t NHL_NTP_READY_RETRY_MS = 5000;     // short retry while awaiting first time sync
-static const uint32_t NHL_POSTGAME_GRACE_MS = 120000;    // Keep final followed game visible for 2 min
+static const uint32_t NHL_POSTGAME_GRACE_MS = 300000;    // Keep final followed game visible for 5 min
+// Intermission / postgame bottom-strip rotation (linescore, three stars,
+// scoring summary, team stats, tonight's league scores): dwell per page.
+static const uint32_t NHL_BREAK_PAGE_MS = 7000;
+// Spacing between attempts when the once-per-break team-stats fetch fails.
+static const uint32_t NHL_TEAM_STATS_RETRY_MS = 30000;
 static const uint32_t NHL_AT_BAT_RESULT_DISPLAY_MS = 5000; // Full-screen result card duration
 static const uint32_t NHL_GOAL_ANNOUNCEMENT_MS = 5000; // Full-screen GOAL! duration
 static const uint32_t NHL_GOAL_DETAILS_MS = 5000; // Scorer details before returning live
