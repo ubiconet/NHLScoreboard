@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NHL MiniBoard — square promo</title>
+<style>
+  @font-face { font-family:'Anton'; src:url('fonts/Anton-400.woff2') format('woff2'); font-weight:400; font-style:normal; }
+  @font-face { font-family:'Barlow Condensed'; src:url('fonts/BarlowCondensed-500.woff2') format('woff2'); font-weight:500; }
+  @font-face { font-family:'Barlow Condensed'; src:url('fonts/BarlowCondensed-600.woff2') format('woff2'); font-weight:600; }
+  @font-face { font-family:'Barlow Condensed'; src:url('fonts/BarlowCondensed-700.woff2') format('woff2'); font-weight:700; }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:1080px; height:1080px; overflow:hidden; }
+  body {
+    font-family:'Barlow Condensed', 'Arial Narrow', sans-serif;
+    background:#0a1f2c; color:#e8eef3; position:relative;
+    display:flex; flex-direction:column;
+    padding:48px 56px 40px;
+  }
+
+  /* ---- background: glows + rink motif ---- */
+  .bg { position:absolute; inset:0; z-index:0; pointer-events:none; }
+  .glow1 { position:absolute; width:1100px; height:1100px; left:-380px; top:-420px; border-radius:50%;
+           background:radial-gradient(circle, rgba(78,163,255,.28) 0%, rgba(78,163,255,0) 62%); }
+  .glow2 { position:absolute; width:1000px; height:1000px; right:-360px; top:180px; border-radius:50%;
+           background:radial-gradient(circle, rgba(21,68,105,.55) 0%, rgba(21,68,105,0) 65%); }
+  .glow3 { position:absolute; width:900px; height:600px; left:90px; bottom:-260px; border-radius:50%;
+           background:radial-gradient(ellipse, rgba(240,179,35,.14) 0%, rgba(240,179,35,0) 65%); }
+  .rink { position:absolute; inset:0; }
+  .vignette { position:absolute; inset:0;
+    background:radial-gradient(ellipse 120% 105% at 50% 42%, rgba(0,0,0,0) 55%, rgba(2,10,16,.55) 100%); }
+
+  /* ---- header ---- */
+  header { position:relative; z-index:2; display:flex; align-items:center; justify-content:space-between; }
+  .logo { height:74px; width:auto; display:block; }
+  .live-pill { display:flex; align-items:center; gap:14px; background:#122a3d; border:1.5px solid #2a4d67;
+               border-radius:999px; padding:12px 26px 12px 20px; }
+  .live-pill .dot { width:16px; height:16px; border-radius:50%; background:#ff3b30;
+                    box-shadow:0 0 14px 3px rgba(255,59,48,.75); }
+  .live-pill span { font-weight:700; font-size:26px; letter-spacing:2.5px; color:#e8eef3; }
+
+  /* ---- headline ---- */
+  .head { position:relative; z-index:2; margin-top:34px; }
+  .kicker { display:inline-flex; align-items:center; gap:12px; font-weight:700; font-size:25px;
+            letter-spacing:4px; color:#4ea3ff; text-transform:uppercase; }
+  .kicker::before { content:''; width:46px; height:4px; background:#4ea3ff; border-radius:2px; }
+  h1 { font-family:'Anton', 'Arial Black', sans-serif; font-weight:400; text-transform:uppercase;
+       font-size:112px; line-height:.98; letter-spacing:1.5px; margin-top:14px;
+       text-shadow:0 6px 30px rgba(0,0,0,.45); }
+  h1 .goal { color:#ff7a30; text-shadow:0 0 34px rgba(255,122,48,.55), 0 6px 30px rgba(0,0,0,.45); }
+  .sub { margin-top:18px; font-size:31px; line-height:1.32; font-weight:500; color:#c7d5e0; max-width:960px; }
+  .sub b { color:#f0b323; font-weight:700; }
+
+  /* ---- hero photo ---- */
+  .hero { position:relative; z-index:2; margin-top:30px; border-radius:26px; overflow:hidden;
+          border:1.5px solid rgba(81,144,170,.55);
+          box-shadow:0 30px 70px rgba(0,0,0,.5), 0 0 60px rgba(78,163,255,.14);
+          flex:1; min-height:0; }
+  .hero img { width:100%; height:100%; object-fit:cover; display:block; filter:brightness(1.1) saturate(1.05); }
+  .hero .tag { position:absolute; right:18px; bottom:16px; display:flex; align-items:center; gap:12px;
+               background:rgba(7,20,29,.82); border:1.5px solid rgba(255,122,48,.65); border-radius:14px;
+               padding:10px 20px; backdrop-filter:blur(4px); }
+  .hero .tag svg { flex:none; }
+  .hero .tag span { font-weight:700; font-size:26px; letter-spacing:1.5px; color:#ffb27d; text-transform:uppercase; }
+
+  /* ---- features ---- */
+  .features { position:relative; z-index:2; display:grid; grid-template-columns:repeat(4,1fr); gap:18px; margin-top:28px; }
+  .feat { background:linear-gradient(180deg, rgba(22,52,74,.92), rgba(13,34,49,.92));
+          border:1.5px solid #24455e; border-radius:18px; padding:18px 18px 16px;
+          display:flex; flex-direction:column; align-items:center; text-align:center; gap:12px; }
+  .feat .ic { width:56px; height:56px; border-radius:50%; background:rgba(78,163,255,.14);
+              border:1.5px solid rgba(78,163,255,.5); display:flex; align-items:center; justify-content:center; }
+  .feat span { font-weight:700; font-size:25.5px; line-height:1.12; letter-spacing:.8px; text-transform:uppercase; color:#e8eef3; }
+
+  /* ---- CTA ---- */
+  .cta { position:relative; z-index:2; margin-top:28px; display:flex; align-items:stretch; gap:0;
+         border-radius:20px; overflow:hidden; box-shadow:0 18px 46px rgba(0,0,0,.45), 0 0 44px rgba(240,179,35,.18); }
+  .cta .buy { background:linear-gradient(135deg,#ffc94d 0%,#f0b323 55%,#dd9a10 100%); color:#11293a;
+              padding:20px 34px; display:flex; flex-direction:column; justify-content:center; }
+  .cta .buy b { font-family:'Anton',sans-serif; font-weight:400; font-size:40px; letter-spacing:1px; text-transform:uppercase; }
+  .cta .buy i { font-style:normal; font-weight:600; font-size:22px; letter-spacing:1.5px; }
+  .cta .url { flex:1; background:#0d2434; border:1.5px solid #2a4d67; border-left:none; border-radius:0 20px 20px 0;
+              display:flex; align-items:center; justify-content:center; gap:16px; }
+  .cta .url svg { flex:none; }
+  .cta .url span { font-family:'Anton',sans-serif; font-weight:400; font-size:41px; letter-spacing:1px; color:#e8eef3; }
+  .cta .url span em { font-style:normal; color:#f0b323; }
+  .fine { position:relative; z-index:2; margin-top:16px; text-align:center; font-size:18.5px; font-weight:500;
+          letter-spacing:1px; color:#7b93a5; }
+</style>
+</head>
+<body>
+  <div class="bg">
+    <div class="glow1"></div><div class="glow2"></div><div class="glow3"></div>
+    <svg class="rink" viewBox="0 0 1080 1080" fill="none">
+      <circle cx="540" cy="600" r="430" stroke="rgba(78,163,255,.10)" stroke-width="3"/>
+      <circle cx="540" cy="600" r="300" stroke="rgba(78,163,255,.07)" stroke-width="2"/>
+      <circle cx="540" cy="600" r="14" fill="rgba(255,70,70,.14)"/>
+      <line x1="0" y1="210" x2="1080" y2="210" stroke="rgba(255,70,70,.10)" stroke-width="5"/>
+      <line x1="150" y1="0" x2="150" y2="1080" stroke="rgba(78,163,255,.08)" stroke-width="4"/>
+      <line x1="930" y1="0" x2="930" y2="1080" stroke="rgba(78,163,255,.08)" stroke-width="4"/>
+    </svg>
+    <div class="vignette"></div>
+  </div>
+
+  <header>
+    <img class="logo" src="assets/logo-chip.png" alt="Sports MiniBoards">
+    <div class="live-pill"><div class="dot"></div><span>LIVE UPDATES · EVERY 5 SECONDS</span></div>
+  </header>
+
+  <div class="head">
+    <div class="kicker">The live NHL scoreboard for your shelf</div>
+    <h1>NEVER MISS<br>A <span class="goal">GOAL.</span></h1>
+    <div class="sub">Score, clock, period, shots &amp; penalties — streamed live from the official NHL feed.
+      No app. No account. <b>No subscriptions, ever.</b></div>
+  </div>
+
+  <div class="hero">
+    <img src="assets/nhl-goal-frame.jpg" alt="NHL MiniBoard GOAL alert">
+    <div class="tag">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M3 10v4h4l5 4V6L7 10H3z" fill="#ff7a30"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" stroke="#ff7a30" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span>Goal alert + arena horn</span>
+    </div>
+  </div>
+
+  <div class="features">
+    <div class="feat">
+      <div class="ic"><svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" fill="#4ea3ff"/></svg></div>
+      <span>Live score, clock &amp; period</span>
+    </div>
+    <div class="feat">
+      <div class="ic"><svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M2 9l4 2 3-6 3 14 3-9 2 3h5" stroke="#4ea3ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <span>Shots, penalties &amp; stats</span>
+    </div>
+    <div class="feat">
+      <div class="ic"><svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M2 8.5a15 15 0 0 1 20 0M5.5 12a10 10 0 0 1 13 0M9 15.5a5 5 0 0 1 6 0" stroke="#4ea3ff" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19" r="1.6" fill="#4ea3ff"/></svg></div>
+      <span>60-second Wi-Fi setup</span>
+    </div>
+    <div class="feat">
+      <div class="ic"><svg width="30" height="30" viewBox="0 0 24 24" fill="none"><rect x="3" y="7" width="11" height="14" rx="2.5" stroke="#4ea3ff" stroke-width="2"/><path d="M17.5 4.5 21 6l-3.5 1.5" stroke="#4ea3ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.5 19.5 21 18l-3.5-1.5" stroke="#4ea3ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.5 9.5 21 11l-3.5 1.5" stroke="#4ea3ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <span>News, standings &amp; trivia</span>
+    </div>
+  </div>
+
+  <div class="cta">
+    <div class="buy"><b>Order now</b><i>JUST $80 + SHIPPING</i></div>
+    <div class="url">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#f0b323" stroke-width="2"/><path d="M3.5 9h17M3.5 15h17M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" stroke="#f0b323" stroke-width="1.8"/></svg>
+      <span>sports-miniboards.com<em>/nhl</em></span>
+    </div>
+  </div>
+
+  <div class="fine">Handmade fan project, not affiliated with the NHL &nbsp;·&nbsp; NHL and team marks belong to the NHL</div>
+</body>
+</html>
